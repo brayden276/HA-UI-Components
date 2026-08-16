@@ -1,0 +1,224 @@
+{
+  "algorithm": "fnv1a-64-utf16",
+  "normalisation_version": 1,
+  "fragment_count": 37,
+  "fingerprints": [
+    {
+      "kind": "shared-style",
+      "hash": "24060a5bfcfd4ad6",
+      "count": 1,
+      "example_source": "presentational-card-styles"
+    },
+    {
+      "kind": "shared-style",
+      "hash": "671fc2d6d66c5513",
+      "count": 1,
+      "example_source": "dashboard-style-tokens"
+    },
+    {
+      "kind": "shared-style",
+      "hash": "8ab26c45c9d1e895",
+      "count": 1,
+      "example_source": "update-card-styles"
+    },
+    {
+      "kind": "shared-style",
+      "hash": "8ca6aed762e4bce5",
+      "count": 1,
+      "example_source": "dashboard-base-card-styles"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "0a5b6217879053fb",
+      "count": 1,
+      "example_source": "03-home-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "1e0cbf9aa6b86abb",
+      "count": 1,
+      "example_source": "03-home-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "201be47e655577ce",
+      "count": 1,
+      "example_source": "03-home-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "25d5313328a86fad",
+      "count": 1,
+      "example_source": "03-home-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "3b45c26dbd3321a6",
+      "count": 1,
+      "example_source": "02-core-components-and-device-discovery.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "4314aa571c017e2a",
+      "count": 1,
+      "example_source": "08-text-effect.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "4ec52e2d77be7bc9",
+      "count": 1,
+      "example_source": "06-update-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "4f7e4834f1ba4ec0",
+      "count": 1,
+      "example_source": "07-energy-day-selector.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "577c89474b36d2ce",
+      "count": 1,
+      "example_source": "03-home-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "599b052dd91a13df",
+      "count": 1,
+      "example_source": "10-split-registry-and-auto-entities.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "6f3aa7c0b89bae7e",
+      "count": 1,
+      "example_source": "06-update-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "7538ecc1be769ddc",
+      "count": 1,
+      "example_source": "03-home-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "7ea007a3e2d8a5f3",
+      "count": 1,
+      "example_source": "03-home-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "83fe6872f6c9295b",
+      "count": 1,
+      "example_source": "02-core-components-and-device-discovery.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "894ae80bd66c424e",
+      "count": 1,
+      "example_source": "14-dashboard-shared-runtime.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "89e4c08037946fec",
+      "count": 1,
+      "example_source": "02-core-components-and-device-discovery.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "9187e7189826cf8f",
+      "count": 1,
+      "example_source": "09-split-settings.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "96642c6148cfc35f",
+      "count": 1,
+      "example_source": "02-core-components-and-device-discovery.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "a57c9faea9244448",
+      "count": 1,
+      "example_source": "03-home-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "ab7ae2a373e96d1e",
+      "count": 1,
+      "example_source": "02-core-components-and-device-discovery.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "b762a93661a0de67",
+      "count": 1,
+      "example_source": "02-core-components-and-device-discovery.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "bb5af1dc06b608ba",
+      "count": 1,
+      "example_source": "15-wled-controller.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "c2c59a8036642e32",
+      "count": 1,
+      "example_source": "06-update-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "cb497bdc8f68476c",
+      "count": 1,
+      "example_source": "04-context-strip.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "e06198a2e2bb1734",
+      "count": 1,
+      "example_source": "13-welcome-header.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "e1d5298631ec7603",
+      "count": 1,
+      "example_source": "03-home-components.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "e4d153d930e828c2",
+      "count": 2,
+      "example_source": "02-core-components-and-device-discovery.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "eca6737b945e0f7f",
+      "count": 1,
+      "example_source": "02-core-components-and-device-discovery.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "ef155a077154f88a",
+      "count": 1,
+      "example_source": "11-split-controller.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "f28e8f2d5e06f5d2",
+      "count": 1,
+      "example_source": "12-favourites.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "fa69efc5101f1f3e",
+      "count": 1,
+      "example_source": "01-history-graph.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "fce4212d7ac8c825",
+      "count": 1,
+      "example_source": "05-metric-pair.js"
+    }
+  ]
+}
+

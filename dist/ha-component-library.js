@@ -1,0 +1,2087 @@
+/**
+ * HA Component Library v1.0.0
+ * Generated HACS Dashboard bundle.
+ *
+ * Source is organised by component under src/components. Shared logic lives
+ * under src/shared. Existing component CSS and runtime behaviour are preserved.
+ */
+
+// Module: src/shared/core.js
+{
+/** Shared card primitives. CSS values are preserved from the Components dashboard. */
+const componentLibraryShared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ??= {};
+
+const PRESENTATIONAL_CARD_STYLES = `:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}*{box-sizing:border-box}button{font:inherit;color:inherit}button.demo{appearance:none;width:100%;border:0;background:transparent;text-align:inherit;padding:0;cursor:pointer}button.demo:active{transform:scale(.992)}button.demo:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:var(--ha-card-border-radius,16px)}`;
+
+const toText = (value) => (value == null ? "" : String(value));
+const escapeHtml = (value) =>
+  toText(value).replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character],
+  );
+
+const registerCard = ({ type, element, name, description, preview = true }) => {
+  if (!customElements.get(type)) customElements.define(type, element);
+  window.customCards ??= [];
+  if (!window.customCards.some((card) => card.type === type)) {
+    window.customCards.push({ type, name, description, preview });
+  }
+};
+
+const openMoreInfo = (host, entityId) => {
+  if (!entityId) return;
+  host.dispatchEvent(
+    new CustomEvent("hass-more-info", {
+      bubbles: true,
+      composed: true,
+      detail: { entityId },
+    }),
+  );
+};
+
+const navigateTo = (path) => {
+  if (!path) return;
+  window.history.pushState(null, "", path);
+  window.dispatchEvent(new Event("location-changed"));
+};
+
+class DashboardBaseCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+  }
+
+  set hass(_hass) {}
+
+  escapeHtml(value) {
+    return escapeHtml(value);
+  }
+
+  cardStyles() {
+    return `:host{display:block;min-width:0}ha-card{overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,6px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color);box-sizing:border-box}.wrap{box-sizing:border-box;padding:12px 14px}.title{font-size:13px;line-height:1.25;font-weight:600;color:var(--primary-text-color)}.desc{margin-top:3px;font-size:11px;line-height:1.3;color:var(--secondary-text-color)}ha-icon{--mdc-icon-size:19px}button{font:inherit;color:inherit}button.i{appearance:none;border:0;background:transparent;cursor:pointer}button.i:active{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}button.i:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:var(--dashboard-radius-control,5px)}@media(max-width:700px){.wrap{padding:12px}}`;
+  }
+}
+
+Object.assign(componentLibraryShared, {
+  PRESENTATIONAL_CARD_STYLES,
+  DashboardBaseCard,
+  escapeHtml,
+  navigateTo,
+  openMoreInfo,
+  registerCard,
+  toText,
+});
+}
+
+// Module: src/shared/registry-cache.js
+{
+/** Shared read-only registry cache for room-aware components. */
+const DASHBOARD_REGISTRY_CACHE=new WeakMap();
+const loadDashboardRegistries=connection=>{
+  if(!connection||!connection.sendMessagePromise)return Promise.resolve({areas:[],devices:[],entities:[]});
+  let cached=DASHBOARD_REGISTRY_CACHE.get(connection);
+  if(!cached){
+    cached=Promise.all([
+      connection.sendMessagePromise({type:"config/area_registry/list"}),
+      connection.sendMessagePromise({type:"config/device_registry/list"}),
+      connection.sendMessagePromise({type:"config/entity_registry/list"})
+    ]).then(values=>({
+      areas:Array.isArray(values[0])?values[0]:[],
+      devices:Array.isArray(values[1])?values[1]:[],
+      entities:Array.isArray(values[2])?values[2]:[]
+    })).catch(()=>({areas:[],devices:[],entities:[]}));
+    DASHBOARD_REGISTRY_CACHE.set(connection,cached);
+  }
+  return cached;
+};
+
+Object.assign(globalThis.__HA_COMPONENT_LIBRARY_SHARED__, { loadDashboardRegistries });
+}
+
+// Module: src/shared/dashboard-style-tokens.js
+{
+/** Shared dashboard CSS custom properties, preserved verbatim. */
+const DASHBOARD_SHARED_STYLE_ID="dashboard-shared-ui-tokens-v3";
+let dashboardSharedStyle=document.getElementById(DASHBOARD_SHARED_STYLE_ID);
+if(!dashboardSharedStyle){dashboardSharedStyle=document.createElement("style");dashboardSharedStyle.id=DASHBOARD_SHARED_STYLE_ID;document.head.append(dashboardSharedStyle)}
+dashboardSharedStyle.textContent=":root{--dashboard-radius-card:8px;--dashboard-radius-control:6px;--dashboard-radius-dialog:10px;--dashboard-radius-icon:0px;--dashboard-modal-scrim:rgba(0,0,0,.16);--dashboard-card-surface:var(--ha-card-background,var(--card-background-color));--dashboard-card-muted-surface:color-mix(in srgb,var(--primary-text-color) 3%,var(--card-background-color));--dashboard-card-border-color:color-mix(in srgb,var(--primary-text-color) 10%,transparent);--dashboard-card-border:1px solid var(--dashboard-card-border-color);--dashboard-active-surface:color-mix(in srgb,var(--primary-color) 7%,var(--card-background-color));--dashboard-warning-surface:color-mix(in srgb,var(--warning-color,#f9a825) 9%,var(--card-background-color));--dashboard-critical-surface:color-mix(in srgb,var(--error-color) 8%,var(--card-background-color));--dashboard-dialog-shadow:0 16px 48px rgba(0,0,0,.22);--ha-card-border-radius:var(--dashboard-radius-card);--ha-card-box-shadow:none;--ha-card-border-width:1px;--ha-card-border-color:var(--dashboard-card-border-color);--mush-card-border-radius:var(--dashboard-radius-card);--bubble-border-radius:var(--dashboard-radius-card);--bubble-main-background-color:var(--dashboard-card-surface);--bubble-secondary-background-color:transparent;--bubble-accent-color:var(--primary-color);--bubble-border:var(--dashboard-card-border);--bubble-icon-border-radius:var(--dashboard-radius-icon);--bubble-icon-background-color:transparent;--bubble-sub-button-border-radius:var(--dashboard-radius-control);--bubble-sub-button-background-color:transparent;--bubble-button-main-background-color:var(--dashboard-card-surface);--bubble-button-border-radius:var(--dashboard-radius-card);--bubble-button-icon-border-radius:var(--dashboard-radius-icon);--bubble-button-icon-background-color:transparent;--bubble-button-box-shadow:none;--bubble-media-player-border-radius:var(--dashboard-radius-card);--bubble-media-player-buttons-border-radius:var(--dashboard-radius-control);--bubble-media-player-buttons-background-color:transparent;--bubble-media-player-icon-border-radius:var(--dashboard-radius-icon);--bubble-media-player-icon-background-color:transparent;--bubble-cover-border-radius:var(--dashboard-radius-card);--bubble-cover-icon-border-radius:var(--dashboard-radius-icon);--bubble-cover-icon-background-color:transparent;--bubble-select-border-radius:var(--dashboard-radius-card);--bubble-select-button-border-radius:var(--dashboard-radius-control);--bubble-select-button-background-color:transparent;--bubble-select-icon-border-radius:var(--dashboard-radius-icon);--bubble-select-icon-background-color:transparent;--bubble-climate-border-radius:var(--dashboard-radius-card);--bubble-climate-icon-border-radius:var(--dashboard-radius-icon);--bubble-climate-button-background-color:transparent;--bubble-calendar-border-radius:var(--dashboard-radius-card);--bubble-pop-up-border-radius:var(--dashboard-radius-dialog);--bubble-pop-up-main-background-color:var(--card-background-color);--bubble-pop-up-box-shadow:var(--dashboard-dialog-shadow);--bubble-backdrop-background-color:var(--dashboard-modal-scrim);--ha-dialog-scrim-color:var(--dashboard-modal-scrim)}@media(max-width:700px){:root{--dashboard-radius-dialog:8px}}";
+}
+
+// Module: src/shared/split-system-registry.js
+{
+/** Shared split-system entity registry and subscription cache. */
+const splitV4Domain=t=>String(t?.entity_id??"").split(".",1)[0],splitV4Name=t=>String(t?.original_name||t?.name||"").trim().toLowerCase().replaceAll("_"," ").replace(/\s+/g," "),splitV4Suffix=t=>String(t?.entity_id??"").split(".")[1]??"",splitV4Usable=t=>Boolean(t&&!t.disabled_by&&!t.hidden_by),splitV4Role=(t,i,e,s)=>splitV4Usable(t)&&splitV4Domain(t)===i&&(splitV4Name(t)===e||splitV4Suffix(t).endsWith(s)),splitV4EntityArea=(t,i)=>t?.area_id||(t?.device_id?i.get(t.device_id):null)||null,buildSplitV4Registry=(t,e)=>{const i=new Map((Array.isArray(e)?e:[]).flatMap(t=>{const e=t?.id??t?.device_id;return e?[[e,t.area_id??null]]:[]})),s=new Map;for(const e of Array.isArray(t)?t:[]){if(!e?.device_id||!e?.entity_id)continue;const t=s.get(e.device_id)??[];t.push(e),s.set(e.device_id,t)}const n=new Map,o=new Set,r=new Map;for(const e of Array.isArray(t)?t:[]){if(!splitV4Usable(e))continue;const t=splitV4EntityArea(e,i);if(!t)continue;const s=r.get(t)??{minimum:[],maximum:[],fan:[],last:[],timer:[],deadline:[],active:[]};splitV4Role(e,"input_number","split minimum target","_split_minimum_target")?(s.minimum.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"input_number","split maximum target","_split_maximum_target")?(s.maximum.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"input_select","split fan ceiling","_split_fan_ceiling")?(s.fan.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"input_select","split last mode","_split_last_mode")?(s.last.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"script","split off timer","_split_off_timer")?(s.timer.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"input_datetime","split off deadline","_split_off_deadline")?(s.deadline.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"input_boolean","split off deadline active","_split_off_deadline_active")&&(s.active.push(e.entity_id),o.add(e.entity_id)),r.set(t,s)}for(const[t,e]of s){const s=e.find(t=>splitV4Role(t,"binary_sensor","controller status","_controller_status")),a=e.find(t=>splitV4Role(t,"select","vertical vane","_vertical_vane")),l=e.find(t=>splitV4Role(t,"select","horizontal vane","_horizontal_vane"));if(!s)continue;const h=e.filter(t=>splitV4Usable(t)&&"climate"===splitV4Domain(t)&&"esphome"===t.platform),c=new Set(h.map(t=>t.entity_id));e.filter(t=>!c.has(t.entity_id)).forEach(t=>o.add(t.entity_id));for(const e of h){const h=splitV4EntityArea(e,i)??i.get(t)??null,d=h?r.get(h):null,u={};d&&1===d.minimum.length&&1===d.maximum.length&&1===d.fan.length&&Object.assign(u,{minimum_temperature_entity:d.minimum[0],maximum_temperature_entity:d.maximum[0],fan_ceiling_entity:d.fan[0]}),d&&1===d.last.length&&(u.last_mode_entity=d.last[0]),d&&1===d.timer.length&&1===d.deadline.length&&1===d.active.length&&Object.assign(u,{timer_script:d.timer[0],timer_deadline_entity:d.deadline[0],timer_active_entity:d.active[0]}),n.set(e.entity_id,{controller_entity:s.entity_id,vertical_vane_entity:a?.entity_id,horizontal_vane_entity:l?.entity_id,area_id:h,...u})}}return{systems:n,claimed:o,error:null}},splitV4RegistrySignature=t=>JSON.stringify([[...t.systems].sort(([t],[e])=>t.localeCompare(e)),[...t.claimed].sort()]);globalThis.__componentSplitRegistryV4??={promise:null,result:{systems:new Map,claimed:new Set,error:null},failedAt:0,loaded:!1,subscribers:new Set,eventSubscription:null,eventRetry:null,load(t,e=!1){return e&&(this.loaded=!1,this.failedAt=0),this.loaded?Promise.resolve(this.result):this.promise?this.promise:this.failedAt&&Date.now()-this.failedAt<3e4?Promise.resolve(this.result):(this.promise=Promise.all([t.callWS({type:"config/entity_registry/list"}),t.callWS({type:"config/device_registry/list"})]).then(([t,e])=>(this.result=buildSplitV4Registry(t,e),this.failedAt=0,this.loaded=!0,this.result)).catch(t=>(this.failedAt=Date.now(),this.loaded=!1,this.result={systems:this.result.systems,claimed:this.result.claimed,error:t},this.result)).finally(()=>{this.promise=null}),this.promise)},refresh(t){const e=this.result,i=splitV4RegistrySignature(e);return this.load(t,!0).then(t=>{if(e.error||t.error||splitV4RegistrySignature(t)!==i)for(const e of[...this.subscribers])try{e(t)}catch{}return t})},ensureEvents(t){if(this.eventSubscription||this.eventRetry||!t?.connection?.subscribeEvents)return;const e=Promise.all([t.connection.subscribeEvents(()=>this.refresh(t),"entity_registry_updated"),t.connection.subscribeEvents(()=>this.refresh(t),"device_registry_updated")]).then(t=>()=>{for(const e of t)e?.()});this.eventSubscription=e,e.catch(()=>{this.eventSubscription===e&&(this.eventSubscription=null),this.subscribers.size&&!this.eventRetry&&(this.eventRetry=setTimeout(()=>{this.eventRetry=null,this.ensureEvents(t)},31e3))})},subscribe(t,e){const i=0===this.subscribers.size;return this.subscribers.add(e),this.ensureEvents(t),i&&this.refresh(t),()=>{if(this.subscribers.delete(e),this.subscribers.size)return;if(clearTimeout(this.eventRetry),this.eventRetry=null,!this.eventSubscription)return;const t=this.eventSubscription;this.eventSubscription=null,t.then(t=>t?.()).catch(()=>{})}}};
+}
+
+// Module: src/shared/dashboard-runtime.js
+{
+/** Shared dashboard registry/runtime used by entity-aware controllers. */
+const { escapeHtml } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+globalThis.__homeDashboardV2??={};
+const HD2=globalThis.__homeDashboardV2;
+HD2.esc=escapeHtml;
+HD2.domain=id=>String(id||'').split('.')[0];
+HD2.label=v=>String(v??'').replaceAll('_',' ').replace(/^./,c=>c.toUpperCase());
+HD2.stateName=(h,e,s)=>e?.name||e?.original_name||s?.attributes?.friendly_name||e?.entity_id||'Control';
+HD2.icon=(e,s)=>s?.attributes?.icon||({light:'mdi:lightbulb-outline',fan:'mdi:fan',switch:'mdi:toggle-switch-outline',input_boolean:'mdi:toggle-switch-outline',media_player:'mdi:play-circle-outline',climate:'mdi:thermostat',cover:'mdi:window-shutter',lock:'mdi:lock-outline',vacuum:'mdi:robot-vacuum',button:'mdi:gesture-tap-button',select:'mdi:format-list-bulleted',number:'mdi:tune-variant',binary_sensor:'mdi:alert-circle-outline',todo:'mdi:format-list-checks'}[HD2.domain(e?.entity_id)]||'mdi:gesture-tap-button');
+HD2.validState=s=>Boolean(s&&!['unknown','unavailable'].includes(String(s.state).toLowerCase()));
+HD2.prefs=async(h,key)=>{if(!h||!key)return{order:[],hidden:[]};try{return(await h.callWS({type:'frontend/get_user_data',key}))?.value||{order:[],hidden:[]}}catch{return{order:[],hidden:[]}}};
+HD2.savePrefs=(h,key,value)=>h.callWS({type:'frontend/set_user_data',key,value});
+HD2.applyPrefs=(items,prefs)=>{const by=new Map(items.map(x=>[x.id,x])),seen=new Set,all=[];for(const id of prefs?.order||[]){const x=by.get(id);if(x){all.push(x);seen.add(id)}}for(const x of items)if(!seen.has(x.id))all.push(x);const hidden=new Set(prefs?.hidden||[]);return{all,visible:all.filter(x=>!hidden.has(x.id)),hidden}};
+HD2.REG??={connection:null,hass:null,data:null,promise:null,subs:new Set,unsubs:null,retry:null,attach(h){const c=h?.connection||null;if(this.connection===c){this.hass=h;return}this.detach();this.connection=c;this.hass=h;this.listen()},detach(){const p=this.unsubs;this.unsubs=null;p&&Promise.resolve(p).then(f=>f?.()).catch(()=>{});clearTimeout(this.retry);this.retry=null;this.connection=null;this.data=null;this.promise=null},listen(){const c=this.connection;if(!c?.subscribeEvents||this.unsubs)return;const p=Promise.all(['area_registry_updated','device_registry_updated','entity_registry_updated'].map(t=>c.subscribeEvents(()=>this.refresh(),t))).then(a=>()=>a.forEach(f=>f?.()));this.unsubs=p;p.catch(()=>{if(this.unsubs===p)this.unsubs=null;if(this.connection&&!this.retry)this.retry=setTimeout(()=>{this.retry=null;this.listen()},30000)})},async load(h,force=false){this.attach(h);if(this.data&&!force)return this.data;if(this.promise)return this.promise;const c=h?.connection;if(!c?.sendMessagePromise)return{areas:[],devices:[],entities:[],dashboards:[],deviceArea:new Map,byDevice:new Map,areaMap:new Map};this.promise=Promise.all([c.sendMessagePromise({type:'config/area_registry/list'}),c.sendMessagePromise({type:'config/device_registry/list'}),c.sendMessagePromise({type:'config/entity_registry/list'}),h.callWS({type:'lovelace/dashboards/list'}).catch(()=>[])]).then(([areas,devices,entities,dashboards])=>{areas=Array.isArray(areas)?areas:[];devices=Array.isArray(devices)?devices:[];entities=Array.isArray(entities)?entities:[];dashboards=Array.isArray(dashboards)?dashboards:[];const deviceArea=new Map(devices.map(d=>[d.id,d.area_id||null])),byDevice=new Map;for(const e of entities){if(!e?.device_id)continue;const a=byDevice.get(e.device_id)||[];a.push(e);byDevice.set(e.device_id,a)}return this.data={areas,devices,entities,dashboards,deviceArea,byDevice,areaMap:new Map(areas.map(a=>[a.area_id,a]))}}).catch(()=>this.data||{areas:[],devices:[],entities:[],dashboards:[],deviceArea:new Map,byDevice:new Map,areaMap:new Map}).finally(()=>{this.promise=null});return this.promise},refresh(){if(!this.hass)return;this.data=null;this.promise=null;this.load(this.hass,true).then(d=>{for(const f of [...this.subs])try{f(d)}catch{}})},subscribe(h,fn){this.attach(h);this.subs.add(fn);this.load(h).then(fn);return()=>this.subs.delete(fn)}};
+HD2.areaOf=(e,d)=>e?.area_id||(e?.device_id?d?.deviceArea?.get(e.device_id):null)||null;
+HD2.uiEntry=e=>Boolean(e?.entity_id&&!e.disabled_by&&!e.hidden_by&&!['diagnostic','config'].includes(e.entity_category));
+HD2.card=async(h,c)=>{const helpers=await window.loadCardHelpers();const x=helpers.createCardElement(c);x.hass=h;return x};
+HD2.controlDomains=new Set(['light','fan','switch','input_boolean','media_player','climate','cover','lock','vacuum','button','select','number']);
+HD2.isPotential=(e,s)=>HD2.uiEntry(e)&&(HD2.controlDomains.has(HD2.domain(e.entity_id))||(HD2.domain(e.entity_id)==='binary_sensor'&&s?.attributes?.device_class==='garage_door'));
+HD2.isActive=(e,s)=>{if(!HD2.uiEntry(e)||!s)return false;const d=HD2.domain(e.entity_id),st=s.state,a=s.attributes||{};if(['light','fan','switch','input_boolean'].includes(d))return st==='on';if(d==='media_player'){if(['playing','paused','buffering','on'].includes(st))return true;if(st==='idle'){const v=String(a.media_title||a.app_name||'');return Boolean(v&&!/^(idle|home(?: screen)?|default media receiver)$/i.test(v))}return false}if(d==='climate')return /^(heat|cool|heat_cool|auto|dry|fan_only)$/.test(st);if(d==='cover')return /^(open|opening|closing)$/.test(st);if(d==='lock')return st==='unlocked';if(d==='vacuum')return /^(cleaning|returning)$/.test(st);if(d==='binary_sensor')return st==='on'&&/^(door|window|garage_door|smoke|moisture|gas)$/.test(a.device_class||'');return false};
+HD2.garageControl=(e,d,h)=>{if(!e?.device_id)return null;const sib=d?.byDevice?.get(e.device_id)||[],buttons=sib.filter(x=>HD2.domain(x.entity_id)==='button'&&HD2.uiEntry(x)&&h.states[x.entity_id]);return buttons.find(x=>/trigger|operate|door/i.test(`${x.entity_id} ${x.name||''} ${x.original_name||''}`))?.entity_id||buttons[0]?.entity_id||null};
+HD2.splitBundle=(e,d)=>{if(!e?.device_id||!d)return null;const siblings=d.byDevice?.get(e.device_id)||[],suffix=x=>String(x?.entity_id||'').split('.')[1]||'',find=(rows,domain,end)=>rows.find(x=>!x?.disabled_by&&HD2.domain(x.entity_id)===domain&&suffix(x).endsWith(end)),controller=find(siblings,'binary_sensor','_controller_status');if(!controller)return null;const area=HD2.areaOf(e,d),helpers=d.entities.filter(x=>!x?.disabled_by&&HD2.areaOf(x,d)===area),minimum=find(helpers,'input_number','_split_minimum_target'),maximum=find(helpers,'input_number','_split_maximum_target'),fan=find(helpers,'input_select','_split_fan_ceiling'),last=find(helpers,'input_select','_split_last_mode'),timer=find(helpers,'script','_split_off_timer'),deadline=find(helpers,'input_datetime','_split_off_deadline'),active=find(helpers,'input_boolean','_split_off_deadline_active'),vertical=find(siblings,'select','_vertical_vane'),horizontal=find(siblings,'select','_horizontal_vane');return{controller_entity:controller.entity_id,vertical_vane_entity:vertical?.entity_id,horizontal_vane_entity:horizontal?.entity_id,minimum_temperature_entity:minimum?.entity_id,maximum_temperature_entity:maximum?.entity_id,fan_ceiling_entity:fan?.entity_id,last_mode_entity:last?.entity_id,timer_script:timer?.entity_id,timer_deadline_entity:deadline?.entity_id,timer_active_entity:active?.entity_id}};
+HD2.controlConfig=(e,s,d,h,split)=>{const id=e.entity_id,dom=HD2.domain(id),bundle=dom==='climate'?HD2.splitBundle(e,d):null;if(bundle)return{type:'custom:component-split-controller-v4',entity:id,...bundle};if(dom==='binary_sensor'&&s?.attributes?.device_class==='garage_door'){const b=HD2.garageControl(e,d,h);return b?{type:'custom:component-garage-door-controller-v1',title:HD2.stateName(h,e,s).replace(/ Garage Door Status$/i,''),entity:id,control_entity:b}:{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true}}if(['light','fan','number'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'slider',entity:id,show_state:true,tap_action:{action:'more-info'}};if(['switch','input_boolean'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'switch',entity:id,show_state:true,button_action:{tap_action:{action:'toggle'}},tap_action:{action:'more-info'}};if(dom==='media_player')return{type:'custom:bubble-card',card_type:'media-player',entity:id,show_state:true,tap_action:{action:'more-info'}};if(dom==='climate')return{type:'custom:bubble-card',card_type:'climate',entity:id,show_state:true};if(dom==='cover')return{type:'custom:bubble-card',card_type:'cover',entity:id,show_state:true};if(dom==='lock')return{type:'custom:mushroom-lock-card',entity:id};if(dom==='vacuum')return{type:'custom:mushroom-vacuum-card',entity:id};if(dom==='select')return{type:'custom:mushroom-select-card',entity:id};if(dom==='button')return{type:'custom:mushroom-entity-card',entity:id,tap_action:{action:'perform-action',perform_action:'button.press',target:{entity_id:id},confirmation:{text:'Run this control?'}},hold_action:{action:'more-info'}};if(dom==='binary_sensor')return{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true,show_last_changed:false};return null};
+class DashboardPreferenceEditorV2 extends HTMLElement{constructor(){super();this.attachShadow({mode:'open'});this.built=false}open(o){this.o=o;this.items=o.items.map(x=>({...x}));const ids=new Set(this.items.map(x=>x.id));this.hidden=new Set((o.hidden||[]).filter(id=>ids.has(id)));this.build();this.render();this.d.showModal();queueMicrotask(()=>this.shadowRoot.querySelector('.x')?.focus())}build(){if(this.built)return;this.built=true;this.shadowRoot.innerHTML=`<style>*{box-sizing:border-box}dialog{width:min(580px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 24px));border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,8px);padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.hd{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--divider-color)}h2{font-size:20px;margin:0}.x,.move,.vis{width:44px;height:44px;border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center}.x{border:1px solid var(--divider-color)}.body{padding:12px 14px 92px}.copy{font-size:13px;color:var(--secondary-text-color);line-height:1.4;margin:0 2px 10px}.rows{display:grid;gap:7px}.row{min-height:58px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px}.row.off{opacity:.58}.ico{width:34px;height:34px;display:grid;place-items:center;color:var(--primary-color)}.name{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{font-size:12px;color:var(--secondary-text-color);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.acts{display:flex}.move[disabled]{opacity:.25}.vis.off{color:var(--error-color)}.ft{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--divider-color);background:var(--card-background-color)}.count{font-size:13px;color:var(--secondary-text-color)}.buttons{display:flex;gap:8px}.cancel,.save{min-height:44px;padding:0 13px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,6px);background:transparent;font-weight:650}.save{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}:is(button):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}</style><dialog><div class="hd"><h2></h2><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"><div class="copy"></div><div class="rows"></div></div><div class="ft"><span class="count"></span><span class="buttons"><button class="cancel" type="button">Cancel</button><button class="save" type="button">Save</button></span></div></dialog>`;this.d=this.shadowRoot.querySelector('dialog');this.d.addEventListener('click',e=>{if(e.target===this.d)this.d.close()});this.shadowRoot.querySelector('.x').onclick=()=>this.d.close();this.shadowRoot.querySelector('.cancel').onclick=()=>this.d.close();this.shadowRoot.querySelector('.save').onclick=()=>this.save()}render(){this.shadowRoot.querySelector('h2').textContent=this.o.title||'Edit';this.shadowRoot.querySelector('.copy').textContent=this.o.description||'Reorder items and hide anything you do not want shown.';const rows=this.shadowRoot.querySelector('.rows');rows.replaceChildren();this.items.forEach((x,i)=>{const r=document.createElement('div'),off=this.hidden.has(x.id);r.className=`row ${off?'off':''}`;r.innerHTML=`<span class="ico"><ha-icon icon="${HD2.esc(x.icon||'mdi:circle-outline')}"></ha-icon></span><span><div class="name">${HD2.esc(x.name)}</div><div class="meta">${HD2.esc(x.meta||'')}</div></span><span class="acts"><button class="move up" type="button" aria-label="Move earlier" ${i===0?'disabled':''}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="move down" type="button" aria-label="Move later" ${i===this.items.length-1?'disabled':''}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="vis ${off?'off':''}" type="button" aria-label="${off?'Show':'Hide'} ${HD2.esc(x.name)}"><ha-icon icon="mdi:${off?'eye-outline':'eye-off-outline'}"></ha-icon></button></span>`;r.querySelector('.up').onclick=()=>this.move(i,-1);r.querySelector('.down').onclick=()=>this.move(i,1);r.querySelector('.vis').onclick=()=>{off?this.hidden.delete(x.id):this.hidden.add(x.id);this.render()};rows.append(r)});this.shadowRoot.querySelector('.count').textContent=`${this.items.length-this.hidden.size} of ${this.items.length} shown`}move(i,d){const n=i+d;if(n<0||n>=this.items.length)return;[this.items[i],this.items[n]]=[this.items[n],this.items[i]];this.render()}async save(){const b=this.shadowRoot.querySelector('.save');b.disabled=true;b.textContent='Saving…';try{await this.o.onSave?.({order:this.items.map(x=>x.id),hidden:[...this.hidden]});this.d.close()}finally{b.disabled=false;b.textContent='Save'}}}
+if(!customElements.get('dashboard-preference-editor-v2'))customElements.define('dashboard-preference-editor-v2',DashboardPreferenceEditorV2);
+}
+
+// Module: src/shared/wled-runtime.js
+{
+/** Shared WLED registry helpers used by the controller and dashboard integration. */
+const componentLibraryWledShared =
+  globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ??= {};
+
+globalThis.__homeDashboardV2 ??= {};
+const WLED_HD = globalThis.__homeDashboardV2;
+const WLED_DOMAIN = (entityId) => String(entityId || "").split(".")[0];
+const WLED_INVALID = new Set(["unknown", "unavailable", "none", ""]);
+const WLED_NAME = (entry) =>
+  String(entry?.original_name || entry?.name || entry?.entity_id || "").toLowerCase();
+
+Object.assign(componentLibraryWledShared, {
+  WLED_HD,
+  WLED_DOMAIN,
+  WLED_INVALID,
+  WLED_NAME,
+});
+}
+
+// Module: src/shared/update-styles.js
+{
+/** Shared Update card presentation styles, preserved verbatim. */
+const UPDATE_CARD_STYLES = ":host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}*{box-sizing:border-box}button{font:inherit;color:inherit}";
+Object.assign(globalThis.__HA_COMPONENT_LIBRARY_SHARED__, { UPDATE_CARD_STYLES });
+}
+
+// Module: src/support/split-settings.js
+{
+/** Advanced settings panel used by ComponentSplitControllerV4. */
+const SPLIT_SETTINGS_INVALID=new Set(["unknown","unavailable","none",""]);class ComponentSplitSettingsV1 extends HTMLElement{constructor(){super(),this.attachShadow({mode:"open"}),this.t=!1,this.i=null,this.o=!1,this.h=null,this.l=null,this.u=null,this.p=null}setConfig(t){for(const i of["entity","minimum_entity","maximum_entity","fan_ceiling_entity"])if(!t?.[i])throw new Error(`Split settings requires ${i}`);this.config={...t},clearTimeout(this.l),this.i=null,this.o=!1,this.h=null,this.u=null,this.p=null}set hass(t){this.m=t,this.t||this.v(),this._(),this.o||this.h||(this.i=this.k()),this.S()}disconnectedCallback(){clearTimeout(this.l),this.l=null,this.i=null,this.o=!1,this.h=null,this.u=null,this.p=null}focusInitial(){queueMicrotask(()=>this.shadowRoot.querySelector("button:not([disabled])")?.focus())}v(){this.t=!0,this.shadowRoot.innerHTML='<style>\n      :host{display:block;min-width:0}*{box-sizing:border-box}button{appearance:none;border:0;background:transparent;font:inherit;color:inherit;cursor:pointer}button[disabled],button[aria-disabled=true]{opacity:.45;cursor:default}ha-icon{--mdc-icon-size:18px}.intro{margin:0 0 12px;color:var(--secondary-text-color);font-size:13px;line-height:1.4}.setting{padding:12px 0;border-top:1px solid var(--divider-color)}.setting:first-of-type{border-top:0;padding-top:0}.label{display:block;font-size:13px;font-weight:650;line-height:1.25}.hint{display:block;margin-top:3px;color:var(--secondary-text-color);font-size:13px;line-height:1.35}.stepper{display:grid;grid-template-columns:44px minmax(88px,1fr) 44px;align-items:center;margin-top:10px;border-radius:12px;background:var(--secondary-background-color);overflow:hidden}.stepper button{width:44px;height:44px;display:grid;place-items:center}.value{text-align:center;font-size:17px;font-weight:650;font-variant-numeric:tabular-nums}.fan{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}.fan button{min-height:48px;padding:0 10px;border-radius:12px;background:var(--secondary-background-color);display:grid;grid-template-columns:20px minmax(0,1fr) 20px;align-items:center;gap:8px;text-align:left;font-size:13px;font-weight:600}.fan button[aria-checked=true]{color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}.fan .check{visibility:hidden}.fan button[aria-checked=true] .check{visibility:visible}.message{min-height:0;margin:0;font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.message:not(:empty){margin-top:10px}.message.error{color:var(--error-color)}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color)}.actions button{min-height:44px;border-radius:12px;background:var(--secondary-background-color);font-size:13px;font-weight:650}.actions .save{color:var(--primary-color)}:is(button):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}\n    </style>\n    <p class="intro">These limits apply to commands from every Home Assistant client.</p>\n    <div class="setting"><span class="label">Minimum target</span><span class="hint">Lower target temperatures are corrected automatically.</span><div class="stepper min"><button type="button" data-adjust="min:-1" aria-label="Decrease minimum target"><ha-icon icon="mdi:minus"></ha-icon></button><span class="value"></span><button type="button" data-adjust="min:1" aria-label="Increase minimum target"><ha-icon icon="mdi:plus"></ha-icon></button></div></div>\n    <div class="setting"><span class="label">Maximum target</span><span class="hint">Higher target temperatures are corrected automatically.</span><div class="stepper max"><button type="button" data-adjust="max:-1" aria-label="Decrease maximum target"><ha-icon icon="mdi:minus"></ha-icon></button><span class="value"></span><button type="button" data-adjust="max:1" aria-label="Increase maximum target"><ha-icon icon="mdi:plus"></ha-icon></button></div></div>\n    <div class="setting"><span class="label">Fan ceiling</span><span class="hint">Auto remains available only when the fan is unrestricted.</span><div class="fan" role="radiogroup" aria-label="Fan ceiling"></div></div>\n    <p class="message" role="status" aria-live="polite"></p>\n    <div class="actions"><button class="reset" type="button">Reset defaults</button><button class="save" type="button">Save settings</button></div>',this.$={minValue:this.shadowRoot.querySelector(".min .value"),minDown:this.shadowRoot.querySelector('[data-adjust="min:-1"]'),minUp:this.shadowRoot.querySelector('[data-adjust="min:1"]'),maxValue:this.shadowRoot.querySelector(".max .value"),maxDown:this.shadowRoot.querySelector('[data-adjust="max:-1"]'),maxUp:this.shadowRoot.querySelector('[data-adjust="max:1"]'),fan:this.shadowRoot.querySelector(".fan"),message:this.shadowRoot.querySelector(".message"),reset:this.shadowRoot.querySelector(".reset"),save:this.shadowRoot.querySelector(".save")},this.shadowRoot.querySelectorAll("[data-adjust]").forEach(t=>{t.addEventListener("click",()=>{const[i,s]=t.dataset.adjust.split(":");this.T(i,Number(s))})}),this.$.reset.addEventListener("click",()=>this.A()),this.$.save.addEventListener("click",()=>this.I())}M(t){return this.m?.states?.[t]??null}j(t){if(null==t||""===t)return null;const i=Number(t);return Number.isFinite(i)?i:null}D(t){return Boolean(t&&!SPLIT_SETTINGS_INVALID.has(String(t.state).toLowerCase()))}k(){const t=this.M(this.config.entity),i=this.M(this.config.minimum_entity),s=this.M(this.config.maximum_entity),e=this.M(this.config.fan_ceiling_entity);if(![t,i,s,e].every(t=>this.D(t)))return null;const n=this.j(t.attributes?.min_temp),a=this.j(t.attributes?.max_temp),o=this.j(t.attributes?.target_temp_step),r=this.j(i.state),h=this.j(s.state),l=Array.isArray(e.attributes?.options)?e.attributes.options:[];return[n,a,o,r,h].some(t=>null===t)||o<=0||n>=a||r<n||h>a||r>=h||!l.includes(e.state)?null:{min:r,max:h,fan:e.state,deviceMin:n,deviceMax:a,step:o,fanOptions:l}}_(){if(!this.h)return;const t=this.k();t&&Math.abs(t.min-this.h.min)<.001&&Math.abs(t.max-this.h.max)<.001&&t.fan===this.h.fan&&(clearTimeout(this.l),this.h=null,this.o=!1,this.i=t,this.u={text:"Settings saved.",type:"info"})}L(t){return`${Number.isInteger(t)?t:t.toFixed(1)}°`}T(t,i){if(!this.i||this.h)return;const s=Math.round(10*(this.i[t]+i*this.i.step))/10;"min"===t&&(s<this.i.deviceMin||s>=this.i.max)||"max"===t&&(s>this.i.deviceMax||s<=this.i.min)||(this.i[t]=s,this.o=!0,this.u=null,this.S())}N(t){this.i&&!this.h&&this.i.fanOptions.includes(t)&&(this.i.fan=t,this.o=!0,this.u=null,this.S())}U(t){if(this.h)return;if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End"].includes(t.key))return;const i=[...this.$.fan.querySelectorAll("button:not([disabled])")];if(!i.length)return;t.preventDefault();const s=Math.max(0,i.indexOf(t.currentTarget)),e=["ArrowRight","ArrowDown"].includes(t.key)?1:-1,n=i["Home"===t.key?0:"End"===t.key?i.length-1:(s+e+i.length)%i.length];this.p=n.dataset.fanValue,this.N(n.dataset.fanValue)}A(){this.i&&!this.h&&(this.i.min=this.i.deviceMin,this.i.max=this.i.deviceMax,this.i.fan=this.i.fanOptions.includes("Unrestricted")?"Unrestricted":this.i.fanOptions[0],this.o=!0,this.u=null,this.S())}async I(){if(!this.i||!this.o||this.h)return;const t={min:this.i.min,max:this.i.max,fan:this.i.fan};this.h=t,this.u={text:"Saving settings…",type:"info"},this.S(),clearTimeout(this.l),this.l=setTimeout(()=>{this.h&&(this.h=null,this.o=!1,this.i=this.k(),this.u={text:"Home Assistant did not confirm the settings.",type:"error"},this.S())},8e3);try{await Promise.all([this.m.callService("input_number","set_value",{entity_id:this.config.minimum_entity,value:t.min}),this.m.callService("input_number","set_value",{entity_id:this.config.maximum_entity,value:t.max}),this.m.callService("input_select","select_option",{entity_id:this.config.fan_ceiling_entity,option:t.fan})]),this._(),this.S()}catch{clearTimeout(this.l),this.h=null,this.o=!1,this.i=this.k(),this.u={text:"Could not save all settings. Current values were reloaded.",type:"error"},this.S()}}C(t){return{Unrestricted:"mdi:fan-auto",High:"mdi:fan-speed-3",Medium:"mdi:fan-speed-2",Low:"mdi:fan-speed-1",Quiet:"mdi:volume-low"}[t]??"mdi:fan"}S(){const t=this.i,i=!t,s=Boolean(this.h),e=this.p;this.p=null,this.$.minValue.textContent=t?this.L(t.min):"Unavailable",this.$.maxValue.textContent=t?this.L(t.max):"Unavailable",this.$.minDown.disabled=i||t.min<=t.deviceMin,this.$.minUp.disabled=i||t.min+t.step>=t.max,this.$.maxDown.disabled=i||t.max-t.step<=t.min,this.$.maxUp.disabled=i||t.max>=t.deviceMax;for(const t of[this.$.minDown,this.$.minUp,this.$.maxDown,this.$.maxUp])t.setAttribute("aria-disabled",String(s||t.disabled));this.$.fan.replaceChildren();for(const[i,e]of(t?.fanOptions??[]).entries()){const n=document.createElement("button");n.type="button",n.dataset.fanValue=e,n.setAttribute("role","radio"),n.setAttribute("aria-checked",String(t.fan===e)),n.tabIndex=t.fan===e||!t.fan&&0===i?0:-1,n.setAttribute("aria-disabled",String(s));const a=document.createElement("ha-icon");a.setAttribute("icon",this.C(e));const o=document.createElement("span");o.textContent=e;const r=document.createElement("ha-icon");r.className="check",r.setAttribute("icon","mdi:check"),n.append(a,o,r),n.addEventListener("click",()=>this.N(e)),n.addEventListener("focus",()=>{this.p=e}),n.addEventListener("keydown",t=>this.U(t)),this.$.fan.append(n)}e&&queueMicrotask(()=>this.$.fan.querySelector(`[data-fan-value="${CSS.escape(e)}"]`)?.focus()),this.$.reset.disabled=i,this.$.reset.setAttribute("aria-disabled",String(i||s)),this.$.save.disabled=i,this.$.save.setAttribute("aria-disabled",String(i||!this.o||s)),this.$.save.textContent=s?"Saving…":"Save settings",this.$.message.textContent=i?"Settings are temporarily unavailable.":this.u?.text??"",this.$.message.classList.toggle("error",i||"error"===this.u?.type)}}customElements.get("component-split-settings-v1")||customElements.define("component-split-settings-v1",ComponentSplitSettingsV1);
+}
+
+// Module: src/support/device-aware-auto-entities.js
+{
+/** Device-aware Auto-Entities adapter used by dynamic dashboard collections. */
+const DEVICE_AWARE_V4_TYPE="custom:component-split-controller-v4",DEVICE_AWARE_INNER_TYPE="custom:auto-entities",deviceAwareClone=t=>JSON.parse(JSON.stringify(t)),deviceAwareEscape=t=>String(t).replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),deviceAwarePattern=t=>t.length?`/^(${t.map(deviceAwareEscape).join("|")})$/`:null;class ComponentDeviceAwareAutoEntitiesV1 extends HTMLElement{
+  static getGridOptions(){return{columns:12,rows:"auto"}}
+  constructor(){
+    super();this.attachShadow({mode:"open"});this.t=null;this.i=null;this.o=null;this.l=0;this._=!1;this.h=null;this.u=null;
+    this.shadowRoot.innerHTML='<style>:host{display:block;min-width:0}.head{min-height:44px;display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:0 2px;color:var(--primary-text-color)}.head[hidden]{display:none}.head ha-icon{color:var(--primary-color);--mdc-icon-size:19px}.head h2{margin:0;font-size:18px;line-height:1.2;font-weight:650}.body{min-width:0}</style><div class="head" hidden><ha-icon></ha-icon><h2></h2></div><div class="body"></div>';
+    this.g=this.shadowRoot.querySelector(".head");this.m=this.shadowRoot.querySelector(".body");
+  }
+  setConfig(t){
+    if(!t?.filter)throw new Error("An Auto-Entities filter is required");
+    this.t=deviceAwareClone(t);this.q();this._=!1;clearTimeout(this.h);this.h=null;this.l+=1;this.i&&this.p();
+  }
+  set hass(t){this.i=t;this.v();this.o&&(this.o.hass=t);this._||this.p()}
+  connectedCallback(){this.v();!this._&&this.t&&this.i&&this.p()}
+  disconnectedCallback(){clearTimeout(this.h);this.h=null;this.u?.();this.u=null;this.l+=1;this._=!1}
+  q(){
+    const header=this.t?.header,title=String(header?.title||"").trim();
+    this.g.hidden=!title;
+    if(title){this.g.querySelector("ha-icon").setAttribute("icon",header?.icon||"mdi:format-list-bulleted");this.g.querySelector("h2").textContent=title}
+  }
+  v(){
+    const registry=globalThis.__componentSplitRegistryV4;
+    this.isConnected&&!this.u&&this.i&&registry?.subscribe&&(this.u=registry.subscribe(this.i,()=>{this._=!1;this.p()}));
+  }
+  getCardSize(){return(this.o?.getCardSize?.()??1)+(this.g?.hidden?0:1)}
+  getLayoutOptions(){return this.o?.getLayoutOptions?.()??{}}
+  p(){
+    if(!this.t||!this.i)return;
+    this._=!0;const generation=++this.l,registry=globalThis.__componentSplitRegistryV4;
+    registry?.load?registry.load(this.i).then(result=>{generation===this.l&&(result.error&&this.o?this.V():(this.A(this.S(result),generation),result.error&&this.V()))}):this.A(this.S(null),generation);
+  }
+  V(){
+    clearTimeout(this.h);this.h=setTimeout(()=>{this.h=null;this._=!1;this.isConnected&&this.p()},31e3);
+  }
+  S(registry){
+    const config=deviceAwareClone(this.t),excludeInvalid=false!==config.exclude_invalid_states;
+    delete config.header;delete config.exclude_invalid_states;config.type="custom:auto-entities";
+    const filter=config.filter??={},includes=Array.isArray(filter.include)?filter.include:[],excludes=Array.isArray(filter.exclude)?filter.exclude:[],
+      regular=includes.filter(rule=>rule?.options?.type!==DEVICE_AWARE_V4_TYPE),
+      systems=registry?[...registry.systems.keys()].sort():[],claimed=registry?[...registry.claimed].sort():[],
+      systemsPattern=deviceAwarePattern(systems),claimedPattern=deviceAwarePattern(claimed),injected=[];
+    if(systemsPattern){
+      for(const rule of regular.filter(rule=>rule?.domain==="climate"&&rule?.options?.type==="custom:bubble-card")){
+        for(const entityId of systems){
+          const split={domain:"climate",entity_id:entityId};
+          if(rule.area)split.area=rule.area;
+          if(rule.state)split.state=rule.state;
+          if(rule.not?.state)split.not={state:rule.not.state};
+          split.options={type:DEVICE_AWARE_V4_TYPE,...rule.area?{title:"Split system"}:{}};
+          injected.push(split);
+        }
+        rule.not={...rule.not??{},entity_id:systemsPattern};
+      }
+    }
+    const climateIndex=regular.findIndex(rule=>rule?.domain==="climate");
+    filter.include=climateIndex<0?regular:[...regular.slice(0,climateIndex),...injected,...regular.slice(climateIndex)];
+    filter.exclude=[...excludes];
+    if(claimedPattern)filter.exclude.push({entity_id:claimedPattern});
+    if(excludeInvalid)for(const state of["unavailable","unknown"])if(!filter.exclude.some(rule=>rule?.state===state&&Object.keys(rule).length===1))filter.exclude.push({state});
+    config.unique=!0;return config;
+  }
+  async A(config,generation){
+    try{
+      const needsSplit=config.filter?.include?.some(rule=>rule?.options?.type===DEVICE_AWARE_V4_TYPE);
+      if(needsSplit&&!customElements.get("component-split-controller-v4"))await new Promise((resolve,reject)=>{
+        const timer=setTimeout(()=>reject(new Error("Split controller did not load")),5e3);
+        customElements.whenDefined("component-split-controller-v4").then(()=>{clearTimeout(timer);resolve()});
+      });
+      const helpers=await window.loadCardHelpers();if(generation!==this.l)return;
+      const card=helpers.createCardElement(config);card.hass=this.i;this.o=card;this.m.replaceChildren(card);
+    }catch{
+      if(generation===this.l&&this.V(),!this.o&&generation===this.l){
+        const alert=document.createElement("ha-alert");alert.setAttribute("alert-type","error");alert.textContent="Household controls are temporarily unavailable.";this.m.replaceChildren(alert);
+      }
+    }
+  }
+}
+customElements.get("component-device-aware-auto-entities-v1")||customElements.define("component-device-aware-auto-entities-v1",ComponentDeviceAwareAutoEntitiesV1);
+}
+
+// Module: src/support/empty-state-v2.js
+{
+/** ComponentEmptyStateV2 — reusable Home Assistant dashboard card. */
+
+const { DashboardBaseCard, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentEmptyStateV2 extends DashboardBaseCard{
+ setConfig(c){this.c={icon:'mdi:check-circle-outline',title:'Nothing requires attention',message:'Supporting empty-state message.',...c};this.r()} getCardSize(){return 1}
+ r(){this.shadowRoot.innerHTML=`<style>${this.cardStyles()}ha-card{border:0;background:transparent;box-shadow:none}.wrap{min-height:40px;padding:0 2px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px}.icon{width:24px;height:24px;display:grid;place-items:center;background:transparent;color:var(--primary-color)}.icon ha-icon{--mdc-icon-size:18px}.desc{margin-top:1px;font-size:12px;line-height:1.3}</style><ha-card><div class="wrap"><span class="icon"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${this.escapeHtml(this.c.title)}</div><div class="desc">${this.escapeHtml(this.c.message)}</div></span></div></ha-card>`}}
+registerCard({ type: "component-empty-state-v2", element: ComponentEmptyStateV2, name: "Empty State V2", description: "Reusable compact empty-state component." });
+}
+
+// Module: src/components/single-kpi.js
+{
+/** ComponentSingleKpiV2 — reusable Home Assistant dashboard card. */
+const { PRESENTATIONAL_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentSingleKpiV2 extends HTMLElement{
+ constructor(){super();this.attachShadow({mode:'open'})} setConfig(c){this.c={value:'00',label:'Primary metric',support_value:'00',support_label:'Supporting context',interactive:true,...c};this.r()} set hass(h){} getCardSize(){return 2}
+ r(){this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:flex;align-items:flex-end;justify-content:space-between;gap:16px;min-height:70px}.value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em;white-space:nowrap}.label{margin-top:4px;font-size:11px;color:var(--secondary-text-color);white-space:nowrap}.support{text-align:right;font-size:11.5px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap}.support b{font-weight:600;color:var(--primary-text-color)}@media(max-width:700px){.wrap{padding:12px}.value{font-size:25px}.support{font-size:11px}}</style><ha-card><button class="demo" type="button" ${this.c.interactive?'':'disabled'}><div class="wrap"><div><div class="value">${escapeHtml(this.c.value)}</div><div class="label">${escapeHtml(this.c.label)}</div></div><div class="support"><b>${escapeHtml(this.c.support_value)}</b> ${escapeHtml(this.c.support_label)}</div></div></button></ha-card>`}}
+registerCard({ type: "component-single-kpi-v2", element: ComponentSingleKpiV2, name: "Single KPI", description: "Reusable single KPI component." });
+}
+
+// Module: src/components/three-stat-summary.js
+{
+/** ComponentThreeStatV2 — reusable Home Assistant dashboard card. */
+const { PRESENTATIONAL_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentThreeStatV2 extends HTMLElement{
+ constructor(){super();this.attachShadow({mode:'open'})} setConfig(c){this.c={metric_1_value:'00',metric_1_label:'Metric one',metric_2_value:'00',metric_2_label:'Metric two',metric_3_value:'00',metric_3_label:'Metric three',interactive:true,...c};this.r()} set hass(h){} getCardSize(){return 2}
+ r(){this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;min-height:70px;align-items:center}.stat{appearance:none;border:0;background:transparent;color:inherit;font:inherit;padding:0;text-align:center;min-width:0;cursor:pointer}.stat:first-child{text-align:left}.stat:last-child{text-align:right}.stat:active{transform:scale(.98)}.stat:focus-visible{outline:2px solid var(--primary-color);outline-offset:3px;border-radius:8px}.value{font-size:22px;line-height:1;font-weight:650;letter-spacing:-.025em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.label{margin-top:5px;font-size:10.5px;line-height:1.2;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}@media(max-width:700px){.wrap{padding:12px;gap:8px}.value{font-size:20px}.label{font-size:10px}}</style><ha-card><div class="wrap">${[1,2,3].map(i=>`<button class="stat" type="button" ${this.c.interactive?'':'disabled'}><div class="value">${escapeHtml(this.c[`metric_${i}_value`])}</div><div class="label">${escapeHtml(this.c[`metric_${i}_label`])}</div></button>`).join('')}</div></ha-card>`}}
+registerCard({ type: "component-three-stat-v2", element: ComponentThreeStatV2, name: "Three-stat Summary", description: "Reusable three-stat summary component." });
+}
+
+// Module: src/components/status-row.js
+{
+/** ComponentStatusRowV2 — reusable Home Assistant dashboard card. */
+const { PRESENTATIONAL_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentStatusRowV2 extends HTMLElement{
+ constructor(){super();this.attachShadow({mode:'open'})} setConfig(c){this.c={title:'Status title',description:'Supporting description',status_value:'Active',status_label:'Current state',icon:'mdi:information-outline',interactive:true,...c};this.r()} set hass(h){} getCardSize(){return 2}
+ r(){this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:3px;font-size:10.5px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status{text-align:right;white-space:nowrap}.status b{display:block;font-size:12px;font-weight:650}.status span{display:block;margin-top:3px;font-size:10.5px;color:var(--secondary-text-color)}@media(max-width:700px){.wrap{padding:12px}}</style><ha-card><button class="demo" type="button" ${this.c.interactive?'':'disabled'}><div class="wrap"><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><div><div class="title">${escapeHtml(this.c.title)}</div><div class="desc">${escapeHtml(this.c.description)}</div></div><div class="status"><b>${escapeHtml(this.c.status_value)}</b><span>${escapeHtml(this.c.status_label)}</span></div></div></button></ha-card>`}}
+registerCard({ type: "component-status-row-v2", element: ComponentStatusRowV2, name: "Status Row", description: "Reusable status row component." });
+}
+
+// Module: src/components/progress-target.js
+{
+/** ComponentProgressV2 — reusable Home Assistant dashboard card. */
+const { PRESENTATIONAL_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentProgressV2 extends HTMLElement{
+ constructor(){super();this.attachShadow({mode:'open'})} setConfig(c){this.c={value:'68%',label:'Progress metric',progress:68,target_value:'100%',target_label:'Target',...c};this.r()} set hass(h){} getCardSize(){return 2}
+ r(){let p=Math.min(100,Math.max(0,Number(this.c.progress)||0));this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;min-height:78px}.head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px}.value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em}.label{margin-top:4px;font-size:11px;color:var(--secondary-text-color)}.target{text-align:right;font-size:11.5px;color:var(--secondary-text-color);white-space:nowrap}.target b{font-weight:600;color:var(--primary-text-color)}.track{height:5px;margin-top:11px;border-radius:999px;background:var(--secondary-background-color);overflow:hidden}.fill{height:100%;border-radius:inherit;background:var(--primary-color)}@media(max-width:700px){.wrap{padding:12px}.value{font-size:25px}.target{font-size:11px}}</style><ha-card><div class="wrap"><div class="head"><div><div class="value">${escapeHtml(this.c.value)}</div><div class="label">${escapeHtml(this.c.label)}</div></div><div class="target"><b>${escapeHtml(this.c.target_value)}</b> ${escapeHtml(this.c.target_label)}</div></div><div class="track"><div class="fill" style="width:${p}%"></div></div></div></ha-card>`}}
+registerCard({ type: "component-progress-v2", element: ComponentProgressV2, name: "Progress / Target", description: "Reusable progress and target component." });
+}
+
+// Module: src/components/action-card.js
+{
+/** ComponentActionV2 — reusable Home Assistant dashboard card. */
+const { PRESENTATIONAL_CARD_STYLES, escapeHtml, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentActionV2 extends HTMLElement{
+ constructor(){super();this.attachShadow({mode:'open'})} setConfig(c){this.c={title:'Action title',description:'What this action will do',action_text:'Open',icon:'mdi:gesture-tap-button',...c};this.r()} set hass(h){this.h=h} getCardSize(){return 2}
+ r(){this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:3px;font-size:10.5px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.action{min-height:32px;padding:0 10px;border-radius:11px;display:flex;align-items:center;background:var(--secondary-background-color);color:var(--primary-color);font-size:11.5px;font-weight:650;white-space:nowrap}@media(max-width:700px){.wrap{padding:12px}}</style><ha-card><button class="demo" type="button"><div class="wrap"><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${escapeHtml(this.c.title)}</div><div class="desc">${escapeHtml(this.c.description)}</div></span><span class="action">${escapeHtml(this.c.action_text)}</span></div></button></ha-card>`;this.shadowRoot.querySelector('button').onclick=()=>{if(this.c.navigation_path)navigateTo(this.c.navigation_path);else if(this.c.more_info_entity)openMoreInfo(this,this.c.more_info_entity)}}}
+registerCard({ type: "component-action-v2", element: ComponentActionV2, name: "Action Card", description: "Reusable navigation and more-info action card." });
+}
+
+// Module: src/components/list-ranking.js
+{
+/** ComponentListV2 — reusable Home Assistant dashboard card. */
+const { PRESENTATIONAL_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentListV2 extends HTMLElement{
+ constructor(){super();this.attachShadow({mode:'open'})} setConfig(c){this.c={rows:[{title:'First item',description:'Supporting detail',value:'00',label:'Metric'},{title:'Second item',description:'Supporting detail',value:'00',label:'Metric'},{title:'Third item',description:'Supporting detail',value:'00',label:'Metric'}],interactive:true,...c};this.r()} set hass(h){} getCardSize(){return 3}
+ r(){let rows=Array.isArray(this.c.rows)?this.c.rows.slice(0,6):[];this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:2px 14px}.row{appearance:none;width:100%;border:0;border-top:1px solid var(--divider-color);background:transparent;color:inherit;font:inherit;min-height:54px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:0;text-align:left;cursor:pointer}.row:first-child{border-top:0}.row:active{background:var(--secondary-background-color)}.row:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:8px}.title{font-size:12.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:2px;font-size:10.5px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metric{text-align:right;white-space:nowrap;font-size:11px;color:var(--secondary-text-color)}.metric b{font-size:12px;font-weight:650;color:var(--primary-text-color);margin-right:4px}@media(max-width:700px){.wrap{padding:2px 12px}}</style><ha-card><div class="wrap">${rows.map(r=>`<button class="row" type="button" ${this.c.interactive?'':'disabled'}><span><div class="title">${escapeHtml(r.title)}</div><div class="desc">${escapeHtml(r.description)}</div></span><span class="metric"><b>${escapeHtml(r.value)}</b>${escapeHtml(r.label)}</span></button>`).join('')}</div></ha-card>`}}
+registerCard({ type: "component-list-v2", element: ComponentListV2, name: "List / Ranking", description: "Reusable list and ranking component." });
+}
+
+// Module: src/components/notice.js
+{
+/** ComponentNoticeV2 — reusable Home Assistant dashboard card. */
+const { PRESENTATIONAL_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentNoticeV2 extends HTMLElement{
+ constructor(){super();this.attachShadow({mode:'open'})} setConfig(c){this.c={title:'Notice title',message:'Important supporting information appears here.',tone:'info',icon:'mdi:information-outline',...c};this.r()} set hass(h){} getCardSize(){return 2}
+ r(){let tone=['warning','error','success'].includes(this.c.tone)?this.c.tone:'';this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}.warning .icon{color:var(--warning-color,var(--primary-color))}.error .icon{color:var(--error-color,var(--primary-color))}.success .icon{color:var(--success-color,var(--primary-color))}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650}.message{margin-top:3px;font-size:10.5px;line-height:1.35;color:var(--secondary-text-color)}</style><ha-card><div class="wrap ${tone}"><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><div><div class="title">${escapeHtml(this.c.title)}</div><div class="message">${escapeHtml(this.c.message)}</div></div></div></ha-card>`}}
+registerCard({ type: "component-notice-v2", element: ComponentNoticeV2, name: "Alert / Notice", description: "Reusable alert and notice component." });
+}
+
+// Module: src/components/device-discovery.js
+{
+/** ComponentDeviceDiscoveryV2 — reusable Home Assistant dashboard card. */
+const { escapeHtml, navigateTo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentDeviceDiscoveryV2 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+  }
+
+  setConfig(config) {
+    this.c = {
+      demo: false,
+      refresh_seconds: 60,
+      max_rows: 6,
+      ...config,
+    };
+
+    if (this.c.demo) this.render(this.demoRows());
+  }
+
+  set hass(hass) {
+    this.h = hass;
+
+    if (this.c?.demo) {
+      this.render(this.demoRows());
+      return;
+    }
+
+    if (!this.started) {
+      this.started = true;
+      this.load();
+      const seconds = Math.max(30, Number(this.c?.refresh_seconds) || 60);
+      this.timer = setInterval(() => this.load(true), seconds * 1000);
+    }
+  }
+
+  disconnectedCallback() {
+    clearInterval(this.timer);
+  }
+
+  getCardSize() {
+    return 3;
+  }
+
+  escape(value) {
+    return escapeHtml(value);
+  }
+
+  name(flow) {
+    const placeholders = flow?.context?.title_placeholders || {};
+    return (
+      placeholders.name ||
+      placeholders.device ||
+      placeholders.host ||
+      flow.handler ||
+      "Discovered device"
+    );
+  }
+
+  source(value) {
+    return (
+      {
+        bluetooth: "Bluetooth",
+        dhcp: "DHCP",
+        discovery: "Discovery",
+        esphome: "ESPHome",
+        hardware: "Hardware",
+        hassio: "Home Assistant",
+        homekit: "HomeKit",
+        integration_discovery: "Discovery",
+        mqtt: "MQTT",
+        ssdp: "SSDP",
+        usb: "USB",
+        zeroconf: "mDNS",
+      }[value] ||
+      value ||
+      "Discovery"
+    );
+  }
+
+  pending(flows) {
+    const sources = new Set([
+      "bluetooth",
+      "dhcp",
+      "discovery",
+      "esphome",
+      "hardware",
+      "hassio",
+      "homekit",
+      "integration_discovery",
+      "mqtt",
+      "ssdp",
+      "usb",
+      "zeroconf",
+    ]);
+
+    return (flows || [])
+      .filter((flow) => sources.has(flow?.context?.source))
+      .sort((a, b) => this.name(a).localeCompare(this.name(b)));
+  }
+
+  demoRows() {
+    return [
+      {
+        handler: "example_integration",
+        context: {
+          source: "zeroconf",
+          title_placeholders: { name: "Discovered device" },
+        },
+      },
+      {
+        handler: "example_bridge",
+        context: {
+          source: "dhcp",
+          title_placeholders: { name: "Discovered bridge" },
+        },
+      },
+    ];
+  }
+
+  navigate() {
+    navigateTo("/config/integrations/dashboard");
+  }
+
+  async load(silent = false) {
+    if (!this.h || this.c?.demo) return;
+
+    if (!silent) this.renderState("loading");
+
+    if (this.h.user && !this.h.user.is_admin) {
+      this.renderState("admin");
+      return;
+    }
+
+    try {
+      const flows = await this.h.callWS({ type: "config_entries/flow/progress" });
+      this.render(this.pending(flows));
+    } catch (error) {
+      this.renderState("error");
+    }
+  }
+
+  styles() {
+    return `${B}
+      .card { padding: 4px 14px; }
+      .summary,
+      .state {
+        min-height: 64px;
+        display: grid;
+        grid-template-columns: 38px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+      }
+      .state { padding: 8px 0; }
+      .icon {
+        width: 38px;
+        height: 38px;
+        display: grid;
+        place-items: center;
+        border-radius: 12px;
+        background: var(--secondary-background-color);
+        color: var(--primary-color);
+      }
+      ha-icon { --mdc-icon-size: 20px; }
+      .title {
+        font-size: 13px;
+        line-height: 1.25;
+        font-weight: 650;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .description {
+        margin-top: 4px;
+        font-size: 13px;
+        line-height: 1.35;
+        color: var(--secondary-text-color);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .refresh,
+      .review,
+      .retry {
+        appearance: none;
+        min-width: 44px;
+        min-height: 44px;
+        border: 0;
+        border-radius: 12px;
+        background: var(--secondary-background-color);
+        color: var(--primary-color);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 650;
+        cursor: pointer;
+      }
+      .refresh {
+        width: 44px;
+        padding: 0;
+        display: grid;
+        place-items: center;
+      }
+      .review,
+      .retry { padding: 0 12px; }
+      .refresh:active,
+      .review:active,
+      .retry:active { transform: scale(.98); }
+      .refresh:focus-visible,
+      .review:focus-visible,
+      .retry:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 2px;
+      }
+      .row {
+        min-height: 64px;
+        display: grid;
+        grid-template-columns: 38px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        border-top: 1px solid var(--divider-color);
+      }
+      .row .icon { background: var(--secondary-background-color); }
+      .more {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-top: 1px solid var(--divider-color);
+        color: var(--secondary-text-color);
+        font-size: 13px;
+      }
+      .error .icon { color: var(--error-color, var(--primary-color)); }
+      .success .icon { color: var(--success-color, var(--primary-color)); }
+      @media (max-width: 700px) {
+        .card { padding: 4px 12px; }
+        .summary,
+        .state,
+        .row { gap: 10px; }
+      }
+    `;
+  }
+
+  renderState(kind) {
+    const content = {
+      loading: {
+        className: "",
+        icon: "mdi:progress-clock",
+        title: "Checking for devices",
+        description: "Reading Home Assistant discovery suggestions.",
+      },
+      admin: {
+        className: "error",
+        icon: "mdi:shield-lock-outline",
+        title: "Administrator access required",
+        description: "Device discovery is available to administrators only.",
+      },
+      error: {
+        className: "error",
+        icon: "mdi:alert-circle-outline",
+        title: "Discovery could not be loaded",
+        description: "Retry the Home Assistant discovery check.",
+      },
+    }[kind];
+
+    this.shadowRoot.innerHTML = `<style>${this.styles()}</style>
+      <ha-card>
+        <div class="card">
+          <div class="state ${content.className}">
+            <span class="icon"><ha-icon icon="${content.icon}"></ha-icon></span>
+            <span>
+              <div class="title">${content.title}</div>
+              <div class="description">${content.description}</div>
+            </span>
+            ${
+              kind === "error"
+                ? '<button class="retry" type="button">Retry</button>'
+                : ""
+            }
+          </div>
+        </div>
+      </ha-card>`;
+
+    this.shadowRoot.querySelector(".retry")?.addEventListener("click", () =>
+      this.load(),
+    );
+  }
+
+  render(flows) {
+    const limit = Math.max(1, Number(this.c?.max_rows) || 6);
+    const shown = flows.slice(0, limit);
+    const remaining = Math.max(0, flows.length - shown.length);
+    const empty = flows.length === 0;
+    const title = empty
+      ? "No devices waiting"
+      : `${flows.length} ${flows.length === 1 ? "device" : "devices"} found`;
+    const description = empty
+      ? "Home Assistant has no new setup suggestions."
+      : "Home Assistant has setup suggestions ready to review.";
+
+    const rows = shown
+      .map(
+        (flow) => `<div class="row">
+          <span class="icon"><ha-icon icon="mdi:plus-circle-outline"></ha-icon></span>
+          <span>
+            <div class="title">${this.escape(this.name(flow))}</div>
+            <div class="description">${this.escape(
+              `${this.source(flow.context?.source)} · ${flow.handler}`,
+            )}</div>
+          </span>
+          <button class="review" type="button">Review</button>
+        </div>`,
+      )
+      .join("");
+
+    this.shadowRoot.innerHTML = `<style>${this.styles()}</style>
+      <ha-card>
+        <div class="card">
+          <div class="summary ${empty ? "success" : ""}">
+            <span class="icon"><ha-icon icon="${
+              empty ? "mdi:check-circle-outline" : "mdi:radar"
+            }"></ha-icon></span>
+            <span>
+              <div class="title">${title}</div>
+              <div class="description">${description}</div>
+            </span>
+            <button class="refresh" type="button" aria-label="Refresh discovery">
+              <ha-icon icon="mdi:refresh"></ha-icon>
+            </button>
+          </div>
+          ${rows}
+          ${
+            remaining
+              ? `<div class="more">${remaining} more ${
+                  remaining === 1 ? "suggestion" : "suggestions"
+                } available in Integrations</div>`
+              : ""
+          }
+        </div>
+      </ha-card>`;
+
+    this.shadowRoot.querySelector(".refresh")?.addEventListener("click", () =>
+      this.load(),
+    );
+    this.shadowRoot.querySelectorAll(".review").forEach((button) =>
+      button.addEventListener("click", () => this.navigate()),
+    );
+  }
+}
+registerCard({ type: "component-device-discovery-v2", element: ComponentDeviceDiscoveryV2, name: "Device Discovery", description: "Reusable device-discovery status component." });
+}
+
+// Module: src/components/quick-navigation.js
+{
+/** ComponentQuickNavigationV2 — reusable Home Assistant dashboard card. */
+const { DashboardBaseCard, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentQuickNavigationV2 extends DashboardBaseCard {
+  setConfig(c) {
+    this.c = {
+      left_icon: "mdi:weather-partly-cloudy",
+      left_text: "Context",
+      left_entity: null,
+      action_1_icon: "mdi:view-dashboard-outline",
+      action_1_text: "Destination",
+      action_1_path: null,
+      action_2_icon: "mdi:cog-outline",
+      action_2_text: "Settings",
+      action_2_path: null,
+      ...c,
+    };
+    this.r();
+  }
+
+  set hass(h) {
+    this.h = h;
+    this.r();
+  }
+
+  getCardSize() {
+    return 1;
+  }
+
+  moreInfo(entityId) {
+    openMoreInfo(this, entityId);
+  }
+
+  navigate(path) {
+    navigateTo(path);
+  }
+
+  r() {
+    if (!this.c) return;
+    const stateObj =
+      this.c.left_entity && this.h
+        ? this.h.states[this.c.left_entity]
+        : null;
+    const leftText = stateObj
+      ? this.h.formatEntityState(stateObj)
+      : this.c.left_entity
+        ? "Unavailable"
+        : this.c.left_text;
+    const leftIcon = stateObj
+      ? '<ha-state-icon id="context-icon"></ha-state-icon>'
+      : `<ha-icon icon="${this.escapeHtml(this.c.left_icon)}"></ha-icon>`;
+    const disabled1 = this.c.action_1_path ? "" : "disabled";
+    const disabled2 = this.c.action_2_path ? "" : "disabled";
+    this.shadowRoot.innerHTML = `<style>${this.cardStyles()}.wrap{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:56px}.group{display:flex;align-items:center;gap:8px}.chip{min-height:44px;border:1px solid var(--divider-color)!important;border-radius:var(--dashboard-radius-control,8px);padding:0 13px!important;display:flex;align-items:center;gap:7px;color:var(--primary-text-color);font-size:13px;font-weight:600;white-space:nowrap}.chip ha-icon,.chip ha-state-icon{color:var(--primary-color);--mdc-icon-size:19px}.chip:disabled{cursor:default;opacity:1}@media(max-width:520px){.chip{width:44px;padding:0!important;justify-content:center}.chip span{display:none}.context{width:auto;padding:0 12px!important}.context span{display:inline}}</style><ha-card><div class="wrap"><button class="i chip context" id="context" type="button" aria-label="${this.escapeHtml(this.c.left_text)}">${leftIcon}<span>${this.escapeHtml(leftText)}</span></button><div class="group"><button class="i chip" id="action-1" type="button" aria-label="${this.escapeHtml(this.c.action_1_text)}" ${disabled1}><ha-icon icon="${this.escapeHtml(this.c.action_1_icon)}"></ha-icon><span>${this.escapeHtml(this.c.action_1_text)}</span></button><button class="i chip" id="action-2" type="button" aria-label="${this.escapeHtml(this.c.action_2_text)}" ${disabled2}><ha-icon icon="${this.escapeHtml(this.c.action_2_icon)}"></ha-icon><span>${this.escapeHtml(this.c.action_2_text)}</span></button></div></div></ha-card>`;
+    const contextIcon = this.shadowRoot.getElementById("context-icon");
+    if (contextIcon && stateObj) {
+      contextIcon.hass = this.h;
+      contextIcon.stateObj = stateObj;
+    }
+    const context = this.shadowRoot.getElementById("context");
+    context.disabled = !this.c.left_entity;
+    context.onclick = () => this.moreInfo(this.c.left_entity);
+    this.shadowRoot.getElementById("action-1").onclick = () =>
+      this.navigate(this.c.action_1_path);
+    this.shadowRoot.getElementById("action-2").onclick = () =>
+      this.navigate(this.c.action_2_path);
+  }
+}
+registerCard({ type: "component-quick-nav-v2", element: ComponentQuickNavigationV2, name: "Quick Navigation", description: "Reusable quick navigation component." });
+}
+
+// Module: src/components/navigation-tile.js
+{
+/** ComponentNavigationTileV2 — reusable Home Assistant dashboard card. */
+const { DashboardBaseCard, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentNavigationTileV2 extends DashboardBaseCard{
+ setConfig(c){this.c={icon:'mdi:door-open',title:'Destination',context:'Navigation',...c};this.r()} getCardSize(){return 1}
+ r(){this.shadowRoot.innerHTML=`<style>${this.cardStyles()}.nav{width:100%;text-align:left}.wrap{min-height:58px;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:10px}.icon{width:36px;height:36px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--primary-color)}</style><ha-card><button class="i nav" type="button"><div class="wrap"><span class="icon"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${this.escapeHtml(this.c.title)}</div><div class="desc">${this.escapeHtml(this.c.context)}</div></span></div></button></ha-card>`}}
+registerCard({ type: "component-nav-tile-v2", element: ComponentNavigationTileV2, name: "Navigation Tile", description: "Reusable navigation tile component." });
+}
+
+// Module: src/components/control-row.js
+{
+/** ComponentControlRowV2 — reusable Home Assistant dashboard card. */
+const { DashboardBaseCard, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentControlRowV2 extends DashboardBaseCard{
+ setConfig(c){this.c={icon:'mdi:lightbulb-outline',title:'Control name',state:'Current state',mode:'slider',value:68,...c};this.on=this.c.on!==false;this.val=Math.max(0,Math.min(100,Number(this.c.value)||68));this.r()} getCardSize(){return 1}
+ r(){let m=this.c.mode,ctl=m==='switch'?`<span class="switch ${this.on?'on':''}"><span></span></span>`:m==='state'?`<span class="metric">${this.escapeHtml(this.c.value)}</span>`:m==='action'?'<span class="action">Action</span>':`<span class="slider"><span style="width:${this.val}%"></span></span>`;this.shadowRoot.innerHTML=`<style>${this.cardStyles()}.row{width:100%;text-align:left}.wrap{min-height:56px;display:grid;grid-template-columns:36px minmax(0,1fr) minmax(72px,auto);align-items:center;gap:10px}.icon{width:36px;height:36px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--primary-color)}.control{justify-self:end;min-width:72px;display:flex;justify-content:flex-end}.metric{font-size:13px;font-weight:600}.slider{width:96px;height:5px;border-radius:var(--dashboard-radius-control,8px);background:var(--divider-color);overflow:hidden}.slider span{display:block;height:100%;background:var(--primary-color);border-radius:var(--dashboard-radius-control,8px)}.switch{width:38px;height:22px;border-radius:var(--dashboard-radius-control,8px);background:var(--divider-color);padding:3px;box-sizing:border-box}.switch span{display:block;width:16px;height:16px;border-radius:50%;background:var(--secondary-text-color);transition:margin .12s,background .12s}.switch.on{background:color-mix(in srgb,var(--primary-color) 35%,var(--divider-color))}.switch.on span{margin-left:16px;background:var(--primary-color)}.action{min-height:30px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--primary-color);font-size:11.5px;font-weight:600;display:grid;place-items:center}</style><ha-card><button class="i row" type="button"><div class="wrap"><span class="icon"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${this.escapeHtml(this.c.title)}</div><div class="desc">${this.escapeHtml(this.c.state)}</div></span><span class="control">${ctl}</span></div></button></ha-card>`;this.shadowRoot.querySelector('button').onclick=()=>{if(m==='switch'){this.on=!this.on;this.r()}else if(m==='slider'){this.val=(this.val+20)%120;if(this.val>100)this.val=0;this.r()}}}}
+registerCard({ type: "component-control-row-v2", element: ComponentControlRowV2, name: "Control Row", description: "Reusable control-row component." });
+}
+
+// Module: src/components/media-row.js
+{
+/** ComponentMediaRowV2 — reusable Home Assistant dashboard card. */
+const { DashboardBaseCard, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentMediaRowV2 extends DashboardBaseCard{
+ setConfig(c){this.c={icon:'mdi:speaker',title:'Media player',state:'Playing · Media title',...c};this.playing=true;this.r()} getCardSize(){return 1}
+ r(){this.shadowRoot.innerHTML=`<style>${this.cardStyles()}.wrap{min-height:56px;display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:center;gap:10px}.icon{width:36px;height:36px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,0px);background:transparent;color:var(--primary-color)}.buttons{display:flex;gap:4px}.btn{width:30px;height:30px;border:1px solid var(--dashboard-card-border-color,var(--divider-color))!important;border-radius:var(--dashboard-radius-control,5px)!important;background:transparent!important;display:grid;place-items:center;color:var(--secondary-text-color);padding:0!important}.btn.main{color:var(--primary-color)}.btn ha-icon{--mdc-icon-size:17px}</style><ha-card><div class="wrap"><span class="icon"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${this.escapeHtml(this.c.title)}</div><div class="desc">${this.escapeHtml(this.c.state)}</div></span><span class="buttons"><button class="i btn" type="button" aria-label="Previous"><ha-icon icon="mdi:skip-previous"></ha-icon></button><button class="i btn main" type="button" aria-label="${this.playing?'Pause':'Play'}"><ha-icon icon="mdi:${this.playing?'pause':'play'}"></ha-icon></button><button class="i btn" type="button" aria-label="Next"><ha-icon icon="mdi:skip-next"></ha-icon></button></span></div></ha-card>`;this.shadowRoot.querySelector('.main').onclick=()=>{this.playing=!this.playing;this.r()}}}
+registerCard({ type: "component-media-row-v2", element: ComponentMediaRowV2, name: "Media Row", description: "Reusable media-row component." });
+}
+
+// Module: src/components/section-separator.js
+{
+/** ComponentSectionSeparatorV2 — reusable Home Assistant dashboard card. */
+const { DashboardBaseCard, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentSectionSeparatorV2 extends DashboardBaseCard{
+ setConfig(c){this.c={icon:'mdi:gesture-tap-button',title:'Section label',...c};this.r()} getCardSize(){return 1}
+ r(){this.shadowRoot.innerHTML=`<style>${this.cardStyles()}ha-card{background:transparent;border:0;box-shadow:none}.wrap{padding:7px 2px 5px;display:flex;align-items:center;gap:8px;color:var(--secondary-text-color)}.wrap ha-icon{color:var(--primary-color);--mdc-icon-size:18px}.label{font-size:12px;font-weight:600;color:var(--primary-text-color)}.line{height:1px;background:var(--divider-color);flex:1}</style><ha-card><div class="wrap"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon><span class="label">${this.escapeHtml(this.c.title)}</span><span class="line"></span></div></ha-card>`}}
+registerCard({ type: "component-section-separator-v2", element: ComponentSectionSeparatorV2, name: "Section Separator", description: "Reusable section separator component." });
+}
+
+// Module: src/components/room-sheet.js
+{
+/** ComponentRoomSheetV2 — reusable Home Assistant dashboard card. */
+const { DashboardBaseCard, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentRoomSheetV2 extends DashboardBaseCard{
+ setConfig(c){this.c={icon:'mdi:bed-king-outline',title:'Room name',...c};this.r()} getCardSize(){return 5}
+ r(){this.shadowRoot.innerHTML=`<style>${this.cardStyles()}.wrap{padding:0}.head{padding:13px 14px 11px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--divider-color)}.head-left{display:flex;align-items:center;gap:9px}.head-left ha-icon{color:var(--primary-color)}.close{width:32px;height:32px;border:1px solid var(--dashboard-card-border-color,var(--divider-color))!important;border-radius:var(--dashboard-radius-control,5px)!important;color:var(--secondary-text-color);padding:0!important}.body{padding:8px 14px 12px}.sep{display:flex;align-items:center;gap:7px;margin:8px 0 6px;font-size:11px;font-weight:600;color:var(--secondary-text-color)}.sep:after{content:'';height:1px;background:var(--divider-color);flex:1}.row{appearance:none;width:100%;border:0;background:transparent;color:inherit;font:inherit;text-align:left;min-height:46px;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:8px;border-radius:var(--dashboard-radius-control,8px);cursor:pointer;padding:0}.row:active{background:var(--secondary-background-color)}.row:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px}.row ha-icon{color:var(--primary-color);--mdc-icon-size:18px}.rname{font-size:12px;font-weight:600}.rstate,.rvalue{font-size:10.5px;color:var(--secondary-text-color)}.rvalue{font-weight:600;color:var(--primary-text-color)}</style><ha-card><div class="wrap"><div class="head"><span class="head-left"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon><span class="title">${this.escapeHtml(this.c.title)}</span></span><button class="i close" type="button" aria-label="Close preview"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"><div class="sep">Room state</div><button class="row" type="button"><ha-icon icon="mdi:thermometer"></ha-icon><span><div class="rname">Status metric</div><div class="rstate">Supporting context</div></span><span class="rvalue">Value</span></button><div class="sep">Controls</div>${[['mdi:lightbulb-outline','Control name','Current state'],['mdi:thermostat','Control name','Current state']].map(x=>`<button class="row" type="button"><ha-icon icon="${x[0]}"></ha-icon><span><div class="rname">${x[1]}</div><div class="rstate">${x[2]}</div></span><span class="rvalue">Value</span></button>`).join('')}</div></div></ha-card>`}}
+registerCard({ type: "component-room-sheet-v2", element: ComponentRoomSheetV2, name: "Room Sheet", description: "Reusable room-sheet component." });
+}
+
+// Module: src/components/household-attention.js
+{
+/** ComponentHouseholdAttentionV1 — reusable Home Assistant dashboard card. */
+const { escapeHtml, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentHouseholdAttentionV1 extends HTMLElement{
+  static getGridOptions(){return{columns:12,rows:"auto"}}
+  constructor(){
+    super();this.attachShadow({mode:"open"});this.c=null;this._hass=null;this._connection=null;
+    this._registry=null;this._loading=null;this._registrySubscription=null;this._refreshTimer=null;
+  }
+  setConfig(c){this.c={title:"Needs attention",icon:"mdi:alert-circle-outline",max_items:6,demo:false,...c};this._render()}
+  set hass(h){
+    const connection=h?.connection||null;
+    if(this._connection!==connection){this._unsubscribe();this._connection=connection;this._registry=null;this._loading=null}
+    this._hass=h;this._subscribe();this._load();this._render();
+  }
+  connectedCallback(){this._subscribe();this._load();this._render()}
+  disconnectedCallback(){clearTimeout(this._refreshTimer);this._refreshTimer=null;this._unsubscribe()}
+  getCardSize(){return this.c?.demo?2:1}
+  _subscribe(){
+    if(!this.isConnected||this._registrySubscription||!this._connection?.subscribeEvents)return;
+    const pending=Promise.resolve(this._connection.subscribeEvents(()=>this._queueRefresh(),"entity_registry_updated"));
+    this._registrySubscription=pending;
+    pending.catch(()=>{if(this._registrySubscription===pending)this._registrySubscription=null});
+  }
+  _unsubscribe(){
+    clearTimeout(this._refreshTimer);this._refreshTimer=null;
+    const pending=this._registrySubscription;this._registrySubscription=null;
+    if(pending)Promise.resolve(pending).then(fn=>fn?.()).catch(()=>{});
+  }
+  _queueRefresh(){
+    clearTimeout(this._refreshTimer);
+    this._refreshTimer=setTimeout(()=>{this._refreshTimer=null;this._registry=null;this._loading=null;this._load(true)},180);
+  }
+  _load(force=false){
+    if(this.c?.demo||!this._connection?.sendMessagePromise)return Promise.resolve(null);
+    if(this._registry&&!force)return Promise.resolve(this._registry);
+    if(this._loading)return this._loading;
+    const connection=this._connection;
+    this._loading=connection.sendMessagePromise({type:"config/entity_registry/list"})
+      .then(rows=>{
+        if(connection!==this._connection)return null;
+        this._registry=Array.isArray(rows)?rows:[];this._loading=null;this._render();return this._registry;
+      })
+      .catch(()=>{if(connection===this._connection){this._loading=null;this._registry=[];this._render()}return null});
+    return this._loading;
+  }
+  _escape(value){return escapeHtml(value)}
+  _issues(){
+    if(this.c?.demo)return[
+      {entity_id:"binary_sensor.demo_garage",name:"Garage door",status:"Open",severity:"warning",severity_text:"Check",icon:"mdi:garage-open"},
+      {entity_id:"binary_sensor.demo_leak",name:"Laundry leak sensor",status:"Detected",severity:"critical",severity_text:"Critical",icon:"mdi:water-alert"}
+    ];
+    if(!this._hass||!this._registry)return[];
+    const issues=[];
+    for(const entry of this._registry){
+      if(!entry?.entity_id||entry.disabled_by||entry.hidden_by||["diagnostic","config"].includes(entry.entity_category))continue;
+      const state=this._hass.states?.[entry.entity_id];if(!state)continue;
+      const domain=entry.entity_id.split(".")[0],deviceClass=entry.device_class||state.attributes?.device_class||"";
+      let issue=null;
+      if(entry.entity_id.endsWith("_controller_status")&&state.state==="off"){
+        issue={status:"Controller offline",severity:"critical",severity_text:"Critical",icon:"mdi:access-point-network-off"};
+      }else if(domain==="binary_sensor"&&state.state==="on"&&["smoke","moisture","gas"].includes(deviceClass)){
+        issue={status:"Detected",severity:"critical",severity_text:"Critical",icon:deviceClass==="smoke"?"mdi:smoke-detector-alert":deviceClass==="gas"?"mdi:gas-cylinder":"mdi:water-alert"};
+      }else if(domain==="binary_sensor"&&state.state==="on"&&["door","window","garage_door"].includes(deviceClass)){
+        issue={status:"Open",severity:"warning",severity_text:"Check",icon:deviceClass==="window"?"mdi:window-open-variant":deviceClass==="garage_door"?"mdi:garage-open":"mdi:door-open"};
+      }else if(domain==="lock"&&state.state==="unlocked"){
+        issue={status:"Unlocked",severity:"warning",severity_text:"Check",icon:"mdi:lock-open-variant-outline"};
+      }
+      if(issue)issues.push({entity_id:entry.entity_id,name:entry.name||entry.original_name||state.attributes?.friendly_name||entry.entity_id,...issue});
+    }
+    return issues.sort((a,b)=>(a.severity==="critical"?0:1)-(b.severity==="critical"?0:1)||a.name.localeCompare(b.name,undefined,{sensitivity:"base"})).slice(0,Math.max(1,Number(this.c?.max_items)||6));
+  }
+  _open(entityId){
+    if(this.c?.demo)return;
+    openMoreInfo(this,entityId);
+  }
+  _render(){
+    if(!this.c)return;
+    const issues=this._issues(),visible=issues.length>0;
+    this.style.display=visible?"block":"none";this.toggleAttribute("aria-hidden",!visible);
+    if(!visible){this.shadowRoot.replaceChildren();return}
+    const rows=issues.map(issue=>'<button class="issue '+this._escape(issue.severity)+'" type="button" data-entity="'+this._escape(issue.entity_id)+'" aria-label="'+this._escape(issue.name+", "+issue.status+". Open details.")+'"><span class="issue-icon"><ha-icon icon="'+this._escape(issue.icon)+'"></ha-icon></span><span class="copy"><span class="name">'+this._escape(issue.name)+'</span><span class="state">'+this._escape(issue.status)+'</span></span><span class="severity">'+this._escape(issue.severity_text)+'</span></button>').join("");
+    this.shadowRoot.innerHTML='<style>:host{display:block;min-width:0}*{box-sizing:border-box}button{font:inherit;color:inherit}ha-card{border:0;box-shadow:none;background:transparent;color:var(--primary-text-color)}.head{min-height:36px;display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:0 2px}.head ha-icon{color:var(--error-color);--mdc-icon-size:19px}.head h2{margin:0;font-size:18px;line-height:1.2;font-weight:650}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.issue{appearance:none;width:100%;min-height:52px;padding:6px 10px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-left:3px solid var(--warning-color,#f9a825);border-radius:var(--dashboard-radius-card,6px);background:var(--dashboard-warning-surface,var(--card-background-color));display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:center;gap:8px;text-align:left;cursor:pointer}.issue.critical{border-left-color:var(--error-color)}.issue:hover,.issue:focus-visible{background:var(--dashboard-card-muted-surface,var(--card-background-color));outline:2px solid var(--primary-color);outline-offset:1px}.issue-icon{width:36px;height:36px;border-radius:var(--dashboard-radius-icon,6px);display:grid;place-items:center;color:var(--warning-color,#f9a825);background:transparent}.critical .issue-icon{color:var(--error-color)}.issue-icon ha-icon{--mdc-icon-size:20px}.copy{min-width:0;display:flex;flex-direction:column;gap:2px}.name{font-size:13px;line-height:1.25;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.state{font-size:13px;line-height:1.25;color:var(--secondary-text-color)}.severity{font-size:12px;font-weight:650;color:var(--warning-color,#f9a825)}.critical .severity{color:var(--error-color)}@media(max-width:700px){.grid{grid-template-columns:1fr}.issue{min-height:56px}}</style><ha-card><div class="head"><ha-icon icon="'+this._escape(this.c.icon)+'"></ha-icon><h2>'+this._escape(this.c.title)+'</h2></div><div class="grid">'+rows+'</div></ha-card>';
+    for(const button of this.shadowRoot.querySelectorAll(".issue"))button.addEventListener("click",()=>this._open(button.dataset.entity));
+  }
+}
+registerCard({ type: "component-household-attention-v1", element: ComponentHouseholdAttentionV1, name: "Household Attention", description: "Registry-aware household attention component." });
+}
+
+// Module: src/components/room-navigation.js
+{
+/** ComponentRoomNavigationV1 — reusable Home Assistant dashboard card. */
+const { escapeHtml, loadDashboardRegistries, navigateTo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentRoomNavigationV1 extends HTMLElement{
+  static getGridOptions(){return{columns:6,rows:1}}
+  constructor(){super();this.attachShadow({mode:"open"});this.c=null;this._hass=null;this._connection=null;this._registries=null}
+  setConfig(config){
+    this.c={name:"Room",icon:"mdi:home-outline",area:null,navigation_path:null,...config};
+    if(!this.c.area)throw new Error("area is required");
+    if(!this.c.navigation_path)throw new Error("navigation_path is required");
+    this._render();
+  }
+  set hass(hass){
+    const connection=hass&&hass.connection||null;
+    if(connection!==this._connection){this._connection=connection;this._registries=null;this._load()}
+    this._hass=hass;this._render();
+  }
+  connectedCallback(){this._load();this._render()}
+  _load(){
+    const connection=this._connection;
+    if(!connection||this._registries)return;
+    loadDashboardRegistries(connection).then(registries=>{
+      if(connection!==this._connection)return;
+      this._registries=registries;this._render();
+    });
+  }
+  _escape(value){return escapeHtml(value)}
+  _entities(){
+    if(!this._registries||!this._hass)return[];
+    const areaKey=String(this.c.area).trim().toLowerCase();
+    const area=this._registries.areas.find(row=>row.area_id===this.c.area||String(row.name||"").trim().toLowerCase()===areaKey);
+    if(!area)return[];
+    const deviceAreas=new Map(this._registries.devices.map(row=>[row.id,row.area_id]));
+    return this._registries.entities
+      .filter(row=>row&&!row.disabled_by&&!row.hidden_by&&(row.area_id===area.area_id||deviceAreas.get(row.device_id)===area.area_id))
+      .map(row=>this._hass.states[row.entity_id])
+      .filter(Boolean);
+  }
+  _formatted(state){
+    try{return this._hass.formatEntityState(state)}
+    catch(error){return String(state&&state.state||"")}
+  }
+  _status(){
+    const states=this._entities().filter(state=>!["unknown","unavailable"].includes(state.state));
+    const climate=states.find(state=>state.entity_id.startsWith("climate.")&&state.attributes&&!Number.isNaN(Number.parseFloat(state.attributes.current_temperature)));
+    const blockedTemperature=/(_controller_temperature|_outside_air_temperature|cpu_temperature|processor_temperature|board_temperature|chip_temperature|internal_temperature)$/;
+    const byClass=deviceClass=>states.find(state=>state.entity_id.startsWith("sensor.")&&state.attributes&&state.attributes.device_class===deviceClass&&!blockedTemperature.test(state.entity_id)&&!Number.isNaN(Number.parseFloat(state.state)));
+    const temperature=byClass("temperature"),humidity=byClass("humidity");
+    const climateTemperature=climate?Number.parseFloat(climate.attributes.current_temperature):null;
+    const temperatureUnit=climate&&(climate.attributes.temperature_unit||(this._hass.config&&this._hass.config.unit_system&&this._hass.config.unit_system.temperature))||"°C";
+    const temperatureText=climate?climateTemperature.toLocaleString(this._hass.locale&&this._hass.locale.language||undefined,{maximumFractionDigits:1})+" "+temperatureUnit:temperature?this._formatted(temperature):"";
+    const lightsOn=states.filter(state=>state.entity_id.startsWith("light.")&&state.state==="on").length;
+    const critical=states.some(state=>state.entity_id.startsWith("binary_sensor.")&&state.state==="on"&&["smoke","moisture","gas"].includes(state.attributes&&state.attributes.device_class));
+    const warning=states.some(state=>(state.entity_id.startsWith("binary_sensor.")&&state.state==="on"&&state.attributes&&state.attributes.device_class==="garage_door")||(state.entity_id.startsWith("cover.")&&["open","opening"].includes(state.state)&&state.attributes&&state.attributes.device_class==="garage"));
+    const active=lightsOn>0||states.some(state=>(state.entity_id.startsWith("climate.")&&["heating","cooling","drying","fan"].includes(state.attributes&&state.attributes.hvac_action))||(state.entity_id.startsWith("media_player.")&&state.state==="playing"));
+    const parts=[];
+    if(critical)parts.push("Attention required");
+    else if(warning)parts.push("Garage open");
+    if(temperatureText)parts.push(temperatureText);
+    if(humidity)parts.push(this._formatted(humidity));
+    if(lightsOn)parts.push(lightsOn+" light"+(lightsOn===1?"":"s")+" on");
+    return{summary:parts.slice(0,3).join(" · "),severity:critical?"critical":warning?"warning":active?"active":""};
+  }
+  _navigate(){
+    navigateTo(this.c.navigation_path);
+  }
+  _render(){
+    if(!this.c)return;
+    const status=this._status(),summary=status.summary;
+    const label="Open "+this.c.name+(summary?". "+summary:"");
+    this.shadowRoot.innerHTML='<style>:host{display:block;min-width:0}*{box-sizing:border-box}ha-card{overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:var(--dashboard-card-surface,var(--card-background-color));box-shadow:none;color:var(--primary-text-color)}button{appearance:none;width:100%;min-height:56px;padding:0 12px 0 10px;border:0;border-left:2px solid transparent;background:transparent;color:inherit;font:inherit;text-align:left;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:10px;cursor:pointer}.icon{width:36px;height:36px;display:grid;place-items:center;background:transparent;color:var(--secondary-text-color)}.icon ha-icon{--mdc-icon-size:21px}.copy{min-width:0}.name,.summary{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name{font-size:13px;line-height:1.25;font-weight:500}.summary{margin-top:3px;font-size:12px;line-height:1.25;font-weight:400;color:var(--secondary-text-color)}button.active{border-left-color:transparent;background:transparent}button.active .icon{color:color-mix(in srgb,var(--primary-color) 68%,var(--secondary-text-color))}button.warning{border-left-color:var(--warning-color,#f9a825);background:var(--dashboard-warning-surface,var(--card-background-color))}button.warning .icon{color:var(--warning-color,#f9a825)}button.critical{border-left-color:var(--error-color);background:var(--dashboard-critical-surface,var(--card-background-color))}button.critical .icon{color:var(--error-color)}button:active{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}button:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px}@media(max-width:420px){button{padding-right:10px;gap:8px}}</style><ha-card><button class="'+this._escape(status.severity)+'" type="button" aria-label="'+this._escape(label)+'"><span class="icon"><ha-icon icon="'+this._escape(this.c.icon)+'"></ha-icon></span><span class="copy"><span class="name">'+this._escape(this.c.name)+'</span>'+(summary?'<span class="summary">'+this._escape(summary)+'</span>':"")+'</span></button></ha-card>';
+    this.shadowRoot.querySelector("button").addEventListener("click",()=>this._navigate());
+  }
+}
+registerCard({ type: "component-room-navigation-v1", element: ComponentRoomNavigationV1, name: "Room Navigation", description: "Area-aware room navigation with presence status." });
+}
+
+// Module: src/components/history-graph.js
+{
+/** ComponentHistoryGraphV2 — reusable Home Assistant dashboard card. */
+const { escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentHistoryGraphV2 extends HTMLElement{
+ constructor(){super();this.attachShadow({mode:'open'});this.ro=null;this.timer=null} setConfig(c){this.c={meta_text:'Aggregation label',series_1_label:'Primary series',series_2_label:'Secondary series',series_3_label:'Supporting series',positive_label:'Positive',negative_label:'Negative',...c};if(!this.b)this.build();this.draw()} set hass(h){} disconnectedCallback(){this.ro?.disconnect();clearTimeout(this.timer)} getCardSize(){return 7}
+ build(){this.b=1;this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:4px 5px 5px}.top{min-height:28px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 5px}.meta{font-size:11.5px;font-weight:600;color:var(--secondary-text-color);white-space:nowrap}.legend{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}.legend button{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:12px;font-weight:600;padding:3px 0;display:flex;align-items:center;gap:6px;cursor:pointer}.legend button:active{transform:scale(.97)}.legend button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:5px}.sw{width:17px;height:3px;border-radius:999px}.s1{background:var(--primary-color)}.s2{background:var(--warning-color,#f5b942)}.s3{background:var(--secondary-text-color)}.chart{position:relative;width:100%;height:clamp(400px,48vw,520px)}svg{display:block;width:100%;height:100%;overflow:hidden;touch-action:none}.axis{fill:var(--secondary-text-color);font-size:11px;font-weight:500;font-family:inherit}.small{fill:var(--secondary-text-color);font-size:10px;font-weight:600;font-family:inherit}.grid{stroke:var(--divider-color);stroke-width:1;opacity:.58}.zero{stroke:var(--divider-color);stroke-width:1.35;opacity:.95}.l1{fill:none;stroke:var(--primary-color);stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.l2{fill:none;stroke:var(--warning-color,#f5b942);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.f2{fill:color-mix(in srgb,var(--warning-color,#f5b942) 12%,transparent)}.l3{fill:none;stroke:var(--secondary-text-color);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.cursor{stroke:var(--secondary-text-color);stroke-width:1;stroke-dasharray:3 3;opacity:0}.tip{position:absolute;min-width:145px;padding:9px 10px;border-radius:11px;background:var(--card-background-color);border:1px solid var(--divider-color);box-shadow:0 7px 22px rgba(0,0,0,.2);pointer-events:none;opacity:0;transform:translate(-50%,-100%);font-size:11.5px;line-height:1.45}.tip.show{opacity:1}.tip b{color:var(--primary-text-color);font-weight:650}.tr{display:flex;justify-content:space-between;gap:14px;color:var(--secondary-text-color)}@media(max-width:700px){.wrap{padding:3px}.legend{gap:9px}.legend button,.meta{font-size:10.5px}.chart{height:400px}.axis{font-size:10px}.small{font-size:9.5px}}</style><ha-card><div class="wrap"><div class="top"><div class="meta"></div><div class="legend">${[1,2,3].map(i=>`<button type="button"><span class="sw s${i}"></span><span class="k${i}"></span></button>`).join('')}</div></div><div class="chart"><svg role="img" aria-label="Interactive reusable graph example"></svg><div class="tip"></div></div></div></ha-card>`;this.e={m:this.shadowRoot.querySelector('.meta'),svg:this.shadowRoot.querySelector('svg'),tip:this.shadowRoot.querySelector('.tip'),chart:this.shadowRoot.querySelector('.chart'),ks:[1,2,3].map(i=>this.shadowRoot.querySelector(`.k${i}`))};this.e.svg.onpointermove=e=>this.pointer(e);this.e.svg.onpointerdown=e=>this.pointer(e);this.e.svg.onpointerleave=()=>this.hide();this.ro=new ResizeObserver(()=>{clearTimeout(this.timer);this.timer=setTimeout(()=>this.draw(),40)});this.ro.observe(this.e.chart)}
+ draw(){if(!this.e||!this.c)return;this.e.m.textContent=this.c.meta_text;this.e.ks.forEach((x,i)=>x.textContent=this.c[`series_${i+1}_label`]);let r=this.e.chart.getBoundingClientRect(),W=Math.max(320,Math.round(r.width||800)),H=Math.max(340,Math.round(r.height||420));this.e.svg.setAttribute('viewBox',`0 0 ${W} ${H}`);let L=W<520?48:58,R=8,T=6,B=Math.round(H*.70),AY=B+20,GT=AY+18,GB=H-18,x0=L,x1=W-R,w=x1-x0,h=B-T,z=(GT+GB)/2;let p=(rx,ry)=>`${(x0+w*rx).toFixed(1)},${(T+h*ry).toFixed(1)}`,g=(rx,ry)=>`${(x0+w*rx).toFixed(1)},${(z+(GB-GT)*.32*ry).toFixed(1)}`;let d1=`M${p(0,.68)} L${p(.08,.61)} L${p(.17,.70)} L${p(.26,.38)} L${p(.35,.52)} L${p(.44,.24)} L${p(.53,.43)} L${p(.62,.35)} L${p(.72,.63)} L${p(.82,.48)} L${p(.91,.59)} L${p(1,.44)}`,d2=`M${p(0,.86)} L${p(.12,.75)} L${p(.24,.52)} L${p(.36,.42)} L${p(.48,.55)} L${p(.60,.72)} L${p(.72,.82)} L${p(.84,.91)} L${p(1,.94)}`,d3=`M${g(0,.08)} L${g(.1,-.10)} L${g(.2,.12)} L${g(.3,-.20)} L${g(.4,.02)} L${g(.5,-.35)} L${g(.6,.16)} L${g(.7,.28)} L${g(.8,-.12)} L${g(.9,.05)} L${g(1,-.08)}`,fill=`${d2} L${x1},${B} L${x0},${B} Z`;let q='';['Max','75%','50%','25%','0'].forEach((t,i)=>{let y=T+h*i/4;q+=`<line class="grid" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"></line><text class="axis" x="${x0-8}" y="${y+4}" text-anchor="end">${t}</text>`});['Start','¼','½','¾','End'].forEach((t,i)=>{let x=x0+w*i/4;q+=`<text class="axis" x="${x}" y="${AY}" text-anchor="${i===0?'start':i===4?'end':'middle'}">${t}</text>`});q+=`<line class="zero" x1="${x0}" y1="${z}" x2="${x1}" y2="${z}"></line><text class="small" x="${x1-2}" y="${GT+10}" text-anchor="end">${escapeHtml(this.c.positive_label)}</text><text class="small" x="${x1-2}" y="${GB-3}" text-anchor="end">${escapeHtml(this.c.negative_label)}</text><path class="f2" d="${fill}"></path><path class="l2" d="${d2}"></path><path class="l1" d="${d1}"></path><path class="l3" d="${d3}"></path><line class="cursor" x1="0" y1="${T}" x2="0" y2="${GB}"></line>`;this.e.svg.innerHTML=q;this.geo={W,H,x0,x1,T,GB}}
+ pointer(ev){let g=this.geo;if(!g)return;let r=this.e.svg.getBoundingClientRect(),px=(ev.clientX-r.left)*(g.W/r.width),x=Math.max(g.x0,Math.min(g.x1,px)),ratio=(x-g.x0)/(g.x1-g.x0),pct=Math.round(ratio*100),c=this.e.svg.querySelector('.cursor');c.setAttribute('x1',x);c.setAttribute('x2',x);c.style.opacity='1';this.e.tip.innerHTML=`<div style="font-weight:650;margin-bottom:4px">${pct}% through range</div><div class="tr"><span>${escapeHtml(this.c.series_1_label)}</span><b>${Math.round(20+ratio*80)}</b></div><div class="tr"><span>${escapeHtml(this.c.series_2_label)}</span><b>${Math.round(75-ratio*45)}</b></div><div class="tr"><span>${escapeHtml(this.c.series_3_label)}</span><b>${Math.round((ratio-.5)*40)}</b></div>`;this.e.tip.style.left=`${(x/g.W)*r.width}px`;this.e.tip.style.top=`${Math.max(70,r.height*.42)}px`;this.e.tip.classList.add('show')}
+ hide(){this.e.tip.classList.remove('show');let c=this.e.svg.querySelector('.cursor');if(c)c.style.opacity='0'}
+}
+registerCard({ type: "component-history-graph-v2", element: ComponentHistoryGraphV2, name: "History Graph", description: "Reusable interactive history graph component." });
+}
+
+// Module: src/components/context-strip.js
+{
+/** ComponentContextStripV3 — reusable Home Assistant dashboard card. */
+const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentContextStripV3 extends HTMLElement{
+  constructor(){super();this.attachShadow({mode:'open'})}
+  setConfig(c){this.c={left_text:'Left context',center_1_label:'Primary metric',center_1_value:'00%',center_2_label:'Secondary metric',center_2_value:'00%',center_3_label:'Tertiary metric',center_3_value:'00%',right_text:'Right context',...(c||{})};this._render()}
+  set hass(h){}
+  getCardSize(){return 1}
+  _render(){this.shadowRoot.innerHTML=`<style>
+:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
+button{appearance:none;width:100%;min-height:44px;box-sizing:border-box;border:0;background:transparent;font:inherit;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:16px;cursor:pointer;font-size:11.5px;line-height:1.3;white-space:nowrap;overflow:hidden;color:inherit}
+button:active{transform:scale(.997)}button:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:var(--ha-card-border-radius,16px)}
+.phase{color:var(--primary-text-color);font-weight:600;text-align:left;justify-self:start;overflow:hidden;text-overflow:ellipsis}.event{color:var(--secondary-text-color);text-align:right;justify-self:end;overflow:hidden;text-overflow:ellipsis}
+.mid{justify-self:center;display:flex;align-items:center;justify-content:center;gap:18px;min-width:0;color:var(--secondary-text-color)}.item{display:flex;align-items:baseline;gap:4px}.lab{font-weight:500}.val{font-weight:600;color:var(--primary-text-color)}
+@media(max-width:900px){button{gap:10px;padding:11px 12px;font-size:11px}.mid{gap:10px}.item{gap:3px}}
+@media(max-width:650px){button{font-size:11px;gap:6px;padding:10px}.mid{gap:7px}}
+</style><ha-card><button type="button"><span class="phase">${CtxEsc(this.c.left_text)}</span><span class="mid">${[1,2,3].map(i=>`<span class="item"><span class="lab">${CtxEsc(this.c[`center_${i}_label`])}</span><span class="val">${CtxEsc(this.c[`center_${i}_value`])}</span></span>`).join('')}</span><span class="event">${CtxEsc(this.c.right_text)}</span></button></ha-card>`}
+}
+registerCard({ type: "component-context-strip-v3", element: ComponentContextStripV3, name: "Context Strip", description: "Reusable context and metric strip component." });
+}
+
+// Module: src/components/metric-pair.js
+{
+/** ComponentMetricPairCardV3 — reusable Home Assistant dashboard card. */
+const { openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentMetricPairCardV3 extends HTMLElement{
+  constructor(){super();this.attachShadow({mode:'open'});this._selectedDay=this._dayKey(new Date());this._stats={};this._loading=false;this._error='';this._lastKey=null;this._dayListener=e=>this._onDayChange(e)}
+  setConfig(c){this.c={left_value:'Primary value',left_label:'Primary label',right_value:'Secondary value',right_label:'Secondary label',right_primary:'Primary text',right_secondary:'Secondary text',deadband:15,day_channel:null,...(c||{})};if(this._built){this._render();this._scheduleStats()}}
+  set hass(h){this.h=h;if(!this._built)this._build();this._render();this._scheduleStats()}
+  connectedCallback(){window.addEventListener('energy-day-selector-change',this._dayListener);if(!this._selectedDay)this._selectedDay=this._dayKey(new Date());this._scheduleStats()}
+  disconnectedCallback(){window.removeEventListener('energy-day-selector-change',this._dayListener)}
+  getCardSize(){return 2}
+  _build(){this._built=true;this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:12px 14px;display:grid;grid-template-columns:minmax(82px,auto) minmax(0,1fr);gap:16px;align-items:stretch}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;padding:0;min-width:0;min-height:44px}button:not(:disabled){cursor:pointer}button:disabled{opacity:1}button:focus-visible{outline:2px solid var(--primary-color);outline-offset:4px;border-radius:8px}.left{text-align:left;display:flex;flex-direction:column;align-items:flex-start;padding-top:1px}.right{text-align:right;display:flex;flex-direction:column;justify-content:center;align-items:flex-end}.left-value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em;color:var(--primary-text-color);white-space:nowrap}.left-label{margin-top:4px;font-size:13px;line-height:1.2;color:var(--secondary-text-color);white-space:nowrap}.right-top,.right-bottom{width:100%;display:flex;align-items:center;justify-content:flex-end;gap:5px;max-width:100%;font-size:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.right-bottom{margin-top:4px}.right-value,.right-primary{font-weight:600;color:var(--primary-text-color);flex:0 0 auto}.right-label,.right-secondary{font-weight:500;color:var(--secondary-text-color);overflow:hidden;text-overflow:ellipsis}@media(max-width:700px){.wrap{padding:12px;grid-template-columns:minmax(76px,auto) minmax(0,1fr);gap:12px}.left-value{font-size:25px}.right-top,.right-bottom{font-size:13px}}</style><ha-card><div class="wrap"><button class="left" type="button"><div class="left-value"></div><div class="left-label"></div></button><button class="right" type="button" aria-live="polite"><div class="right-top"><span class="right-value"></span><span class="right-label"></span></div><div class="right-bottom"><span class="right-primary"></span><span class="right-secondary"></span></div></button></div></ha-card>`;this.e={left:this.shadowRoot.querySelector('.left'),right:this.shadowRoot.querySelector('.right'),leftValue:this.shadowRoot.querySelector('.left-value'),leftLabel:this.shadowRoot.querySelector('.left-label'),rightValue:this.shadowRoot.querySelector('.right-value'),rightLabel:this.shadowRoot.querySelector('.right-label'),rightPrimary:this.shadowRoot.querySelector('.right-primary'),rightSecondary:this.shadowRoot.querySelector('.right-secondary')};this.e.left.onclick=()=>this._more(this._clickEntity('left'));this.e.right.onclick=()=>this._more(this._clickEntity('right'))}
+  _entity(v){if(!v||typeof v!=='object')return null;if(typeof v.entity==='string')return v.entity;if(Array.isArray(v.entities))return v.entities.find(x=>typeof x==='string')||null;if(Array.isArray(v.terms)){const t=v.terms.find(x=>x&&typeof x.entity==='string');return t?.entity||null}return null}
+  _clickEntity(side){if(side==='left')return this.c.left_more_info_entity||this._entity(this.c.left_value)||this._entity(this.c.left_label);return this.c.right_more_info_entity||this._entity(this.c.right_value)||this._entity(this.c.right_label)||this._entity(this.c.right_primary)||this._entity(this.c.right_secondary)}
+  _more(entityId){openMoreInfo(this,entityId)}
+  _dayKey(date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`}
+  _dayStart(day){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day||''));if(!m)return null;const d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));if(d.getFullYear()!==Number(m[1])||d.getMonth()!==Number(m[2])-1||d.getDate()!==Number(m[3]))return null;d.setHours(0,0,0,0);return d}
+  _isToday(){return this._selectedDay===this._dayKey(new Date())}
+  _range(){const start=this._dayStart(this._selectedDay)||this._dayStart(this._dayKey(new Date()));const end=new Date(start);end.setDate(end.getDate()+1);return{start:start.getTime(),end:end.getTime()}}
+  _formatNeeds(v){if(!v||typeof v!=='object')return null;return String(v.format||'').startsWith('energy_kwh_day')?'change':null}
+  _statEntities(){const change=new Set(),vals=[this.c?.left_value,this.c?.left_label,this.c?.right_value,this.c?.right_label,this.c?.right_primary,this.c?.right_secondary];for(const v of vals){if(this._formatNeeds(v)!=='change')continue;if(typeof v.entity==='string')change.add(v.entity);for(const id of v.entities||[])if(typeof id==='string')change.add(id);for(const term of v.terms||[])if(typeof term?.entity==='string')change.add(term.entity)}return{change:[...change].sort()}}
+  _currentKey(){const ids=this._statEntities(),refresh=this._isToday()?Math.floor(Date.now()/300000):'fixed';return`${this._selectedDay}|${refresh}|c:${ids.change.join(',')}`}
+  _onDayChange(event){if(!this.c?.day_channel||event?.detail?.channel!==this.c.day_channel)return;const day=String(event.detail.day||''),start=this._dayStart(day),today=this._dayStart(this._dayKey(new Date()));if(!start||start>today||day===this._selectedDay)return;this._selectedDay=day;this._stats={};this._error='';this._lastKey=null;this._render();this._scheduleStats()}
+  _scheduleStats(){if(!this.h||!this.c?.day_channel)return;const ids=this._statEntities();if(!ids.change.length)return;const key=this._currentKey();if(this._loading||key===this._lastKey)return;this._fetchStats(this._range(),ids,key)}
+  async _fetchStats(range,ids,key){this._loading=true;this._error='';this._render();try{const result=await this.h.callWS({type:'recorder/statistics_during_period',start_time:new Date(range.start).toISOString(),end_time:new Date(range.end).toISOString(),statistic_ids:ids.change,period:'5minute',types:['change']});if(key!==this._currentKey())return;const stats={};for(const entity of ids.change){const rows=(result?.[entity]||[]).filter(row=>{const s=typeof row.start==='number'?row.start:Date.parse(row.start);return Number.isFinite(s)&&s>=range.start&&s<range.end});const changes=rows.map(r=>Number(r.change)).filter(Number.isFinite);stats[entity]={change:changes.length?changes.reduce((a,b)=>a+b,0):null}}this._stats=stats;this._lastKey=key}catch(_){if(key===this._currentKey())this._error='Data unavailable'}finally{this._loading=false;this._render();if(key!==this._currentKey())this._scheduleStats()}}
+  _number(entity,type){const v=this._stats?.[entity]?.[type];return Number.isFinite(v)?v:null}
+  _liveNumber(entity){const s=this.h?.states?.[entity];if(!s||['unknown','unavailable'].includes(s.state))return null;const n=Number(s.state);return Number.isFinite(n)?n:null}
+  _status(){if(this._loading)return'Loading…';if(this._error)return this._error;return null}
+  _energy(v){if(!Number.isFinite(v))return'—';const a=Math.abs(v),digits=a<1?2:1;return`${v.toFixed(digits)} kWh`}
+  _watts(v,abs=false){if(!Number.isFinite(v))return'—';return`${Math.round(abs?Math.abs(v):v)} W`}
+  _resolve(v){if(v===null||v===undefined)return'';if(typeof v!=='object')return String(v);if(v.text!==undefined)return String(v.text);const f=String(v.format||''),status=this._formatNeeds(v)?this._status():null;if(status)return status;if(f==='energy_kwh_day')return this._energy(this._number(v.entity,'change'));if(f==='energy_kwh_day_sum'){if(!Array.isArray(v.entities)||!v.entities.length)return'—';let total=0;for(const id of v.entities){const n=this._number(id,'change');if(n===null)return'—';total+=n}return this._energy(total)}if(f==='energy_kwh_day_formula'){if(!Array.isArray(v.terms)||!v.terms.length)return'—';let total=0;for(const term of v.terms){const n=this._number(term?.entity,'change');if(n===null)return'—';total+=n*(Number.isFinite(Number(term.factor))?Number(term.factor):1)}return this._energy(total)}if(['watts','watts_abs'].includes(f))return this._watts(this._liveNumber(v.entity),f==='watts_abs');if(f==='grid_import_watts'){const n=this._liveNumber(v.entity),d=Math.max(0,Number(v.deadband??this.c.deadband)||15);if(n===null)return'—';return`${Math.round(n>=d?n:0)} W`}if(f==='grid_export_watts'){const n=this._liveNumber(v.entity),d=Math.max(0,Number(v.deadband??this.c.deadband)||15);if(n===null)return'—';return`${Math.round(n<=-d?Math.abs(n):0)} W`}if(f==='grid_label'){const n=this._liveNumber(v.entity),d=Math.max(0,Number(v.deadband??this.c.deadband)||15);if(n===null)return'Live grid';return n>=d?'Live grid import':n<=-d?'Live grid export':'Live grid flow'}if(f==='grid_direction'){const n=this._liveNumber(v.entity),d=Math.max(0,Number(v.deadband??this.c.deadband)||15);if(n===null)return'Unavailable';return n>=d?'Importing now':n<=-d?'Exporting now':'Balanced now'}if(!v.entity)return'';const s=this.h?.states?.[v.entity];return s?(this.h?.formatEntityState?this.h.formatEntityState(s):String(s.state)):(v.unavailable||'Unavailable')}
+  _render(){if(!this.e||!this.c)return;this.e.leftValue.textContent=this._resolve(this.c.left_value);this.e.leftLabel.textContent=this._resolve(this.c.left_label);this.e.rightValue.textContent=this._resolve(this.c.right_value);this.e.rightLabel.textContent=this._resolve(this.c.right_label);this.e.rightPrimary.textContent=this._resolve(this.c.right_primary);this.e.rightSecondary.textContent=this._resolve(this.c.right_secondary);const l=this._clickEntity('left'),r=this._clickEntity('right');this.e.left.disabled=!l;this.e.right.disabled=!r;this.e.left.setAttribute('aria-label',`${this.e.leftValue.textContent} ${this.e.leftLabel.textContent}${l?'. Open details.':''}`.trim());this.e.right.setAttribute('aria-label',`${this.e.rightValue.textContent} ${this.e.rightLabel.textContent}, ${this.e.rightPrimary.textContent} ${this.e.rightSecondary.textContent}${r?'. Open details.':''}`.trim());this.e.right.setAttribute('aria-busy',String(this._loading))}
+}
+registerCard({ type: "metric-pair-card-v3", element: ComponentMetricPairCardV3, name: "Metric Pair", description: "Live power metrics with selected-day energy totals." });
+}
+
+// Module: src/components/update-summary.js
+{
+/** ComponentUpdateSummaryV3 — reusable Home Assistant dashboard card. */
+const { UPDATE_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentUpdateSummaryV3 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.busy = false;
+    this.error = "";
+    this.messageTimer = null;
+  }
+
+  setConfig(c) {
+    this.c = {
+      count: "3",
+      title: "updates available",
+      message: "Review the items below before installing.",
+      live_updates: false,
+      update_all: false,
+      confirm: true,
+      ...c,
+    };
+    this._render();
+  }
+
+  set hass(h) {
+    this.h = h;
+    this._render();
+  }
+
+  getCardSize() {
+    return 1;
+  }
+
+  _all() {
+    if (!this.h) return [];
+    const ids = Array.isArray(this.c.entities)
+      ? new Set(this.c.entities)
+      : null;
+    return Object.values(this.h.states).filter(
+      (state) =>
+        state.entity_id.startsWith("update.") &&
+        (!ids || ids.has(state.entity_id)),
+    );
+  }
+
+  _progress(attributes) {
+    const raw = attributes?.in_progress;
+    return !(
+      raw === false ||
+      raw === null ||
+      raw === undefined
+    );
+  }
+
+  _pending() {
+    return this._all().filter((state) => state.state === "on");
+  }
+
+  _live() {
+    if (!this.c.live_updates || !this.h) return null;
+    const pending = this._pending().length;
+    return {
+      count: String(pending),
+      title: pending === 1 ? "update available" : "updates available",
+      message: pending
+        ? "Review the items below before installing."
+        : "Everything is current.",
+    };
+  }
+
+  _setError(message) {
+    this.error = message;
+    window.clearTimeout(this.messageTimer);
+    if (message) {
+      this.messageTimer = window.setTimeout(() => {
+        this.error = "";
+        this._render();
+      }, 5000);
+    }
+  }
+
+  async _installAll() {
+    if (!this.h || this.busy) return;
+    const pending = this._pending().filter(
+      (state) => !this._progress(state.attributes),
+    );
+    if (!pending.length) return;
+
+    const count = pending.length;
+    if (
+      this.c.confirm !== false &&
+      !window.confirm(
+        `Install ${count} available ${count === 1 ? "update" : "updates"}? Home Assistant may restart if Core, Supervisor or the operating system is included.`,
+      )
+    ) {
+      return;
+    }
+
+    this._setError("");
+    this.busy = true;
+    this._render();
+
+    const priority = [
+      "update.home_assistant_supervisor_update",
+      "update.home_assistant_operating_system_update",
+      "update.home_assistant_core_update",
+    ];
+    const normal = pending
+      .map((state) => state.entity_id)
+      .filter((id) => !priority.includes(id));
+
+    try {
+      if (normal.length) {
+        await this.h.callService("update", "install", {
+          entity_id: normal,
+        });
+      }
+      for (const id of priority) {
+        if (pending.some((state) => state.entity_id === id)) {
+          await this.h.callService("update", "install", {
+            entity_id: id,
+          });
+        }
+      }
+    } catch (_) {
+      this._setError("One or more updates could not be started.");
+    } finally {
+      this.busy = false;
+      this._render();
+    }
+  }
+
+  _render() {
+    if (!this.c) return;
+    const data = this._live() || this.c;
+    const pending = this.h
+      ? this._pending().length
+      : Number(data.count) || 0;
+    const showButton = Boolean(this.c.update_all);
+    const message = this.error
+      ? this.error
+      : this.busy
+        ? "Starting available updates…"
+        : data.message;
+    const progress = this.busy
+      ? '<span class="progress indeterminate" role="progressbar" aria-label="Starting available updates"></span>'
+      : "";
+
+    this.shadowRoot.innerHTML = `<style>${UPDATE_CARD_STYLES}ha-card{position:relative}.wrap{padding:12px 14px;min-height:72px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px}.count{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em}.headline{font-size:13px;font-weight:600}.desc{margin-top:3px;font-size:13px;line-height:1.3;color:var(--secondary-text-color)}.desc.error{color:var(--error-color)}.all{appearance:none;border:0;min-height:44px;padding:0 14px;border-radius:11px;background:var(--primary-color);color:var(--text-primary-color);font-size:13px;font-weight:650;cursor:pointer;white-space:nowrap}.all:active{transform:scale(.98)}.all:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.all:disabled{cursor:default;background:var(--secondary-background-color);color:var(--secondary-text-color)}.progress{position:absolute;left:0;bottom:0;height:3px;border-radius:0 999px 999px 0;background:var(--primary-color);pointer-events:none}.progress.indeterminate{width:34%;animation:update-slide 1.15s ease-in-out infinite}@keyframes update-slide{0%{transform:translateX(-105%)}50%{transform:translateX(150%)}100%{transform:translateX(305%)}}@media(prefers-reduced-motion:reduce){.progress.indeterminate{animation:none;width:100%;opacity:.55}}@media(max-width:700px){.wrap{padding:12px;gap:10px}.count{font-size:25px}.all{padding:0 12px}}</style><ha-card><div class="wrap"><span class="count">${escapeHtml(data.count)}</span><span><div class="headline">${escapeHtml(data.title)}</div><div class="desc ${this.error ? "error" : ""}" role="status" aria-live="polite">${escapeHtml(message)}</div></span>${showButton ? `<button class="all" type="button" ${this.busy || pending === 0 ? "disabled" : ""}>${escapeHtml(this.busy ? "Starting…" : "Update all")}</button>` : "<span></span>"}</div>${progress}</ha-card>`;
+
+    this.shadowRoot
+      .querySelector(".all")
+      ?.addEventListener("click", () => this._installAll());
+  }
+}
+registerCard({ type: "component-update-summary-v3", element: ComponentUpdateSummaryV3, name: "Update Summary", description: "Reusable update summary with live update support." });
+}
+
+// Module: src/components/update-row.js
+{
+/** ComponentUpdateRowV3 — reusable Home Assistant dashboard card. */
+const { UPDATE_CARD_STYLES, escapeHtml, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentUpdateRowV3 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.busy = false;
+    this.requested = false;
+    this.error = "";
+    this.startTimer = null;
+    this.errorTimer = null;
+  }
+
+  setConfig(c) {
+    this.c = {
+      icon: "mdi:update",
+      title: "Update name",
+      current: "Current 1.0",
+      available: "Available 1.1",
+      action: "Update",
+      confirm: true,
+      ...c,
+    };
+    this._render();
+  }
+
+  set hass(h) {
+    this.h = h;
+    const data = this._data();
+    if (
+      this.requested &&
+      (data.progress.active || !data.pending)
+    ) {
+      this.requested = false;
+      window.clearTimeout(this.startTimer);
+    }
+    this._render();
+  }
+
+  getCardSize() {
+    return 1;
+  }
+
+  disconnectedCallback() {
+    window.clearTimeout(this.startTimer);
+    window.clearTimeout(this.errorTimer);
+  }
+
+  _state() {
+    return (
+      (this.c.entity && this.h?.states?.[this.c.entity]) || null
+    );
+  }
+
+  _name(state) {
+    if (this.c.name) return this.c.name;
+    if (!state) return this.c.title;
+    const name =
+      state.attributes?.title ||
+      state.attributes?.friendly_name ||
+      this.c.entity;
+    return String(name).replace(/ Update$/, "");
+  }
+
+  _progress(attributes) {
+    const raw = attributes?.in_progress;
+    if (
+      raw === false ||
+      raw === null ||
+      raw === undefined
+    ) {
+      return { active: false, determinate: false, value: 0 };
+    }
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      return {
+        active: true,
+        determinate: true,
+        value: Math.max(0, Math.min(100, raw)),
+      };
+    }
+    if (
+      typeof raw === "string" &&
+      raw.trim() !== "" &&
+      Number.isFinite(Number(raw))
+    ) {
+      return {
+        active: true,
+        determinate: true,
+        value: Math.max(0, Math.min(100, Number(raw))),
+      };
+    }
+    return {
+      active: Boolean(raw),
+      determinate: false,
+      value: 0,
+    };
+  }
+
+  _data() {
+    const state = this._state();
+    if (!state) {
+      const configured = Boolean(this.c.entity);
+      return {
+        live: false,
+        missing: configured,
+        unavailable: configured,
+        title: this.c.title,
+        current: configured
+          ? "Update entity unavailable"
+          : this.c.current,
+        available: configured ? "" : this.c.available,
+        action: configured ? "Unavailable" : this.c.action,
+        pending: !configured,
+        progress: {
+          active: false,
+          determinate: false,
+          value: 0,
+        },
+      };
+    }
+
+    const attributes = state.attributes || {};
+    const unavailable = ["unavailable", "unknown"].includes(
+      state.state,
+    );
+    const pending = state.state === "on";
+    const progress = this._progress(attributes);
+    return {
+      live: true,
+      missing: false,
+      unavailable,
+      title: this._name(state),
+      current: attributes.installed_version
+        ? `Current ${attributes.installed_version}`
+        : "Current version unavailable",
+      available: attributes.latest_version
+        ? `Available ${attributes.latest_version}`
+        : "Latest version unavailable",
+      action: unavailable
+        ? "Unavailable"
+        : progress.active
+          ? "Updating…"
+          : pending
+            ? "Update"
+            : "Current",
+      pending,
+      progress,
+    };
+  }
+
+  _more() {
+    if (!this._state()) return;
+    openMoreInfo(this, this.c.entity);
+  }
+
+  _setError(message) {
+    this.error = message;
+    window.clearTimeout(this.errorTimer);
+    if (message) {
+      this.errorTimer = window.setTimeout(() => {
+        this.error = "";
+        this._render();
+      }, 5000);
+    }
+  }
+
+  _watchForStart() {
+    window.clearTimeout(this.startTimer);
+    this.startTimer = window.setTimeout(() => {
+      if (!this.requested) return;
+      this.requested = false;
+      this._setError("The update did not start.");
+      this._render();
+    }, 12000);
+  }
+
+  async _install(data) {
+    if (
+      !data.live ||
+      data.unavailable ||
+      !data.pending ||
+      data.progress.active ||
+      this.busy ||
+      this.requested ||
+      !this.h
+    ) {
+      return;
+    }
+
+    const state = this._state();
+    const name = this._name(state);
+    const latest =
+      state?.attributes?.latest_version || "the latest version";
+    if (
+      this.c.confirm !== false &&
+      !window.confirm(`Install ${latest} for ${name}?`)
+    ) {
+      return;
+    }
+
+    this._setError("");
+    this.busy = true;
+    this.requested = true;
+    this._render();
+
+    try {
+      await this.h.callService("update", "install", {
+        entity_id: this.c.entity,
+      });
+      this._watchForStart();
+    } catch (_) {
+      this.requested = false;
+      window.clearTimeout(this.startTimer);
+      this._setError("The update could not be started.");
+    } finally {
+      this.busy = false;
+      this._render();
+    }
+  }
+
+  _render() {
+    if (!this.c) return;
+    const data = this._data();
+    const active =
+      data.progress.active || this.busy || this.requested;
+    const disabled =
+      data.missing ||
+      data.unavailable ||
+      !data.pending ||
+      active;
+    const action = this.error
+      ? "Retry"
+      : this.busy || this.requested
+        ? "Starting…"
+        : data.action;
+    const status = this.error
+      ? this.error
+      : `${data.current}${data.available ? ` · ${data.available}` : ""}`;
+    const progress = active
+      ? data.progress.determinate
+        ? `<span class="progress determinate" role="progressbar" aria-label="Updating ${escapeHtml(data.title)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${data.progress.value}" style="--progress:${data.progress.value}%"></span>`
+        : `<span class="progress indeterminate" role="progressbar" aria-label="${this.busy || this.requested ? "Starting" : "Updating"} ${escapeHtml(data.title)}"></span>`
+      : "";
+
+    this.shadowRoot.innerHTML = `<style>${UPDATE_CARD_STYLES}ha-card{position:relative}.wrap{min-height:68px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:0 14px}.details{appearance:none;border:0;background:transparent;text-align:left;min-width:0;padding:10px 0;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:10px;cursor:${this._state() ? "pointer" : "default"}}.details:active{transform:scale(.995)}.details:focus-visible,.action:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:10px}.icon{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:var(--secondary-background-color);color:var(--primary-color)}ha-icon{--mdc-icon-size:20px}.copy{min-width:0}.title{font-size:13px;line-height:1.25;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.versions{margin-top:3px;font-size:13px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.versions.error{color:var(--error-color)}.versions b{font-weight:600;color:var(--primary-text-color)}.action{appearance:none;border:0;min-height:44px;padding:0 13px;border-radius:11px;background:var(--primary-color);color:var(--text-primary-color);font-size:13px;font-weight:600;cursor:pointer}.action:disabled{cursor:default;background:var(--secondary-background-color);color:var(--secondary-text-color);opacity:1}.progress{position:absolute;left:0;bottom:0;height:3px;border-radius:0 999px 999px 0;background:var(--primary-color);pointer-events:none}.progress.determinate{width:var(--progress);transition:width .25s ease}.progress.indeterminate{width:34%;animation:update-slide 1.15s ease-in-out infinite}@keyframes update-slide{0%{transform:translateX(-105%)}50%{transform:translateX(150%)}100%{transform:translateX(305%)}}@media(prefers-reduced-motion:reduce){.progress.indeterminate{animation:none;width:100%;opacity:.55}.progress.determinate{transition:none}}@media(max-width:700px){.wrap{padding:0 12px}}</style><ha-card><div class="wrap"><button class="details" type="button" ${this._state() ? "" : "disabled"}><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><span class="copy"><div class="title">${escapeHtml(data.title)}</div><div class="versions ${this.error ? "error" : ""}" role="status" aria-live="polite">${escapeHtml(status)}</div></span></button><button class="action" type="button" aria-label="${escapeHtml(action)} ${escapeHtml(data.title)}" ${disabled ? "disabled" : ""}>${escapeHtml(action)}</button></div>${progress}</ha-card>`;
+
+    this.shadowRoot.querySelector(".details").onclick = () =>
+      this._more();
+    this.shadowRoot.querySelector(".action").onclick = () =>
+      this._install(data);
+  }
+}
+registerCard({ type: "component-update-row-v3", element: ComponentUpdateRowV3, name: "Update Row", description: "Reusable update row with live update support." });
+}
+
+// Module: src/components/empty-state.js
+{
+/** ComponentEmptyStateV3 — reusable Home Assistant dashboard card. */
+const { UPDATE_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentEmptyStateV3 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+  }
+
+  setConfig(c) {
+    this.c = {
+      icon: "mdi:check-circle-outline",
+      title: "Nothing requires attention",
+      message: "Supporting empty-state message.",
+      ...c,
+    };
+    this._render();
+  }
+
+  set hass(h) {}
+
+  getCardSize() {
+    return 1;
+  }
+
+  _render() {
+    this.shadowRoot.innerHTML = `<style>${UPDATE_CARD_STYLES}.wrap{padding:12px 14px;min-height:72px;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:12px}.icon{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:var(--secondary-background-color);color:var(--primary-color)}ha-icon{--mdc-icon-size:20px}.title{font-size:13px;line-height:1.25;font-weight:600}.desc{margin-top:3px;font-size:13px;line-height:1.3;color:var(--secondary-text-color)}@media(max-width:700px){.wrap{padding:12px}}</style><ha-card><div class="wrap"><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${escapeHtml(this.c.title)}</div><div class="desc">${escapeHtml(this.c.message)}</div></span></div></ha-card>`;
+  }
+}
+registerCard({ type: "component-empty-state-v3", element: ComponentEmptyStateV3, name: "Empty State", description: "Reusable empty-state component." });
+}
+
+// Module: src/components/energy-day-selector.js
+{
+/** ComponentEnergyDaySelectorV1 — reusable Home Assistant dashboard card. */
+const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentEnergyDaySelectorV1 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._selected = this._todayKey();
+    this._connectedOnce = false;
+  }
+
+  setConfig(config) {
+    this.config = {
+      channel: "energy-day",
+      title: "Energy day",
+      ...config,
+    };
+    this._selected = this._todayKey();
+    this._render();
+    if (this.isConnected) queueMicrotask(() => this._emit());
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+  }
+
+  connectedCallback() {
+    this._selected = this._todayKey();
+    this._render();
+    queueMicrotask(() => this._emit());
+  }
+
+  getCardSize() {
+    return 1;
+  }
+
+  _pad(value) {
+    return String(value).padStart(2, "0");
+  }
+
+  _key(date) {
+    return `${date.getFullYear()}-${this._pad(date.getMonth() + 1)}-${this._pad(date.getDate())}`;
+  }
+
+  _todayKey() {
+    return this._key(new Date());
+  }
+
+  _parse(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+    if (!match) return null;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    if (
+      date.getFullYear() !== Number(match[1]) ||
+      date.getMonth() !== Number(match[2]) - 1 ||
+      date.getDate() !== Number(match[3])
+    ) {
+      return null;
+    }
+    date.setHours(0, 0, 0, 0);
+    return date;
+  }
+
+  _isToday() {
+    return this._selected === this._todayKey();
+  }
+
+  _label() {
+    const date = this._parse(this._selected) || new Date();
+    const options = {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    };
+    if (date.getFullYear() !== new Date().getFullYear()) {
+      options.year = "numeric";
+    }
+    return date.toLocaleDateString("en-AU", options);
+  }
+
+  _emit() {
+    window.dispatchEvent(
+      new CustomEvent("energy-day-selector-change", {
+        detail: {
+          channel: this.config?.channel || "energy-day",
+          day: this._selected,
+          isToday: this._isToday(),
+        },
+      }),
+    );
+  }
+
+  _setDay(value) {
+    const date = this._parse(value);
+    const today = this._parse(this._todayKey());
+    if (!date || date > today) return;
+    const next = this._key(date);
+    if (next === this._selected) return;
+    this._selected = next;
+    this._render();
+    this._emit();
+  }
+
+  _shift(days) {
+    const date = this._parse(this._selected) || new Date();
+    date.setDate(date.getDate() + days);
+    this._setDay(this._key(date));
+  }
+
+  _render() {
+    if (!this.config) return;
+    const today = this._isToday();
+    this.shadowRoot.innerHTML = `<style>
+      :host {
+        display: block;
+        min-width: 0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      ha-card {
+        overflow: hidden;
+        border-radius: var(--ha-card-border-radius, 16px);
+        background: var(--ha-card-background, var(--card-background-color));
+        color: var(--primary-text-color);
+      }
+      .row {
+        min-height: 56px;
+        padding: 6px 8px;
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr) 44px auto;
+        align-items: center;
+        gap: 8px;
+      }
+      button {
+        appearance: none;
+        min-width: 44px;
+        min-height: 44px;
+        border: 0;
+        border-radius: 12px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:active:not(:disabled) {
+        transform: scale(.97);
+      }
+      button:focus-visible,
+      .date:focus-within {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 2px;
+      }
+      button:disabled {
+        color: var(--disabled-text-color, var(--secondary-text-color));
+        cursor: default;
+        opacity: .45;
+      }
+      .step {
+        display: grid;
+        place-items: center;
+      }
+      ha-icon {
+        --mdc-icon-size: 22px;
+      }
+      .date {
+        position: relative;
+        min-width: 0;
+        min-height: 44px;
+        padding: 4px 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border-radius: 12px;
+        background: var(--secondary-background-color);
+        overflow: hidden;
+      }
+      .label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        font-weight: 650;
+      }
+      .state {
+        flex: 0 0 auto;
+        padding: 3px 7px;
+        border-radius: 999px;
+        background: var(--card-background-color);
+        color: var(--secondary-text-color);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .state.historical {
+        color: var(--primary-color);
+      }
+      input {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+      }
+      .today {
+        padding: 0 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        color: var(--primary-color);
+        background: var(--secondary-background-color);
+        font-size: 13px;
+        font-weight: 650;
+      }
+      .today:disabled {
+        opacity: .55;
+      }
+      @media (max-width: 420px) {
+        .row {
+          grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+          gap: 4px;
+          padding: 6px;
+        }
+        .today {
+          width: 44px;
+          padding: 0;
+        }
+        .today span {
+          display: none;
+        }
+      }
+    </style>
+    <ha-card>
+      <div class="row">
+        <button class="step previous" type="button" aria-label="Previous day">
+          <ha-icon icon="mdi:chevron-left"></ha-icon>
+        </button>
+        <label class="date">
+          <span class="label">${this._label()}</span>
+          <span class="state ${today ? "" : "historical"}" role="status" aria-live="polite">
+            ${today ? "Today" : "Historical"}
+          </span>
+          <input type="date" aria-label="Select energy day" value="${this._selected}" max="${this._todayKey()}">
+        </label>
+        <button class="step next" type="button" aria-label="Next day" ${today ? "disabled" : ""}>
+          <ha-icon icon="mdi:chevron-right"></ha-icon>
+        </button>
+        <button class="today" type="button" aria-label="Return to today" ${today ? "disabled" : ""}>
+          <ha-icon icon="mdi:calendar-today-outline"></ha-icon><span>Today</span>
+        </button>
+      </div>
+    </ha-card>`;
+
+    this.shadowRoot.querySelector(".previous").onclick = () => this._shift(-1);
+    this.shadowRoot.querySelector(".next").onclick = () => this._shift(1);
+    this.shadowRoot.querySelector(".today").onclick = () =>
+      this._setDay(this._todayKey());
+    this.shadowRoot.querySelector("input").onchange = (event) =>
+      this._setDay(event.target.value);
+  }
+}
+registerCard({ type: "component-energy-day-selector-v1", element: ComponentEnergyDaySelectorV1, name: "Energy Day Selector", description: "Reusable day selector that broadcasts historical energy-day state." });
+}
+
+// Module: src/components/text-effect.js
+{
+/** ComponentTextEffectV1 — reusable Home Assistant dashboard card. */
+const { escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentTextEffectV1 extends HTMLElement{
+  constructor(){super();this.attachShadow({mode:'open'})}
+  setConfig(c){if(!c?.text)throw new Error('text is required');this.c={effect:'stamp',description:'',icon:null,speed:2.6,...c};this.render()}
+  set hass(h){this.h=h}
+  getCardSize(){return 1}
+  render(){
+    const c=this.c;
+    const effect=['stamp','typewave','overprint','signal','rainbow_stamp'].includes(c.effect)?c.effect:'stamp';
+    const speed=Math.max(1.6,Math.min(6,Number(c.speed)||2.6));
+    const text=escapeHtml(c.text);
+    const icon=c.icon?`<span class="icon"><ha-icon icon="${escapeHtml(c.icon)}"></ha-icon></span>`:'';
+    this.shadowRoot.innerHTML=`<style>
+:host{display:block;min-width:0}*{box-sizing:border-box}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
+.row{min-height:70px;padding:12px 14px;display:grid;grid-template-columns:${c.icon?'40px ':''}minmax(0,1fr);align-items:center;gap:12px}.icon{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:var(--secondary-background-color);color:var(--primary-color)}.icon ha-icon{--mdc-icon-size:20px}.copy{min-width:0}.title{position:relative;display:inline-block;max-width:100%;font-size:13px;line-height:1.25;font-weight:650;letter-spacing:-.005em;white-space:nowrap;color:var(--primary-text-color)}.base{position:relative;z-index:2}.desc{margin-top:4px;font-size:13px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stamp .title{padding-bottom:4px}.stamp .title:after{content:'';position:absolute;z-index:1;left:0;bottom:0;width:100%;height:2px;border-radius:999px;background:linear-gradient(90deg,transparent 0%,var(--primary-color) 42%,var(--primary-color) 58%,transparent 100%);background-size:220% 100%;opacity:.72;animation:stampSweep ${speed}s cubic-bezier(.4,0,.2,1) infinite}
+.typewave .title:after{content:attr(data-text);position:absolute;z-index:3;inset:0;color:var(--primary-color);clip-path:inset(0 100% 0 0);animation:textSweep ${speed}s cubic-bezier(.4,0,.2,1) infinite;pointer-events:none}
+.overprint .title:after{content:attr(data-text);position:absolute;z-index:1;inset:0;color:var(--primary-color);opacity:0;filter:blur(.15px);animation:softPrint ${speed}s ease-in-out infinite;pointer-events:none}
+.signal .title{padding-left:16px}.signal .title:before{content:'';position:absolute;left:1px;top:50%;width:7px;height:7px;margin-top:-3.5px;border:1.5px solid var(--primary-color);border-radius:2px;transform:rotate(45deg);opacity:.45;animation:signalPulse ${speed}s cubic-bezier(.4,0,.2,1) infinite}.signal .title:after{content:'';position:absolute;left:3px;top:50%;width:3px;height:3px;margin-top:-1.5px;border-radius:50%;background:var(--primary-color);animation:signalDot ${speed}s cubic-bezier(.4,0,.2,1) infinite}
+.rainbow_stamp .title{padding-bottom:4px;background:linear-gradient(90deg,#ff375f,#ff9f0a,#ffd60a,#30d158,#64d2ff,#0a84ff,#bf5af2,#ff375f);background-size:260% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;animation:rainbow ${speed}s linear infinite}.rainbow_stamp .title:after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;border-radius:999px;background:linear-gradient(90deg,#ff375f,#ff9f0a,#ffd60a,#30d158,#64d2ff,#0a84ff,#bf5af2);background-size:240% 100%;opacity:.55;animation:rainbow ${speed}s linear infinite}
+@keyframes stampSweep{0%{background-position:210% 0;opacity:0}15%{opacity:.28}42%{opacity:.78}70%{opacity:.28}100%{background-position:-110% 0;opacity:0}}@keyframes textSweep{0%,8%{clip-path:inset(0 100% 0 0);opacity:0}22%{opacity:.75}52%{clip-path:inset(0 0 0 0);opacity:.75}72%{clip-path:inset(0 0 0 100%);opacity:.2}100%{clip-path:inset(0 0 0 100%);opacity:0}}@keyframes softPrint{0%,48%,100%{opacity:0;transform:translateX(0)}60%{opacity:.22;transform:translateX(.6px)}70%{opacity:.1;transform:translateX(0)}}@keyframes signalPulse{0%,100%{opacity:.25;transform:rotate(45deg) scale(.88)}48%{opacity:.7;transform:rotate(45deg) scale(1.06)}70%{opacity:.35;transform:rotate(45deg) scale(.96)}}@keyframes signalDot{0%,100%{opacity:.35;transform:scale(.7)}48%{opacity:1;transform:scale(1)}70%{opacity:.5;transform:scale(.8)}}@keyframes rainbow{to{background-position:260% 50%}}
+@media(prefers-reduced-motion:reduce){.stamp .title:after,.typewave .title:after,.overprint .title:after,.signal .title:before,.signal .title:after,.rainbow_stamp .title,.rainbow_stamp .title:after{animation:none!important}.stamp .title:after{opacity:.35;background:var(--primary-color)}.typewave .title:after,.overprint .title:after{display:none}.signal .title:before{opacity:.45}.signal .title:after{opacity:.7}}
+@media(max-width:700px){.row{padding:12px}.desc{font-size:12px}}
+</style><ha-card><div class="row ${effect}">${icon}<div class="copy"><div class="title" data-text="${text}"><span class="base">${text}</span></div>${c.description?`<div class="desc">${escapeHtml(c.description)}</div>`:''}</div></div></ha-card>`
+  }
+}
+registerCard({ type: "component-text-effect-v1", element: ComponentTextEffectV1, name: "Signature Text Effect", description: "Reusable transient-status effects using the existing signature motion language." });
+}
+
+// Module: src/components/split-system-controller.js
+{
+/** ComponentSplitControllerV4 — reusable Home Assistant dashboard card. */
+const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const SPLIT_INVALID=new Set(["unknown","unavailable","none",""]),SPLIT_LABELS={fan_only:"Fan only"};class ComponentSplitControllerV4 extends HTMLElement{static getGridOptions(){return{columns:12,rows:"auto"}}constructor(){super(),this.attachShadow({mode:"open"}),this.t=!1,this.i="",this.o=null,this.l="",this.h=null,this.u=null,this.p=new Map,this.m=0,this.v=null,this._=null,this.k=null,this.T=null,this.S=null,this.A=null,this.C=null,this.q=null,this.L=null}setConfig(t){if(!t?.entity)throw new Error("A climate entity is required");clearTimeout(this._),this._=null;for(const t of this.p.values())this.I(t);this.p.clear(),this.v=null,this.T=null,this.t&&(this.M(!1),this.$.pb.replaceChildren()),this.S={...t},this.config={...this.S},this.A=null,this.C=null,clearTimeout(this.q),this.q=null,this.i=""}set hass(t){this.P=t,this.N(),this.O(),this.t||this.R(),this.D();const i=this.V();i!==this.i?(this.i=i,this.H()):this.F(),this.j()}O(){const t=this.S?.entity;if(!t||!this.P||this.A===t||this.C===t)return;const i=globalThis.__componentSplitRegistryV4;i?.load&&(this.C=t,i.load(this.P).then(s=>{if(this.S?.entity!==t)return;if(this.C=null,s.error){if(!this.isConnected)return;return clearTimeout(this.q),void(this.q=setTimeout(()=>{this.q=null,this.O()},31e3))}clearTimeout(this.q),this.q=null;const e=s.systems.get(t);this.config={...e?{controller_entity:e.controller_entity,vertical_vane_entity:e.vertical_vane_entity,horizontal_vane_entity:e.horizontal_vane_entity,minimum_temperature_entity:e.minimum_temperature_entity,maximum_temperature_entity:e.maximum_temperature_entity,fan_ceiling_entity:e.fan_ceiling_entity,last_mode_entity:e.last_mode_entity,timer_script:e.timer_script,timer_deadline_entity:e.timer_deadline_entity,timer_active_entity:e.timer_active_entity}:{},...this.S},this.A=t,this.i="",this.t&&this.isConnected&&(this.H(),this.j())}))}connectedCallback(){this.N(),this.O(),this.t&&this.j()}N(){const t=globalThis.__componentSplitRegistryV4;this.isConnected&&!this.L&&this.P&&t?.subscribe&&(this.L=t.subscribe(this.P,()=>{this.A=null,this.i="",this.O()}))}disconnectedCallback(){clearTimeout(this._),this._=null,clearInterval(this.k),this.k=null,clearTimeout(this.q),this.q=null,this.L?.(),this.L=null;for(const t of this.p.values())clearTimeout(t.timeoutTimer),clearTimeout(t.settleTimer);this.p.clear(),this.v=null,this.T=null,this.t&&this.M(!1)}R(){this.t=!0,this.shadowRoot.innerHTML='<style>\n        :host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}button,input{font:inherit;color:inherit}button{appearance:none;border:0;background:transparent;cursor:pointer}ha-card{container-type:inline-size;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,6px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color)}.w{padding:12px 14px}.hd{display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;gap:12px}.hd.settings{grid-template-columns:minmax(0,1fr) 44px 44px;gap:8px}.idn{min-width:0;min-height:44px;padding:0;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:12px;text-align:left;border-radius:var(--dashboard-radius-control,8px)}.iw{width:40px;height:40px;border-radius:var(--dashboard-radius-icon,6px);display:grid;place-items:center;background:transparent;color:var(--primary-color)}ha-icon{--mdc-icon-size:20px}.cp{min-width:0}.nm,.st{display:block}.nm{font-size:13px;line-height:1.25;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.st{margin-top:3px;font-size:13px;line-height:1.25;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pw{width:44px;height:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.pw.on{color:var(--primary-color)}button[disabled],button[aria-disabled=true]{opacity:.45;cursor:default}.ct{margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color)}.cr{display:grid;grid-template-columns:minmax(120px,1fr) auto;align-items:center;gap:16px}.cr.to{grid-template-columns:auto;justify-content:end}.rv{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.ml{display:block;margin-top:6px;color:var(--secondary-text-color);font-size:13px;line-height:1.2}.tc{min-height:48px;display:grid;grid-template-columns:44px minmax(82px,auto) 44px;align-items:center;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;overflow:hidden}.tb{width:44px;height:48px;padding:0;display:grid;place-items:center}.tp{min-width:0;padding:0 8px;text-align:center}.tv{font-size:18px;line-height:1.1;font-weight:650;font-variant-numeric:tabular-nums}.ts{margin-top:3px;color:var(--secondary-text-color);font-size:13px;line-height:1.1;white-space:nowrap}.os,.uv{font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.as{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.a{min-width:0;min-height:44px;flex:1 1 118px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:flex;align-items:center;justify-content:center;gap:7px;color:var(--secondary-text-color)}.a ha-icon{--mdc-icon-size:18px}.al{min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.a.av,.a[aria-expanded=true]{color:var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.pn{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;overscroll-behavior:contain;padding:16px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,color-mix(in srgb,var(--primary-text-color) 32%,transparent)))}.pd{width:min(380px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;padding:12px 14px 14px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,8px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}.ph{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px}.pt{margin:0;font-size:18px;line-height:1.2;font-weight:650}.x{width:44px;height:44px;border-radius:var(--dashboard-radius-control,8px);display:grid;place-items:center}.og+.og{margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color)}.gt{margin:0 4px 8px;font-size:13px;font-weight:650;color:var(--secondary-text-color)}.qs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.o{min-height:50px;width:100%;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:grid;grid-template-columns:20px minmax(0,1fr) 20px;align-items:center;gap:8px;text-align:left;background:transparent;font-size:13px;font-weight:600}.oi{color:var(--secondary-text-color)}.o[aria-selected=true]{color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}.o[aria-selected=true] .oi{color:var(--primary-color)}.tpr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.tpr button,.tcu button,.tac button{min-height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;font-size:13px;font-weight:650}.tpr button{display:flex;align-items:center;justify-content:center;gap:6px}.tcu{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px;margin-top:12px}.tcu label{font-size:13px;color:var(--secondary-text-color)}.tcu input{display:block;width:100%;height:44px;margin-top:6px;padding:0 11px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,5px);background:transparent}.tcu button{padding:0 14px;color:var(--primary-color)}.tac{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.tac button:first-child{color:var(--primary-color)}.tac button:last-child{color:var(--error-color)}.fb{font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.fb:not(:empty){margin-top:10px}.fb.er{color:var(--error-color)}:is(button,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}@container (max-width:400px){.w{padding:12px}.as .a{flex-basis:calc(50% - 4px)}}@container (max-width:340px){.cr{grid-template-columns:1fr;justify-content:stretch}.tc{width:100%}}\n      </style><ha-card><div class="w"><div class="hd"><button class="idn" type="button"><span class="iw"><ha-icon class="mi"></ha-icon></span><span class="cp"><span class="nm"></span><span class="st" role="status"></span></span></button><button class="pw" type="button"><ha-icon icon="mdi:power"></ha-icon></button></div><div class="ct"><div class="cr"><div class="rm"><span class="rv"></span><span class="ml">Room temperature</span></div><div class="tc"><button class="tb decrease" type="button" aria-label="Decrease target temperature"><ha-icon icon="mdi:minus"></ha-icon></button><div class="tp"><div class="tv"></div><div class="ts"></div></div><button class="tb increase" type="button" aria-label="Increase target temperature"><ha-icon icon="mdi:plus"></ha-icon></button></div></div><div class="os"></div><div class="uv"></div><div class="as"><button class="a ma" type="button" data-panel="mode" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:thermostat"></ha-icon><span class="al"></span></button><button class="a fa" type="button" data-panel="fan" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:fan"></ha-icon><span class="al"></span></button><button class="a va" type="button" data-panel="vanes" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:swap-vertical"></ha-icon><span class="al"></span></button><button class="a ta" type="button" data-panel="timer" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:timer-outline"></ha-icon><span class="al"></span></button></div></div><div class="fb" role="status" aria-live="polite"></div></div></ha-card><section class="pn" id="split-secondary" role="dialog" aria-modal="true" aria-labelledby="split-pt" hidden><div class="pd"><div class="ph"><h3 class="pt" id="split-pt"></h3><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="pb"></div></div></section>';const t=document.createElement("button");t.className="pw sg",t.type="button",t.dataset.panel="settings",t.setAttribute("aria-controls","split-secondary"),t.setAttribute("aria-expanded","false"),t.setAttribute("aria-label","Advanced settings");const i=document.createElement("ha-icon");i.setAttribute("icon","mdi:cog-outline"),t.append(i),this.shadowRoot.querySelector(".pw").before(t),this.$=Object.fromEntries([...this.shadowRoot.querySelectorAll("[class]")].flatMap(t=>[...t.classList].map(i=>[i,t]))),this.$.idn.addEventListener("click",()=>this.B()),this.$.pw.addEventListener("click",()=>this.G()),this.$.decrease.addEventListener("click",()=>this.W(-1)),this.$.increase.addEventListener("click",()=>this.W(1)),this.shadowRoot.querySelectorAll("[data-panel]").forEach(t=>t.addEventListener("click",()=>this.U(t.dataset.panel,t))),this.$.x.addEventListener("click",()=>this.M(!0)),this.$.pn.addEventListener("click",t=>{t.target===this.$.pn&&this.M(!0)}),this.shadowRoot.addEventListener("keydown",t=>{"Escape"===t.key&&this.o?(t.preventDefault(),this.M(!0)):"Tab"===t.key&&this.o&&this.J(t)})}V(){const t=[this.config.entity,this.config.last_mode_entity,this.config.vertical_vane_entity,this.config.horizontal_vane_entity,this.config.controller_entity,this.config.timer_script,this.config.timer_deadline_entity,this.config.timer_active_entity,this.config.minimum_temperature_entity,this.config.maximum_temperature_entity,this.config.fan_ceiling_entity].filter(Boolean);return JSON.stringify(t.map(t=>{const i=this.P?.states?.[t];return[t,i?.state,i?.attributes]}))}K(t){if(null==t||""===t)return null;const i=Number(t);return Number.isFinite(i)?i:null}X(t){return t?this.P?.states?.[t]??null:null}Y(t){return Boolean(t&&!SPLIT_INVALID.has(String(t.state).toLowerCase()))}Z(){const t=this.X(this.config.entity),i=this.X(this.config.controller_entity),s=!this.Y(t)||this.config.controller_entity&&(!i||"on"!==i.state);return{state:t,attributes:t?.attributes??{},uv:s}}tt(t){const i=String(t??"").toLowerCase();return SPLIT_LABELS[i]??i.replaceAll("_"," ").replace(/^./,t=>t.toUpperCase())}it(t){const i=this.K(t);return null===i?null:`${Number.isInteger(i)?i:i.toFixed(1)}°`}et(t,i){return"heating"===i||"heat"===t?"mdi:fire":"cooling"===i||"cool"===t?"mdi:snowflake":"auto"===t?"mdi:thermostat-auto":"dry"===t?"mdi:water-percent":"fan_only"===t?"mdi:fan":"mdi:heat-pump"}nt(t){if(t.uv)return"Controller unavailable";const{state:i,attributes:s}=t,e=i.state,n=s.hvac_action,o=this.it(s.temperature),r=this.K(s.current_temperature),a=this.K(s.temperature),l=this.K(s.target_temp_step),h=null!==r&&null!==a&&null!==l&&l>0&&Math.abs(r-a)<=l;return"off"===e?"Off":"heating"===n?o?`Heating to ${o}`:"Heating":"cooling"===n?o?`Cooling to ${o}`:"Cooling":"heat"===e?h?"Heat · At target":o?`Heat · Target ${o}`:"Heat":"cool"===e?h?"Cool · At target":o?`Cool · Target ${o}`:"Cool":"auto"===e?o?`Auto · Target ${o}`:"Auto":"dry"===e?"drying"===n?"Drying":"Dry":"fan_only"===e?"Fan only"+(this.ot(s.fan_mode)?` · ${this.tt(s.fan_mode)}`:""):this.tt(e)}ot(t){return null!=t&&!SPLIT_INVALID.has(String(t).toLowerCase())}rt(t){const i=[this.p.get("hvac"),this.p.get("temperature"),this.p.get("fan"),[...this.p].find(([t])=>t.startsWith("vane:"))?.[1],this.p.get("timer")];for(const s of i){if(!s)continue;const i=s.queued?.label??s.label;return`${this.nt(t)} · Requesting ${i}`}return this.nt(t)}H(){const t=this.Z(),{state:i,attributes:s,uv:e}=t,n=!e&&"off"!==i.state,o=this.config.title||s.friendly_name||"Split system";this.$.nm.textContent=o,this.$.st.textContent=this.rt(t),this.$.mi.setAttribute("icon",e?"mdi:heat-pump":this.et(i.state,s.hvac_action)),this.$.idn.setAttribute("aria-label",`Open details for ${o}`),this.$.pw.classList.toggle("on",n),this.$.pw.disabled=e,this.$.pw.setAttribute("aria-label",e?`${o} unavailable`:`Turn ${n?"off":"on"} ${o}`),this.$.pw.setAttribute("aria-pressed",String(n));const r=this.lt();if(this.$.sg.hidden=!r,this.$.hd.classList.toggle("settings",r),this.$.ct.hidden=!1,this.$.uv.hidden=!e,this.$.uv.textContent=e?"Controls return when the controller reconnects.":"",e)return this.$.cr.hidden=!0,this.$.os.hidden=!0,this.$.as.hidden=!0,this.M(!0),void this.ht();const a=this.K(s.current_temperature),l=this.K(s.temperature),h=this.K(s.target_temp_step),{minimum:c,maximum:d}=this.dt(),u=n&&["heat","cool","auto"].includes(i.state)&&null!==l&&null!==h&&h>0;this.$.cr.hidden=!n||null===a&&!u,this.$.cr.classList.toggle("to",null===a&&u),this.$.rm.hidden=null===a,this.$.rv.textContent=this.it(a)??"",this.$.tc.hidden=!u;const p=this.v??l;if(this.$.tv.textContent=this.it(p)??"",this.$.ts.textContent=this.ut(l),this.$.decrease.disabled=!u||null!==c&&p<=c,this.$.increase.disabled=!u||null!==d&&p>=d,this.$.os.hidden=n,!n){const t=[];null!==a&&t.push(`Room ${this.it(a)}`);const i=this.gt();i&&t.push(`Resume ${this.tt(i)}`),this.$.os.textContent=t.join(" · ")||"Ready when needed"}const m=this.ft(),g=this.bt(),f=this.vt(),b=this.xt();this.$.as.hidden=!n,this.$.ma.hidden=!n||m.length<2,this.$.fa.hidden=!n||g.length<2,this.$.va.hidden=!n||0===f.length,this.$.ta.hidden=!n||!b,this.$.ma.querySelector(".al").textContent=`Mode · ${this.tt(i.state)}`,this.$.fa.querySelector(".al").textContent=`Fan · ${this.tt(s.fan_mode)}`,this.$.va.querySelector(".al").textContent=this.yt(f),this.$.ta.querySelector(".al").textContent=this.wt(),this.$.ta.classList.toggle("av",this._t().av),this.o&&!this.kt()?(this.Tt("That control is no longer available.","error"),this.M(!0)):this.o&&this.St(),this.ht()}F(){if(!this.t||!this.P)return;const t=this.Z();this.$.st.textContent=this.rt(t),this.ht(),this.o&&this.St()}ut(t){if(this.p.get("temperature")||this._){const i=this.it(t);return i?`Requesting · Current ${i}`:"Requesting"}return"Target"}ft(){const t=this.Z().attributes.hvac_modes;return Array.isArray(t)?t.filter(t=>"off"!==t&&this.ot(t)):[]}bt(){const{attributes:t}=this.Z(),i=Array.isArray(t.fan_modes)&&this.ot(t.fan_mode)?t.fan_modes.filter(t=>this.ot(t)):[],s=this.X(this.config.fan_ceiling_entity);if(!this.Y(s)||"unrestricted"===String(s.state).toLowerCase())return i;const e={quiet:0,low:1,medium:2,high:3},n=e[String(s.state).toLowerCase()];return void 0===n?i:i.filter(t=>void 0!==e[String(t).toLowerCase()]&&e[String(t).toLowerCase()]<=n)}lt(){const t=this.Z(),i=this.K(t.attributes.min_temp),s=this.K(t.attributes.max_temp),e=this.K(t.attributes.target_temp_step),n=this.X(this.config.minimum_temperature_entity),o=this.X(this.config.maximum_temperature_entity),r=this.X(this.config.fan_ceiling_entity),a=this.K(n?.state),l=this.K(o?.state),h=Array.isArray(r?.attributes?.options)?r.attributes.options:[];return!t.uv&&null!==i&&null!==s&&i<s&&null!==e&&e>0&&[n,o,r].every(t=>this.Y(t))&&null!==a&&null!==l&&a>=i&&l<=s&&a<l&&h.includes(r.state)}dt(){const t=this.Z().attributes,i=this.K(t.min_temp),s=this.K(t.max_temp),e=this.K(this.X(this.config.minimum_temperature_entity)?.state),n=this.K(this.X(this.config.maximum_temperature_entity)?.state),o=null!==e&&null!==n&&e<n&&(null===i||e>=i)&&(null===s||n<=s);return{minimum:o&&null!==i?Math.max(i,e):i,maximum:o&&null!==s?Math.min(s,n):s}}gt(){const t=this.X(this.config.last_mode_entity);return t&&this.ft().includes(t.state)?t.state:null}vt(){return[["vertical","Vertical vane",this.config.vertical_vane_entity],["horizontal","Horizontal vane",this.config.horizontal_vane_entity]].flatMap(([t,i,s])=>{const e=this.X(s),n=Array.isArray(e?.attributes?.options)?e.attributes.options.filter(t=>this.ot(t)):[];return s&&e&&"unavailable"!==String(e.state).toLowerCase()&&n.length?[{axis:t,title:i,entityId:s,state:e.state,qs:n}]:[]})}$t(t,i){return("vertical"===i?{AUTO:"Auto","↑↑":"Highest","↑":"High","—":"Centre","↓":"Low","↓↓":"Lowest",SWING:"Swing"}:{"←←":"Far left","←":"Left","|":"Centre","→":"Right","→→":"Far right","←→":"Wide",SWING:"Swing","AIRFLOW CONTROL":"Airflow control"})[t]??this.tt(t)}At(t,i){return"mode"===t.key?this.et(i):"fan"===t.key?{auto:"mdi:fan-auto",quiet:"mdi:volume-low",low:"mdi:fan-speed-1",medium:"mdi:fan-speed-2",high:"mdi:fan-speed-3"}[String(i).toLowerCase()]??"mdi:fan":"vertical"===t.axis?{AUTO:"mdi:autorenew","↑↑":"mdi:arrow-up-bold","↑":"mdi:arrow-up","—":"mdi:minus","↓":"mdi:arrow-down","↓↓":"mdi:arrow-down-bold",SWING:"mdi:swap-vertical"}[i]??"mdi:swap-vertical":"mdi:swap-horizontal"}yt(t){return 1===t.length?`Vanes · ${this.$t(t[0].state,t[0].axis)}`:t.length>1?`Vanes · V ${this.$t(t[0].state,"vertical")} · H ${this.$t(t[1].state,"horizontal")}`:"Vanes"}xt(){return Boolean(this.Y(this.X(this.config.timer_script))&&this.Y(this.X(this.config.timer_active_entity))&&this.Y(this.X(this.config.timer_deadline_entity)))}_t(){const t=this.X(this.config.timer_active_entity),i=this.X(this.config.timer_deadline_entity);if("on"===t?.state&&this.Y(i)){const t=this.K(i.attributes?.timestamp),s=null===t?Date.parse(i.state.replace(" ","T")):1e3*t;return{av:Number.isFinite(s),deadline:s}}return{av:!1,deadline:null}}wt(){const t=this._t();if(!t.av)return"Timer";const i=Math.max(0,Math.ceil((t.deadline-Date.now())/6e4));return i>=60&&i%60==0?`Timer · ${i/60} hr`:`Timer · ${i} min`}j(){const t=this._t().av;t&&!this.k?this.k=setInterval(()=>{this.$.ta?.querySelector(".al")?.replaceChildren(this.wt()),"timer"===this.o&&this.St()},3e4):!t&&this.k&&(clearInterval(this.k),this.k=null)}U(t,i){this.o!==t?(this.o=t,this.h=i,this.l="",this.u=null,this.shadowRoot.querySelectorAll("[data-panel]").forEach(t=>t.setAttribute("aria-expanded",String(t===i))),this.$.pn.hidden=!1,this.St(!0)):this.M(!0)}M(t){if(!this.t)return;const i=Boolean(this.o),s=this.h;this.o=null,this.h=null,this.l="",this.u=null,this.$.pn.hidden=!0,this.shadowRoot.querySelectorAll("[data-panel]").forEach(t=>t.setAttribute("aria-expanded","false")),t&&i&&(!s?.isConnected||s.hidden||s.disabled?this.$.idn.focus():s.focus())}J(t){const i="settings"===this.o?this.$.pb.querySelector("component-split-settings-v1"):null,s=i?.shadowRoot?[this.$.x,...i.shadowRoot.querySelectorAll('button:not([disabled]):not([tabindex="-1"]),input:not([disabled])')]:[...this.$.pn.querySelectorAll('button:not([disabled]):not([tabindex="-1"]),input:not([disabled])')];if(!s.length)return;const e=s[0],n=s.at(-1),o=this.shadowRoot.activeElement,r=i&&o===i?i.shadowRoot.activeElement:o;!t.shiftKey||r!==e&&s.includes(r)?t.shiftKey||r!==n||(t.preventDefault(),e.focus()):(t.preventDefault(),n.focus())}kt(){return"settings"===this.o?this.lt():"mode"===this.o?this.ft().length>0:"fan"===this.o?this.bt().length>0:"vanes"===this.o?this.vt().length>0:"timer"===this.o&&this.xt()}St(t=!1){if(!this.o||!this.kt())return;if("settings"===this.o){if(this.$.pt.textContent="Advanced settings",!customElements.get("component-split-settings-v1"))return this.$.pb.textContent="Loading settings…",void customElements.whenDefined("component-split-settings-v1").then(()=>{"settings"===this.o&&this.St(!0)});let i=this.$.pb.querySelector("component-split-settings-v1");return i||(i=document.createElement("component-split-settings-v1"),i.setConfig({entity:this.config.entity,minimum_entity:this.config.minimum_temperature_entity,maximum_entity:this.config.maximum_temperature_entity,fan_ceiling_entity:this.config.fan_ceiling_entity}),this.$.pb.replaceChildren(i)),i.hass=this.P,void(t&&i.focusInitial())}const i=this.u,s=this.$.pb,e=s.querySelector('input[type="number"]')?.value,n=this.Ct(),o=JSON.stringify(n);if(o===this.l)return;if(this.l=o,this.$.pt.textContent=n.title,s.replaceChildren(),"timer"===this.o)this.qt(s,e);else for(const t of n.groups)s.append(this.Lt(t));const r=i?s.querySelector(`[data-focus-key="${CSS.escape(i)}"]`):s.querySelector('[aria-selected="true"]')??s.querySelector("button");(i||t)&&queueMicrotask(()=>r?.focus())}zt(t){const i=this.p.get(t);return i?.queued?.requested??i?.requested??null}It(t,i){t.dataset.focusKey=i,t.addEventListener("focus",()=>{this.u=i})}Ct(){const t=this.Z();if("mode"===this.o)return{title:"Mode",groups:[{title:null,key:"mode",current:t.state.state,pending:this.zt("hvac"),qs:this.ft().map(t=>({value:t,label:this.tt(t)}))}]};if("fan"===this.o)return{title:"Fan",groups:[{title:null,key:"fan",current:t.attributes.fan_mode,pending:this.zt("fan"),qs:this.bt().map(t=>({value:t,label:this.tt(t)}))}]};if("vanes"===this.o)return{title:"Vanes",groups:this.vt().map(t=>({title:t.title,key:t.entityId,current:t.state,pending:this.zt(`vane:${t.entityId}`),axis:t.axis,qs:t.qs.map(i=>({value:i,label:this.$t(i,t.axis)}))}))};const i=this._t();return{title:"Off timer",active:i.av,deadline:i.deadline,pending:this.p.has("timer")}}Lt(t){const i=document.createElement("div");if(i.className="og",t.title){const s=document.createElement("div");s.className="gt",s.textContent=t.title,i.append(s)}const s=document.createElement("div");s.className="qs",s.setAttribute("role","listbox"),s.setAttribute("aria-label",t.title||this.tt(t.key));const e=t.pending,n=t.qs.some(i=>i.value===t.current);for(const[i,o]of t.qs.entries()){const r=document.createElement("button");r.type="button",r.className="o",r.dataset.key=`${t.key}|${o.value}`,this.It(r,r.dataset.key),r.setAttribute("role","option"),r.setAttribute("aria-selected",String(t.current===o.value)),r.setAttribute("aria-disabled",String(e===o.value)),r.tabIndex=t.current===o.value||!n&&0===i?0:-1;const a=document.createElement("ha-icon");if(a.className="oi",a.setAttribute("icon",this.At(t,o.value)),r.append(a,o.label),e===o.value){const t=document.createElement("ha-icon");t.setAttribute("icon","mdi:progress-clock"),r.append(t)}else if(t.current===o.value){const t=document.createElement("ha-icon");t.setAttribute("icon","mdi:check"),r.append(t)}r.addEventListener("click",()=>this.Mt(t,o)),r.addEventListener("keydown",t=>this.Pt(t,s)),s.append(r)}return i.append(s),i}Pt(t,i){if(!["ArrowDown","ArrowRight","ArrowUp","ArrowLeft","Home","End"].includes(t.key))return;t.preventDefault();const s=[...i.querySelectorAll("button:not([disabled])")];if(!s.length)return;const e=s.indexOf(t.currentTarget),n="Home"===t.key?0:"End"===t.key?s.length-1:(e+(["ArrowDown","ArrowRight"].includes(t.key)?1:-1)+s.length)%s.length;s.forEach((t,i)=>{t.tabIndex=i===n?0:-1}),s[n].focus()}Mt(t,i){t.current!==i.value&&t.pending!==i.value&&("mode"===t.key?this.Nt("hvac",{requested:i.value,label:i.label,call:()=>this.P.callService("climate","set_hvac_mode",{entity_id:this.config.entity,hvac_mode:i.value}),matches:()=>this.X(this.config.entity)?.state===i.value,closePanel:!0}):"fan"===t.key?this.Nt("fan",{requested:i.value,label:i.label,call:()=>this.P.callService("climate","set_fan_mode",{entity_id:this.config.entity,fan_mode:i.value}),matches:()=>this.X(this.config.entity)?.attributes?.fan_mode===i.value,closePanel:!0}):this.Nt(`vane:${t.key}`,{requested:i.value,label:i.label,call:()=>this.P.callService("select","select_option",{entity_id:t.key,option:i.value}),matches:()=>this.X(t.key)?.state===i.value,closePanel:!1}))}qt(t,i){const s=this.p.has("timer"),e=document.createElement("div");e.className="tpr";for(const[t,i]of[[30,"30 min"],[60,"1 hr"],[120,"2 hr"]]){const n=document.createElement("button");n.type="button";const o=document.createElement("ha-icon");o.setAttribute("icon","mdi:clock-outline"),n.append(o,i),this.It(n,`timer-preset-${t}`),n.setAttribute("aria-disabled",String(s)),n.addEventListener("click",()=>{s||this.Ot("set",t,i)}),e.append(n)}const n=document.createElement("div");n.className="tcu";const o=document.createElement("label");o.textContent="Custom minutes";const r=document.createElement("input");r.type="number",r.min="1",r.max="720",r.step="1",r.value=i||"90",this.It(r,"timer-custom-input"),o.append(r);const a=document.createElement("button");if(a.type="button",a.textContent="Start",a.setAttribute("aria-disabled",String(s)),this.It(a,"timer-custom-start"),a.addEventListener("click",()=>{if(s)return;const t=Number(r.value);if(!Number.isInteger(t)||t<1||t>720)return this.Tt("Enter a timer between 1 and 720 minutes.","error"),void r.focus();this.Ot("set",t,`${t} min`)}),n.append(o,a),t.append(e,n),this._t().av){const i=document.createElement("div");i.className="tac";const e=document.createElement("button");e.type="button",e.textContent="+30 min",e.setAttribute("aria-disabled",String(s)),this.It(e,"timer-extend"),e.addEventListener("click",()=>{s||this.Ot("extend",30,"30 more minutes")});const n=document.createElement("button");n.type="button",n.textContent="Cancel timer",n.setAttribute("aria-disabled",String(s)),this.It(n,"timer-cancel"),n.addEventListener("click",()=>{s||this.Ot("cancel",0,"timer cancellation")}),i.append(e,n),t.append(i)}}Ot(t,i,s){const e=this._t(),n="extend"===t&&null!==e.deadline?e.deadline+6e4*i:null;this.Nt("timer",{requested:t,label:s,call:()=>this.P.callService("script","turn_on",{entity_id:this.config.timer_script,variables:{operation:t,minutes:i}}),matches:()=>{const i=this._t();return"cancel"===t?!i.av:"extend"===t?i.av&&null!==n&&i.deadline>=n-5e3:i.av&&i.deadline!==e.deadline},closePanel:!0,timeout:1e4})}G(){const t=this.Z();if(t.uv)return;if("off"!==t.state.state)return void this.Rt("hvac",{requested:"off",label:"Off",call:()=>this.P.callService("climate","set_hvac_mode",{entity_id:this.config.entity,hvac_mode:"off"}),matches:()=>"off"===this.X(this.config.entity)?.state,closePanel:!0,timeout:1e4},!0);const i=this.gt();i?this.Rt("hvac",{requested:i,label:this.tt(i),call:()=>this.P.callService("climate","set_hvac_mode",{entity_id:this.config.entity,hvac_mode:i}),matches:()=>this.X(this.config.entity)?.state===i,closePanel:!1,timeout:1e4},!0):this.U("mode",this.$.pw)}Dt(t,i,s){const e=s??0,n=Math.max(0,String(i).split(".")[1]?.length??0);return Number((e+Math.round((t-e)/i)*i).toFixed(n))}Et(t){const i=this.K(t);if(null===i)return null;const{minimum:s,maximum:e}=this.dt();return Math.min(e??i,Math.max(s??i,i))}W(t){const i=this.Z().attributes,s=this.K(i.temperature),e=this.K(i.target_temp_step);if(null===s||null===e||e<=0)return;const{minimum:n}=this.dt(),o=this.v??s,r=this.Dt(o+t*e,e,n??s);this.v=this.Et(r),this.T=null,clearTimeout(this._),this.p.has("temperature")||(this._=setTimeout(()=>{this._=null,this.Vt()},300)),this.H()}Vt(){const t=this.Et(this.v);null!==t&&(this.v=t,this.Rt("temperature",{requested:t,label:this.it(t),call:()=>this.P.callService("climate","set_temperature",{entity_id:this.config.entity,temperature:t}),matches:()=>{const i=this.Et(t),s=this.K(this.X(this.config.entity)?.attributes?.temperature);return null!==i&&null!==s&&Math.abs(s-i)<.001},closePanel:!1,timeout:1e4}))}Nt(t,i){this.T=null;const s=this.p.get(t);if(s)return s.queued=i,void this.H();this.Rt(t,i)}Rt(t,i,s=!1){this.T=null;const e=this.p.get(t);if(e&&!s)return e.queued=i,void this.H();e&&this.I(e);const n=++this.m,o=Date.now(),r={...i,id:n,settleAfter:o+1800,queued:null};this.p.set(t,r),r.timeoutTimer=setTimeout(()=>this.Ht(t,n,`No confirmation for ${r.label}.`),i.timeout??8e3),r.settleTimer=setTimeout(()=>this.D(),1820),this.H(),Promise.resolve().then(()=>r.call()).then(()=>{const i=this.p.get(t);i&&i.id===n&&this.D()}).catch(()=>this.Ht(t,n,`Could not request ${r.label}.`))}D(){const t=this.Z();if(this.p.size&&t.uv){for(const t of this.p.values())this.I(t);return this.p.clear(),clearTimeout(this._),this._=null,this.v=null,void(this.T={text:"Controller disconnected before the request was confirmed.",type:"error"})}if("off"===t.state?.state){for(const[t,i]of[...this.p])("temperature"===t||"fan"===t||"timer"===t||t.startsWith("vane:"))&&(this.I(i),this.p.delete(t));clearTimeout(this._),this._=null,this.v=null}const i=Date.now();for(const[t,s]of[...this.p])i>=s.settleAfter&&s.matches()&&this.Ft(t,s.id)}Ft(t,i){const s=this.p.get(t);if(!s||s.id!==i)return;this.I(s),this.p.delete(t);const e=s.queued;if("temperature"===t){const t=this.K(this.X(this.config.entity)?.attributes?.temperature),i=this.Et(s.requested);this.v=this.Et(this.v),null!==i&&null!==this.v&&Math.abs(this.v-i)>.001?queueMicrotask(()=>this.Vt()):null!==i&&null!==t&&Math.abs(t-i)<.001&&(this.v=null)}e?queueMicrotask(()=>this.Rt(t,e)):s.closePanel&&this.o&&this.M(!0),this.i="",this.H()}Ht(t,i,s){const e=this.p.get(t);e&&e.id===i&&(this.I(e),this.p.delete(t),"temperature"===t&&(this.v=null),this.Tt(s,"error"),e.queued&&queueMicrotask(()=>this.Rt(t,e.queued)),this.i="",this.H())}I(t){clearTimeout(t.timeoutTimer),clearTimeout(t.settleTimer)}Tt(t,i="info"){this.T={text:t,type:i},this.ht()}ht(){this.t&&(this.$.fb.textContent=this.T?.text??"",this.$.fb.classList.toggle("er","error"===this.T?.type))}B(){this.dispatchEvent(new CustomEvent("hass-action",{bubbles:!0,composed:!0,detail:{config:{entity:this.config.entity,tap_action:{action:"more-info"}},action:"tap"}}))}}
+registerCard({ type: "component-split-controller-v4", element: ComponentSplitControllerV4, name: "Split-System Controller", description: "Registry-aware split-system controller with settings and timer support." });
+}
+
+// Module: src/components/favourites.js
+{
+/** ComponentFavouritesV3 — reusable Home Assistant dashboard card. */
+const { escapeHtml, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const FAVOURITES_V3_DOMAINS=new Set(["automation","button","climate","cover","fan","humidifier","input_boolean","input_button","light","lock","media_player","scene","script","select","switch","vacuum","water_heater"]),FAVOURITES_V3_INVALID=new Set(["unavailable","unknown"]);class ComponentFavouritesV3 extends HTMLElement{constructor(){super(),this.attachShadow({mode:"open"}),this._registry=null,this._registryPromise=null,this._selected=[],this._draft=[],this._originalDraft="",this._pending=new Map,this._flash=new Map,this._flashTimers=new Map,this._lastStorageSignature="",this._noticeTimer=null,this._registrySubscription=null,this._registryRefreshTimer=null,this._renderSignature="",this._editorStorageSignature="",this._connection=null}setConfig(t){const e=Array.isArray(t?.helpers)?t.helpers.filter(t=>"string"==typeof t):[],i=Array.isArray(t?.items)?t.items.slice(0,4):[];if(!e.length&&!i.length)throw new Error("helpers or items is required");this.config={title:"Favourites",max:4,show_header:e.length>0,...t,helpers:e.slice(0,4),items:i},this._build(),this._syncStored(),this._renderGrid()}set hass(t){const e=this._connection;this._hass=t,this._connection=t?.connection||null,this._built||this._build(),e!==this._connection&&(this._unsubscribeRegistryEvents(),this._subscribeRegistryEvents()),this._syncStored(),this._ensureRegistry();const i=this._gridSignature();i!==this._renderSignature&&(this._renderSignature=i,this._renderGrid()),this.$?.editor?.open&&this._updateEditorState(),this._controllerCard&&(this._controllerCard.hass=t)}getCardSize(){return 2}connectedCallback(){this._connection=this._hass?.connection||null,this._subscribeRegistryEvents(),this._ensureRegistry()}disconnectedCallback(){clearTimeout(this._noticeTimer),clearTimeout(this._registryRefreshTimer),this._registryRefreshTimer=null,this._unsubscribeRegistryEvents();for(const t of this._flashTimers.values())clearTimeout(t);this._flashTimers.clear()}_subscribeRegistryEvents(){if(!this.isConnected||this._registrySubscription||!this._connection?.subscribeEvents)return;const t=Promise.all(["entity_registry_updated","device_registry_updated","area_registry_updated"].map(e=>this._connection.subscribeEvents(()=>this._queueRegistryRefresh(),e))).then(t=>()=>{for(const e of t)e?.()});this._registrySubscription=t,t.catch(()=>{this._registrySubscription===t&&(this._registrySubscription=null)})}_unsubscribeRegistryEvents(){const t=this._registrySubscription;this._registrySubscription=null,t&&Promise.resolve(t).then(t=>t?.()).catch(()=>{})}_queueRegistryRefresh(){clearTimeout(this._registryRefreshTimer),this._registryRefreshTimer=setTimeout(()=>{this._registryRefreshTimer=null,this._registry=null,this._registryPromise=null,this._registryError=null,this._renderSignature="",this.isConnected&&this._ensureRegistry()},180)}_storageSignature(){return JSON.stringify((this.config?.helpers||[]).map(t=>this._hass?.states?.[t]?.state))}_gridSignature(){if(!this.config)return"";return JSON.stringify([this._storageSignature(),this._selected.map((t,s)=>{const e=this._record(t),i=this._companion(e);return[this._refKey(t),this._name(e),this._icon(e),e.state?.state,this._stateLabel(e),this._isActive(e),i?.state?.state,this._pending.get(s)?.label||"",this._flash.get(s)?.kind||"",this._flash.get(s)?.label||""]})])}_build(){if(this.config&&!this._built){this._built=!0,this.shadowRoot.innerHTML='\n      <style>\n        :host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}button,input{font:inherit;color:inherit}button{appearance:none;border:0;cursor:pointer}ha-card{border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}.wrap{padding:0}.head{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.heading{display:flex;align-items:center;gap:8px;min-width:0}.heading ha-icon{color:var(--primary-color);--mdc-icon-size:19px}.heading h2{margin:0;font-size:18px;line-height:1.2;font-weight:650}.edit{min-width:44px;min-height:44px;padding:0 10px;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--primary-color);display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:600}.edit:hover,.edit:focus-visible{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.edit ha-icon{--mdc-icon-size:18px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-width:448px}.item{position:relative;min-width:0;min-height:52px;display:grid;grid-template-columns:minmax(0,1fr) auto;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:var(--dashboard-card-surface,var(--card-background-color));overflow:hidden}.main{min-width:0;min-height:52px;padding:6px 8px;text-align:left;background:transparent;display:grid;grid-template-columns:32px minmax(0,1fr);align-items:center;gap:8px}.item.has-quick .main{padding-right:4px}.main:active,.quick:active{background:color-mix(in srgb,var(--primary-color) 10%,transparent)}.main:focus-visible,.quick:focus-visible,.edit:focus-visible,.dialog-button:focus-visible,.choice:focus-visible,.order:focus-visible,.remove:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px}.icon{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--primary-color)}.icon ha-icon{--mdc-icon-size:20px}.copy{min-width:0}.name,.state{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name{font-size:13px;font-weight:650}.state{margin-top:2px;font-size:13px;color:var(--secondary-text-color)}.item.active{background:var(--dashboard-active-surface,var(--card-background-color));box-shadow:inset 2px 0 0 var(--primary-color)}.item.active .icon{background:transparent;color:var(--primary-color)}.item.active .state{color:var(--primary-color);font-weight:600}.item.unavailable{opacity:.55}.quick{width:44px;min-height:52px;padding:0;border-left:1px solid var(--dashboard-card-border-color,var(--divider-color));background:transparent;color:var(--primary-color);display:grid;place-items:center}.quick ha-icon{--mdc-icon-size:21px}.item:after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;opacity:0;transform-origin:left}.item.pending:after{opacity:1;background:linear-gradient(90deg,transparent,var(--primary-color),transparent);animation:favourite-progress 1.05s linear infinite}.item.success:after{opacity:1;background:var(--success-color,#43a047)}.item.error:after{opacity:1;background:var(--error-color)}@keyframes favourite-progress{from{transform:translateX(-100%)}to{transform:translateX(100%)}}.empty,.load-error{grid-column:1/-1;min-height:44px;padding:9px 11px;border:1px dashed var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:transparent;color:var(--secondary-text-color);font-size:13px;line-height:1.35}.notice{min-height:0;margin-top:0;font-size:13px;color:var(--secondary-text-color)}.notice:not(:empty){margin-top:7px}.notice.error{color:var(--error-color)}dialog{box-sizing:border-box;border:var(--dashboard-card-border,1px solid var(--divider-color));padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}.editor{width:min(580px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 24px));border-radius:var(--dashboard-radius-dialog,8px)}.dialog-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;background:transparent;border-bottom:1px solid var(--divider-color)}.dialog-title{font-size:20px;font-weight:650}.close{width:44px;height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.editor-body{padding:14px 16px 96px}.editor-copy{font-size:13px;line-height:1.4;color:var(--secondary-text-color);margin-bottom:12px}.subheading{margin:14px 0 7px;font-size:13px;font-weight:650;color:var(--primary-text-color)}.selected{display:grid;gap:7px}.selected-row{min-height:62px;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:9px;padding:6px 7px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:var(--dashboard-card-surface,var(--card-background-color))}.selected-row .icon{background:transparent}.selected-copy{min-width:0}.selected-meta{font-size:13px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.alias{width:100%;height:44px;margin-top:3px;padding:0 8px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,8px);background:transparent;font-size:13px;outline:none}.alias:focus{border-color:var(--primary-color)}.selected-actions{display:flex;align-items:center;gap:2px}.order,.remove{width:44px;height:44px;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.order[disabled]{opacity:.3;cursor:default}.remove{color:var(--error-color)}.order ha-icon,.remove ha-icon{--mdc-icon-size:18px}.search{width:100%;min-height:46px;padding:0 13px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;outline:none}.search:focus{border-color:var(--primary-color)}.available{margin-top:8px}.group-title{padding:10px 4px 5px;font-size:13px;font-weight:650;color:var(--secondary-text-color)}.choice{width:100%;min-height:58px;padding:6px 7px;border-radius:var(--dashboard-radius-control,8px);background:transparent;text-align:left;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:9px}.choice:hover{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.choice-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.choice-meta{margin-top:2px;font-size:13px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.add{color:var(--primary-color);font-size:13px;font-weight:650;padding-right:4px}.available-empty{padding:10px 7px;color:var(--secondary-text-color);font-size:13px}.editor-actions{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 18px;background:transparent;border-top:1px solid var(--divider-color)}.count{font-size:13px;color:var(--secondary-text-color)}.action-buttons{display:flex;gap:8px}.dialog-button{min-height:44px;padding:0 13px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;font-size:13px;font-weight:650}.dialog-button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff)}.dialog-button[disabled]{opacity:.45;cursor:default}.editor-error{min-height:0;margin-top:8px;color:var(--error-color);font-size:13px}.confirm{width:min(430px,calc(100vw - 28px));border-radius:var(--dashboard-radius-dialog,8px)}.confirm-body{padding:18px}.confirm-title{font-size:18px;font-weight:650}.confirm-message{margin-top:7px;font-size:13px;line-height:1.45;color:var(--secondary-text-color)}.confirm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.controller{width:min(620px,calc(100vw - 20px));max-height:calc(100vh - 20px);border-radius:var(--dashboard-radius-dialog,8px);overflow:auto}.controller-body{padding:12px}.controller-body>*{display:block}.controller .dialog-head{border-bottom:0}@media(max-width:420px){.head{margin-bottom:6px}.edit span{display:none}.edit{padding:0}.grid{gap:8px}.main{padding:6px}.editor-body{padding:12px 12px 94px}.dialog-head{padding:12px}.editor-actions{padding:11px 12px}.selected-row{grid-template-columns:30px minmax(0,1fr) auto;gap:7px;padding:5px}.selected-actions{gap:0}.order,.remove{width:44px}.choice{padding:5px}}\n      </style>\n      <ha-card>\n        <div class="wrap">\n          <div class="head">\n            <div class="heading"><ha-icon icon="mdi:star-outline"></ha-icon><h2></h2></div>\n            <button class="edit" type="button"><ha-icon icon="mdi:pencil-outline"></ha-icon><span>Edit</span></button>\n          </div>\n          <div class="grid"></div>\n          <div class="notice" role="status" aria-live="polite"></div>\n        </div>\n      </ha-card>\n      <dialog class="editor" aria-labelledby="favourites-editor-title">\n        <div class="dialog-head"><div class="dialog-title" id="favourites-editor-title">Edit favourites</div><button class="close editor-close" type="button" aria-label="Close editor"><ha-icon icon="mdi:close"></ha-icon></button></div>\n        <div class="editor-body">\n          <div class="editor-copy">Choose up to four household controls. Their order here is their order on Home.</div>\n          <div class="subheading">Selected</div>\n          <div class="selected"></div>\n          <div class="subheading">Available controls</div>\n          <input class="search" type="search" placeholder="Search by name, room or entity" aria-label="Search available controls">\n          <div class="available"></div>\n          <div class="editor-error" role="alert"></div>\n        </div>\n        <div class="editor-actions"><div class="count"></div><div class="action-buttons"><button class="dialog-button cancel" type="button">Cancel</button><button class="dialog-button primary save" type="button">Save</button></div></div>\n      </dialog>\n      <dialog class="confirm" aria-labelledby="favourites-confirm-title">\n        <div class="confirm-body"><div class="confirm-title" id="favourites-confirm-title"></div><div class="confirm-message"></div><div class="confirm-actions"><button class="dialog-button confirm-cancel" type="button">Cancel</button><button class="dialog-button primary confirm-run" type="button">Run</button></div></div>\n      </dialog>\n      <dialog class="controller" aria-labelledby="favourites-controller-title">\n        <div class="dialog-head"><div class="dialog-title" id="favourites-controller-title">Climate</div><button class="close controller-close" type="button" aria-label="Close climate controller"><ha-icon icon="mdi:close"></ha-icon></button></div>\n        <div class="controller-body"></div>\n      </dialog>\n    ',this.$=Object.fromEntries([...this.shadowRoot.querySelectorAll("[class]")].flatMap(t=>[...t.classList].map(e=>[e,t]))),Object.assign(this.$,{editorClose:this.shadowRoot.querySelector(".editor-close"),confirmCancel:this.shadowRoot.querySelector(".confirm-cancel"),confirmRun:this.shadowRoot.querySelector(".confirm-run"),confirmTitle:this.shadowRoot.querySelector(".confirm-title"),confirmMessage:this.shadowRoot.querySelector(".confirm-message"),controllerClose:this.shadowRoot.querySelector(".controller-close"),controllerTitle:this.shadowRoot.querySelector("#favourites-controller-title"),controllerBody:this.shadowRoot.querySelector(".controller-body"),editorError:this.shadowRoot.querySelector(".editor-error")}),this.shadowRoot.querySelector("h2").textContent=this.config.title,this.$.head.hidden=!1===this.config.show_header,this.$.edit.hidden=!this.config.helpers.length,this.$.edit.addEventListener("click",()=>this._openEditor()),this.$.editorClose.addEventListener("click",()=>this.$.editor.close()),this.$.cancel.addEventListener("click",()=>this.$.editor.close()),this.$.search.addEventListener("input",()=>this._renderAvailable()),this.$.save.addEventListener("click",()=>this._save()),this.$.confirmCancel.addEventListener("click",()=>this.$.confirm.close()),this.$.controllerClose.addEventListener("click",()=>this.$.controller.close());for(const t of[this.$.editor,this.$.confirm,this.$.controller])t.addEventListener("click",e=>{e.target===t&&t.close()})}}_escape(t){return escapeHtml(t)}_domain(t){return String(t||"").split(".")[0]}_normaliseRef(t){return t&&"object"==typeof t&&[t.d,t.p,t.u].every(t=>"string"==typeof t&&t)?{v:1,d:t.d,p:t.p,u:t.u,n:"string"==typeof t.n?t.n.slice(0,64):""}:null}_parseSlot(t){if(!t||FAVOURITES_V3_INVALID.has(String(t).toLowerCase()))return null;try{return this._normaliseRef(JSON.parse(t))}catch(t){return null}}_syncStored(){if(!this.config||!this._hass||!this.config.helpers.length)return;const t=JSON.stringify(this.config.helpers.map(t=>this._hass.states?.[t]?.state));t!==this._lastStorageSignature&&(this._lastStorageSignature=t,this._selected=this.config.helpers.map(t=>this._parseSlot(this._hass.states?.[t]?.state)).filter(Boolean).slice(0,this.config.max))}async _ensureRegistry(){return this._registry||this._registryPromise||!this._hass?.connection?.sendMessagePromise||(this._registryPromise=Promise.all([this._hass.connection.sendMessagePromise({type:"config/entity_registry/list"}),this._hass.connection.sendMessagePromise({type:"config/device_registry/list"}),this._hass.connection.sendMessagePromise({type:"config/area_registry/list"})]).then(async([t,e,i])=>{const s=Array.isArray(t)?t:[],r=Array.isArray(e)?e:[],a=Array.isArray(i)?i:[],o=new Map,n=new Map;for(const t of s){const e=this._entryKey(t);e&&o.set(e,t),t.device_id&&(n.has(t.device_id)||n.set(t.device_id,[]),n.get(t.device_id).push(t))}return this._registry={entities:s,devices:new Map(r.map(t=>[t.id,t])),areas:new Map(a.map(t=>[t.area_id,t.name])),byKey:o,byDevice:n,claimed:new Set,splitSystems:new Map},await this._refreshSplitRegistry(),this._renderSignature="",this._renderGrid(),this.$?.editor?.open&&this._renderEditor(),this._registry}).catch(t=>(this._registryError=t,this._registryPromise=null,this._renderGrid(),null))),this._registryPromise}async _refreshSplitRegistry(){const t=globalThis.__componentSplitRegistryV4;if(this._registry&&t?.load&&this._hass)try{const e=await t.load(this._hass);this._registry.claimed=e?.claimed||new Set,this._registry.splitSystems=e?.systems||new Map}catch(t){this._registry.claimed=new Set,this._registry.splitSystems=new Map}}_entryKey(t){return t?.entity_id&&t.platform&&t.unique_id?`${this._domain(t.entity_id)}|${t.platform}|${t.unique_id}`:null}_refKey(t){return t?`${t.d}|${t.p}|${t.u}`:""}_refForEntry(t,e=""){return{v:1,d:this._domain(t.entity_id),p:t.platform,u:t.unique_id,n:e}}_record(t){const e=this._registry?.byKey.get(this._refKey(t))||null;return{ref:t,entry:e,state:e&&this._hass?.states?.[e.entity_id]||null}}_name(t){return t.ref?.n?.trim()||t.entry?.name||t.entry?.original_name||t.state?.attributes?.friendly_name||t.entry?.entity_id||"Favourite not found"}_icon(t){if(t.state?.attributes?.icon)return t.state.attributes.icon;return{automation:"mdi:robot-outline",button:"mdi:gesture-tap-button",climate:"mdi:thermostat",cover:"mdi:window-shutter",fan:"mdi:fan",humidifier:"mdi:air-humidifier",input_boolean:"mdi:toggle-switch-outline",input_button:"mdi:gesture-tap-button",light:"mdi:lightbulb-outline",lock:"mdi:lock-outline",media_player:"mdi:play-circle-outline",scene:"mdi:palette-outline",script:"mdi:script-text-outline",select:"mdi:format-list-bulleted",switch:"mdi:toggle-switch-outline",vacuum:"mdi:robot-vacuum",water_heater:"mdi:water-boiler"}[t.entry?this._domain(t.entry.entity_id):t.ref?.d]||"mdi:star-outline"}_companion(t){if(!t.entry?.device_id||!this._registry)return null;const e=(this._registry.byDevice.get(t.entry.device_id)||[]).filter(t=>"binary_sensor"===this._domain(t.entity_id)).map(t=>({entry:t,state:this._hass?.states?.[t.entity_id]})).filter(({state:t})=>["garage_door","door","opening"].includes(t?.attributes?.device_class));return e.find(({state:t})=>"garage_door"===t?.attributes?.device_class)||e[0]||null}_companionLabel(t){return t?.state?"on"===t.state.state?"Open":"off"===t.state.state?"Closed":"unavailable"===t.state.state?"Status unavailable":"Status unknown":null}_stateLabel(t){if(!t.entry||!t.state)return"Not found";if("unavailable"===t.state.state)return"Unavailable";if("unknown"===t.state.state)return"Status unknown";const e=this._domain(t.entry.entity_id),i=this._companion(t);if(["button","input_button"].includes(e)){const t=this._companionLabel(i);return t?`${t} · Tap to operate`:"Tap to run"}if(["automation","script"].includes(e))return"Tap to start";if("scene"===e)return"Tap to activate";if("media_player"===e){const e=t.state.attributes?.media_title,i=this._label(t.state.state);return e?`${i} · ${e}`:i}if("climate"===e){const e=t.state.attributes?.hvac_action;return this._label(e&&"idle"!==e?e:t.state.state)}return this._label(t.state.state)}_label(t){return String(t??"").replaceAll("_"," ").replace(/^./,t=>t.toUpperCase())}_isActive(t){if(!t.state||FAVOURITES_V3_INVALID.has(String(t.state.state).toLowerCase()))return!1;const e=this._domain(t.entry?.entity_id);return["light","switch","fan","input_boolean"].includes(e)?"on"===t.state.state:"media_player"===e?["playing","paused","buffering","on"].includes(t.state.state):"climate"===e?"off"!==t.state.state:"cover"===e?"closed"!==t.state.state:"lock"===e&&"unlocked"===t.state.state}_hasMediaQuick(t){return"media_player"===this._domain(t.entry?.entity_id)&&["playing","paused"].includes(t.state?.state)}_actionLabel(t){const e=this._domain(t.entry?.entity_id);return["light","switch","fan","input_boolean"].includes(e)?"on"===t.state?.state?"turn off":"turn on":["button","input_button"].includes(e)?"run":["automation","script"].includes(e)?"start":"scene"===e?"activate":"climate"===e?"open climate controls":"open details"}_renderGrid(){if(!this.$?.grid||!this.config)return;if(this.config.items.length&&!this.config.helpers.length)return void this._renderDemo();this.$.grid.replaceChildren();this.config.helpers.some(t=>{const e=this._hass?.states?.[t];return this._hass&&(!e||FAVOURITES_V3_INVALID.has(String(e.state).toLowerCase()))})?this.$.grid.innerHTML='<div class="load-error">Favourites storage is unavailable.</div>':this._registry?this._selected.length?this._selected.forEach((t,e)=>{const i=this._record(t),s=this._name(i),r=this._stateLabel(i),a=this._pending.get(e),o=this._flash.get(e),n=a?.label||o?.label||r,l=this._hasMediaQuick(i),u=!i.state||FAVOURITES_V3_INVALID.has(String(i.state.state).toLowerCase()),c=document.createElement("div");c.className=["item",l?"has-quick":"",this._isActive(i)?"active":"",u?"unavailable":"",a?"pending":"",o?.kind||""].filter(Boolean).join(" ");const d=document.createElement("button");d.type="button",d.className="main",d.setAttribute("aria-label",`${s}, ${r}, ${this._actionLabel(i)}`),u&&(d.disabled=!0,d.setAttribute("aria-disabled","true"));const h=this._domain(i.entry?.entity_id);if(["light","switch","fan","input_boolean"].includes(h)&&d.setAttribute("aria-pressed",String("on"===i.state?.state)),d.innerHTML=`<span class="icon"><ha-icon icon="${this._escape(this._icon(i))}"></ha-icon></span><span class="copy"><div class="name">${this._escape(s)}</div><div class="state">${this._escape(n)}</div></span>`,d.addEventListener("click",()=>this._activate(e)),c.append(d),l){const t=document.createElement("button");t.type="button",t.className="quick";const r="playing"===i.state.state;t.setAttribute("aria-label",`${r?"Pause":"Play"} ${s}`),t.innerHTML=`<ha-icon icon="mdi:${r?"pause":"play"}"></ha-icon>`,t.addEventListener("click",()=>this._mediaAction(e)),c.append(t)}this.$.grid.append(c)}):this.$.grid.innerHTML='<div class="empty">Add up to four everyday controls here.</div>':this.$.grid.innerHTML=`<div class="${this._registryError?"load-error":"empty"}">${this._registryError?"Favourites could not load the entity registry.":"Loading favourites…"}</div>`}_renderDemo(){this.$.grid.replaceChildren(),this.config.items.slice(0,4).forEach(t=>{const e=document.createElement("div");e.className="item",e.innerHTML=`<button class="main" type="button" aria-disabled="true"><span class="icon"><ha-icon icon="${this._escape(t.icon||"mdi:star-outline")}"></ha-icon></span><span class="copy"><div class="name">${this._escape(t.title||"Favourite")}</div><div class="state">${this._escape(t.state||"Supporting state")}</div></span></button>`,this.$.grid.append(e)})}async _activate(t){if(this._pending.has(t))return;const e=this._record(this._selected[t]);if(!e.entry||!e.state)return void this._openEditor();const i=e.entry.entity_id,s=this._domain(i);if(!FAVOURITES_V3_INVALID.has(String(e.state.state).toLowerCase()))if(["button","input_button"].includes(s))this._confirmButton(t,e);else{if(["light","switch","fan","input_boolean"].includes(s)){const s=e.state.state;this._setPending(t,"on"===s?"Turning off…":"Turning on…");try{await this._hass.callService("homeassistant","toggle",{entity_id:i}),await this._waitFor(i,t=>t!==s,9e3),this._setFlash(t,"success","on"===s?"Off":"On")}catch(e){this._setFlash(t,"error","Could not update")}return}if(["automation","script","scene"].includes(s)){const e="automation"===s?"trigger":"turn_on",r="scene"===s?"Activating…":"Starting…",a="scene"===s?"Activated":"Started";this._setPending(t,r);try{await this._hass.callService(s,e,{entity_id:i}),this._setFlash(t,"success",a)}catch(e){this._setFlash(t,"error","Could not start")}return}"climate"===s&&this._registry?.splitSystems?.has(i)?this._openSplit(e):this._moreInfo(i)}else this._moreInfo(i)}async _mediaAction(t){if(this._pending.has(t))return;const e=this._record(this._selected[t]);if(!e.entry||!e.state)return;const i=e.entry.entity_id,s="playing"===e.state.state,r=s?"media_pause":"media_play";this._setPending(t,s?"Pausing…":"Playing…");try{await this._hass.callService("media_player",r,{entity_id:i}),await this._waitFor(i,t=>s?"playing"!==t:"playing"===t,9e3),this._setFlash(t,"success",s?"Paused":"Playing")}catch(e){this._setFlash(t,"error","Could not update")}}_confirmButton(t,e){const i=this._name(e),s=this._companion(e),r=this._companionLabel(s);this.$.confirmTitle.textContent=r?`Operate ${i}?`:`Run ${i}?`,this.$.confirmMessage.textContent=r?`The current reported state is ${r.toLowerCase()}.`:"This action runs immediately and cannot be reversed from this button.",this.$.confirmRun.textContent=r?"Operate":"Run",this.$.confirmRun.onclick=()=>{this.$.confirm.close(),this._runButton(t,e)},this.$.confirm.showModal(),this.$.confirmCancel.focus()}async _runButton(t,e){const i=e.entry.entity_id,s=this._domain(i);this._setPending(t,"Sending command…");try{await this._hass.callService(s,"press",{entity_id:i}),this._setFlash(t,"success","Command sent")}catch(e){this._setFlash(t,"error","Command failed")}}_setPending(t,e){this._pending.set(t,{label:e}),this._flash.delete(t),this._renderGrid()}_setFlash(t,e,i){this._pending.delete(t),this._flash.set(t,{kind:e,label:i}),clearTimeout(this._flashTimers.get(t)),this._flashTimers.set(t,setTimeout(()=>{this._flash.delete(t),this._flashTimers.delete(t),this._renderGrid()},3200)),this._renderGrid()}_waitFor(t,e,i){return new Promise((s,r)=>{const a=Date.now(),o=setInterval(()=>{const n=this._hass?.states?.[t]?.state;e(n)?(clearInterval(o),s()):Date.now()-a>=i&&(clearInterval(o),r(new Error("State confirmation timed out")))},160)})}_moreInfo(t){openMoreInfo(this,t)}_openSplit(t){const e="component-split-controller-v4";if(!customElements.get(e))return void this._moreInfo(t.entry.entity_id);this.$.controllerTitle.textContent=this._name(t),this.$.controllerBody.replaceChildren();const i=document.createElement(e);i.setConfig({entity:t.entry.entity_id}),i.hass=this._hass,this._controllerCard=i,this.$.controllerBody.append(i),this.$.controller.showModal(),this.$.controllerClose.focus()}async _openEditor(){await this._ensureRegistry(),await this._refreshSplitRegistry(),this._editorStorageSignature=this._storageSignature(),this._draft=this._selected.map(t=>({...t})),this._originalDraft=JSON.stringify(this._draft),this.$.search.value="",this.$.editorError.textContent="",this._renderEditor(),this.$.editor.showModal(),setTimeout(()=>this.$.search.focus(),30)}_renderEditor(){this._renderSelected(),this._renderAvailable(),this._updateEditorState()}_renderSelected(){this.$.selected.replaceChildren(),this._draft.length?this._draft.forEach((t,e)=>{const i=this._record(t),s=document.createElement("div");s.className="selected-row",s.innerHTML=`<span class="icon"><ha-icon icon="${this._escape(this._icon(i))}"></ha-icon></span><span class="selected-copy"><div class="selected-meta">${this._escape(this._name({...i,ref:{...t,n:""}}))}</div><input class="alias" type="text" maxlength="64" value="${this._escape(t.n)}" placeholder="Optional shorter label" aria-label="Custom label for ${this._escape(this._name(i))}"></span><span class="selected-actions"><button class="order up" type="button" aria-label="Move ${this._escape(this._name(i))} earlier" ${0===e?"disabled":""}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="order down" type="button" aria-label="Move ${this._escape(this._name(i))} later" ${e===this._draft.length-1?"disabled":""}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="remove" type="button" aria-label="Remove ${this._escape(this._name(i))}"><ha-icon icon="mdi:close"></ha-icon></button></span>`,s.querySelector(".alias").addEventListener("input",t=>{this._draft[e].n=t.target.value.slice(0,64),this._updateEditorState()}),s.querySelector(".up").addEventListener("click",()=>this._move(e,-1)),s.querySelector(".down").addEventListener("click",()=>this._move(e,1)),s.querySelector(".remove").addEventListener("click",()=>{this._draft.splice(e,1),this._renderEditor()}),this.$.selected.append(s)}):this.$.selected.innerHTML='<div class="available-empty">No favourites selected.</div>'}_move(t,e){const i=t+e;i<0||i>=this._draft.length||([this._draft[t],this._draft[i]]=[this._draft[i],this._draft[t]],this._renderEditor())}_eligibleEntries(){if(!this._registry||!this._hass)return[];const t=new Set(this._draft.map(t=>this._refKey(t))),e=new Set(this.config.helpers);return this._registry.entities.filter(i=>{const s=this._domain(i.entity_id);return FAVOURITES_V3_DOMAINS.has(s)&&i.unique_id&&i.platform&&!i.disabled_by&&!i.hidden_by&&!i.entity_category&&this._hass.states?.[i.entity_id]&&!e.has(i.entity_id)&&!this._registry.claimed.has(i.entity_id)&&!t.has(this._entryKey(i))})}_areaName(t){if(!t)return"Missing";const e=t.device_id?this._registry?.devices.get(t.device_id):null,i=t.area_id||e?.area_id;return i&&this._registry?.areas.has(i)?this._registry.areas.get(i):["automation","scene","script"].includes(this._domain(t.entity_id))?"Routines":"Household"}_renderAvailable(){if(!this.$?.available)return;if(this.$.available.replaceChildren(),!this._registry)return void(this.$.available.innerHTML='<div class="available-empty">Loading household controls…</div>');const t=this.$.search.value.trim().toLowerCase(),e=this._eligibleEntries().map(t=>{const e=this._record(this._refForEntry(t));return{entry:t,record:e,name:this._name(e),area:this._areaName(t)}}).filter(({entry:e,name:i,area:s})=>`${i} ${s} ${e.entity_id} ${this._domain(e.entity_id)}`.toLowerCase().includes(t)).sort((t,e)=>`${t.area}\0${t.name}`.localeCompare(`${e.area}\0${e.name}`,void 0,{sensitivity:"base"}));if(!e.length)return void(this.$.available.innerHTML=`<div class="available-empty">${this._draft.length>=this.config.max?"Four favourites selected. Remove one to choose another.":"No matching household controls."}</div>`);let i="";for(const t of e){if(t.area!==i){i=t.area;const e=document.createElement("div");e.className="group-title",e.textContent=i,this.$.available.append(e)}const e=document.createElement("button");e.type="button",e.className="choice",e.disabled=this._draft.length>=this.config.max,e.innerHTML=`<span class="icon"><ha-icon icon="${this._escape(this._icon(t.record))}"></ha-icon></span><span><div class="choice-name">${this._escape(t.name)}</div><div class="choice-meta">${this._escape(`${this._label(this._domain(t.entry.entity_id))} · ${this._stateLabel(t.record)}`)}</div></span><span class="add">Add</span>`,e.addEventListener("click",()=>{this._draft.length>=this.config.max||(this._draft.push(this._refForEntry(t.entry)),this._renderEditor())}),this.$.available.append(e)}}_slotValue(t){return t?JSON.stringify(this._normaliseRef(t)):""} _updateEditorState(){const t=this.config.helpers.map((t,e)=>this._slotValue(this._draft[e]||null)).every((t,e)=>{const i=Number(this._hass?.states?.[this.config.helpers[e]]?.attributes?.max||255);return t.length<=i}),e=this.config.helpers.every(t=>{const e=this._hass?.states?.[t];return e&&!FAVOURITES_V3_INVALID.has(String(e.state).toLowerCase())}),i=JSON.stringify(this._draft)!==this._originalDraft,s=Boolean(this.$?.editor?.open&&this._editorStorageSignature&&this._editorStorageSignature!==this._storageSignature());this.$.count.textContent=`${this._draft.length} of ${this.config.max} selected`,this.$.save.disabled=!i||!t||!e||s,this.$.editorError.textContent=s?"Favourites changed on another dashboard. Close and reopen the editor before trying again.":e?t?"":"A stored favourite is too long. Shorten its custom label.":"Favourites storage is unavailable."}async _save(){if(this.$.save.disabled)return;if(this._editorStorageSignature!==this._storageSignature())return void(this._updateEditorState());const t=this.config.helpers.map(t=>this._hass.states?.[t]?.state||""),e=this.config.helpers.map((t,e)=>this._slotValue(this._draft[e]||null));this.$.save.disabled=!0,this.$.save.textContent="Saving…",this.$.editorError.textContent="";try{for(let t=0;t<this.config.helpers.length;t+=1)await this._hass.callService("input_text","set_value",{entity_id:this.config.helpers[t],value:e[t]});this._selected=this._draft.map(t=>({...t})),this._lastStorageSignature="",this._renderSignature="",this._editorStorageSignature=this._storageSignature(),this.$.editor.close(),this._renderGrid(),this._notice("Favourites saved.")}catch(e){let i=!0;for(let e=0;e<this.config.helpers.length;e+=1)try{await this._hass.callService("input_text","set_value",{entity_id:this.config.helpers[e],value:t[e]})}catch(t){i=!1}this.$.editorError.textContent=i?"Favourites could not be saved. No changes were kept.":"Favourites could not be saved, and some stored slots may have changed. Close and reopen the editor before trying again."}finally{const t=this.$.editorError.textContent;this.$.save.textContent="Save",this._updateEditorState(),t&&(this.$.editorError.textContent=t)}}_notice(t,e=!1){clearTimeout(this._noticeTimer),this.$.notice.textContent=t,this.$.notice.classList.toggle("error",e),this._noticeTimer=setTimeout(()=>{this.$.notice.textContent="",this.$.notice.classList.remove("error")},3600)}}
+registerCard({ type: "component-favourites-v3", element: ComponentFavouritesV3, name: "Favourites", description: "Registry-aware persistent household favourites with safe actions." });
+}
+
+// Module: src/components/welcome-header.js
+{
+/** ComponentWelcomeHeaderV1 — reusable Home Assistant dashboard card. */
+const { escapeHtml, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentWelcomeHeaderV1 extends HTMLElement{
+  static getGridOptions(){return{columns:12,rows:"auto"}}
+  constructor(){super();this.attachShadow({mode:"open"});this.config=null;this._hass=null;this._timer=null;this._signature=""}
+  setConfig(config){
+    this.config={weather_entity:"weather.forecast_home",...config};
+    if(!this.config.weather_entity)throw new Error("weather_entity is required");
+    this._signature="";this._render();
+  }
+  set hass(hass){this._hass=hass;this._render()}
+  connectedCallback(){this._schedule();this._render()}
+  disconnectedCallback(){clearTimeout(this._timer);this._timer=null}
+  getCardSize(){return 1}
+  _schedule(){
+    clearTimeout(this._timer);
+    const delay=60000-Date.now()%60000+100;
+    this._timer=setTimeout(()=>{this._signature="";this._render();this._schedule()},delay);
+  }
+  _escape(value){return escapeHtml(value)}
+  _locale(){const locale=this._hass?.locale?.language||navigator.language||"en-AU";return locale==="en"?"en-AU":locale}
+  _timeZone(){return this._hass?.config?.time_zone||undefined}
+  _number(value,digits=0){
+    const n=Number(value);if(!Number.isFinite(n))return null;
+    return new Intl.NumberFormat(this._locale(),{maximumFractionDigits:digits,minimumFractionDigits:Number.isInteger(n)?0:Math.min(1,digits)}).format(n);
+  }
+  _openWeather(){
+    openMoreInfo(this,this.config.weather_entity);
+  }
+  _render(){
+    if(!this.config)return;
+    const now=new Date(),state=this._hass?.states?.[this.config.weather_entity],attrs=state?.attributes||{},zone=this._timeZone();
+    const temperature=this._number(attrs.temperature,1),cloud=this._number(attrs.cloud_coverage,0);
+    const temperatureText=temperature===null?"—":temperature+(attrs.temperature_unit||"°C");
+    const cloudText=cloud===null?"Cloud —":"Cloud "+cloud+"%";
+    const time=new Intl.DateTimeFormat(this._locale(),{hour:"numeric",minute:"2-digit",timeZone:zone}).format(now);
+    const signature=JSON.stringify([Math.floor(now.getTime()/60000),state?.state,attrs.temperature,attrs.temperature_unit,attrs.cloud_coverage,zone]);
+    if(signature===this._signature)return;this._signature=signature;
+    this.shadowRoot.innerHTML="<style>:host{display:block;min-width:0}*{box-sizing:border-box}button{font:inherit}ha-card{border:0;box-shadow:none;background:transparent;color:var(--primary-text-color)}.row{min-height:32px;padding:0 2px;display:flex;align-items:center;justify-content:space-between;gap:12px}.time{min-width:0;white-space:nowrap;color:var(--secondary-text-color);font-size:14px;line-height:1.2;font-weight:400}.weather{appearance:none;border:0;min-height:32px;padding:0;background:transparent;color:var(--secondary-text-color);font-size:13px;line-height:1.2;font-weight:400;white-space:nowrap;cursor:pointer;text-align:right}.weather:hover{text-decoration:underline}.weather:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:6px}@media(max-width:520px){.row{gap:8px}.time{font-size:13px}.weather{font-size:12px}}@media(max-width:350px){.row{gap:6px}.time{font-size:12px}.weather{font-size:11px}}</style><ha-card><div class=\"row\"><span class=\"time\">"+this._escape(time)+"</span><button class=\"weather\" type=\"button\" aria-label=\"Outside "+this._escape(temperatureText)+", "+this._escape(cloudText)+". Open weather details.\">"+this._escape(temperatureText+" · "+cloudText)+"</button></div></ha-card>"
+    this.shadowRoot.querySelector(".weather")?.addEventListener("click",()=>this._openWeather());
+  }
+}
+registerCard({ type: "component-welcome-header-v1", element: ComponentWelcomeHeaderV1, name: "Welcome Header", description: "Compact live weather and home-time header." });
+}
+
+// Module: src/components/wled-controller.js
+{
+/** ComponentWledControllerV1 — reusable Home Assistant dashboard card. */
+const {
+  openMoreInfo,
+  registerCard,
+  WLED_HD,
+  WLED_DOMAIN,
+  WLED_INVALID,
+  WLED_NAME,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentWledControllerV1 extends HTMLElement{
+  static getGridOptions(){return{columns:12,rows:'auto'}}
+  constructor(){
+    super();
+    this.attachShadow({mode:'open'});
+    this.c=null;this.h=null;this.d=null;this.b=null;this.unsub=null;this.loading=false;
+    this.shadowRoot.innerHTML=`<style>
+      :host{display:block;min-width:0}*{box-sizing:border-box}button,select,input{font:inherit;color:inherit}
+      ha-card{display:block;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);background:var(--dashboard-card-surface,var(--card-background-color));box-shadow:none;color:var(--primary-text-color)}
+      .head{min-height:58px;padding:8px 8px 7px 10px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:9px}
+      .ico{width:34px;height:34px;display:grid;place-items:center;color:var(--secondary-text-color)}.ico ha-icon{--mdc-icon-size:20px}.on .ico{color:var(--primary-color)}
+      .identity{appearance:none;border:0;background:transparent;min-width:0;padding:0;text-align:left;cursor:pointer}.name,.status{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name{font-size:13px;line-height:1.25;font-weight:500}.status{margin-top:3px;font-size:12px;line-height:1.25;color:var(--secondary-text-color)}
+      .power,.action,.close{appearance:none;border:1px solid var(--divider-color);background:transparent;border-radius:var(--dashboard-radius-control,8px);cursor:pointer}.power{width:40px;height:40px;display:grid;place-items:center;color:var(--secondary-text-color)}.power ha-icon{--mdc-icon-size:18px}.on .power{color:var(--primary-color);background:color-mix(in srgb,var(--primary-color) 8%,transparent)}
+      .body{padding:0 10px 10px;display:grid;gap:8px}.slider-row{display:grid;grid-template-columns:74px minmax(0,1fr) 38px;align-items:center;gap:8px}.label{font-size:11px;color:var(--secondary-text-color)}.value{font-size:11px;text-align:right;color:var(--secondary-text-color);font-variant-numeric:tabular-nums}
+      input[type=range]{width:100%;min-width:0;accent-color:var(--primary-color)}
+      .actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}.action{min-height:32px;padding:0 9px;display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--secondary-text-color)}.action ha-icon{--mdc-icon-size:15px}.action:hover,.action:focus-visible{color:var(--primary-text-color);background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}
+      dialog{width:min(620px,calc(100vw - 24px));max-height:min(760px,calc(100dvh - 24px));padding:0;margin:auto;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,10px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22));overflow:hidden}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.16));backdrop-filter:blur(3px)}
+      .sheet{display:flex;flex-direction:column;max-height:min(760px,calc(100dvh - 24px))}.sheet-head{min-height:54px;padding:6px 7px 6px 14px;display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--divider-color)}.sheet-head ha-icon{--mdc-icon-size:18px;color:var(--secondary-text-color)}.sheet-title{min-width:0;flex:1}.sheet-name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sheet-state{margin-top:2px;font-size:11.5px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.close{width:40px;height:40px;display:grid;place-items:center;color:var(--secondary-text-color);border-color:transparent}.close ha-icon{--mdc-icon-size:18px}
+      .sheet-body{overflow:auto;overscroll-behavior:contain;padding:12px 14px max(14px,env(safe-area-inset-bottom));display:grid;gap:16px}.section{display:grid;gap:8px}.section-title{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:500;color:var(--secondary-text-color)}.section-title:after{content:'';height:1px;background:var(--divider-color);flex:1}
+      .preset-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.preset-btn{appearance:none;min-height:38px;padding:6px 9px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--primary-text-color);text-align:left;font-size:12px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.preset-btn:hover,.preset-btn:focus-visible{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.preset-btn.active{border-color:color-mix(in srgb,var(--primary-color) 55%,var(--divider-color));background:color-mix(in srgb,var(--primary-color) 8%,transparent);color:var(--primary-color)}
+      .fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.field{display:grid;gap:4px;min-width:0}.field>span{font-size:11px;color:var(--secondary-text-color);padding-left:2px}select{width:100%;height:38px;min-width:0;padding:0 28px 0 9px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,8px);background:var(--card-background-color);font-size:12px;outline:none}
+      .fine{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.fine-card{min-width:0;padding:8px 9px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,8px)}.fine-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}.fine-head span,.fine-head output{font-size:11px;color:var(--secondary-text-color)}.fine-head output{font-variant-numeric:tabular-nums}
+      .native{display:flex;justify-content:flex-end}.native .action{min-height:36px}
+      :is(button,select,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}button:disabled,select:disabled,input:disabled{opacity:.45;cursor:default}
+      @media(max-width:520px){dialog{width:100vw;max-width:100vw;height:88dvh;max-height:88dvh;margin:auto 0 0;border-width:1px 0 0;border-radius:var(--dashboard-radius-dialog,8px) var(--dashboard-radius-dialog,8px) 0 0}.sheet{height:88dvh;max-height:88dvh}.sheet-body{padding:10px 12px max(18px,env(safe-area-inset-bottom))}.preset-grid{grid-template-columns:1fr}.fields,.fine{grid-template-columns:1fr}.body{padding-left:9px;padding-right:9px}.head{padding-left:8px}.slider-row{grid-template-columns:68px minmax(0,1fr) 36px}.actions{justify-content:stretch}.actions .action{flex:1;justify-content:center}}
+    </style><ha-card><div class="head"><span class="ico"><ha-icon icon="mdi:led-strip-variant"></ha-icon></span><button class="identity" type="button"><span class="name">WLED</span><span class="status">Loading…</span></button><button class="power" type="button" aria-label="Toggle WLED"><ha-icon icon="mdi:power"></ha-icon></button></div><div class="body"><div class="slider-row"><span class="label">Brightness</span><input class="brightness" type="range" min="0" max="255" step="1"><output class="brightness-value value">—</output></div><div class="actions"><button class="action presets" type="button"><ha-icon icon="mdi:bookmark-multiple-outline"></ha-icon><span>Presets</span></button><button class="action colour" type="button"><ha-icon icon="mdi:palette-outline"></ha-icon><span>Colour</span></button><button class="action advanced" type="button"><ha-icon icon="mdi:tune-variant"></ha-icon><span>Advanced</span></button></div></div></ha-card><dialog><div class="sheet"><div class="sheet-head"><ha-icon icon="mdi:led-strip-variant"></ha-icon><span class="sheet-title"><div class="sheet-name">WLED</div><div class="sheet-state"></div></span><button class="close" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="sheet-body"><section class="section presets-section"><div class="section-title">Presets</div><div class="preset-grid"></div></section><section class="section"><div class="section-title">Effect</div><div class="fields"><label class="field"><span>Effect</span><select class="effect"></select></label><label class="field"><span>Palette</span><select class="palette"></select></label></div></section><section class="section"><div class="section-title">Animation</div><div class="fine"><label class="fine-card"><span class="fine-head"><span>Speed</span><output class="speed-value">—</output></span><input class="speed" type="range" min="0" max="255" step="1"></label><label class="fine-card"><span class="fine-head"><span>Intensity</span><output class="intensity-value">—</output></span><input class="intensity" type="range" min="0" max="255" step="1"></label></div></section><div class="native"><button class="action native-colour" type="button"><ha-icon icon="mdi:palette-outline"></ha-icon><span>Colour & white controls</span></button></div></div></div></dialog>`;
+    this.head=this.shadowRoot.querySelector('.head');this.nameEl=this.shadowRoot.querySelector('.name');this.statusEl=this.shadowRoot.querySelector('.status');this.sheetName=this.shadowRoot.querySelector('.sheet-name');this.sheetState=this.shadowRoot.querySelector('.sheet-state');
+    this.power=this.shadowRoot.querySelector('.power');this.identity=this.shadowRoot.querySelector('.identity');this.brightness=this.shadowRoot.querySelector('.brightness');this.brightnessValue=this.shadowRoot.querySelector('.brightness-value');this.presetsBtn=this.shadowRoot.querySelector('.presets');this.colour=this.shadowRoot.querySelector('.colour');this.advanced=this.shadowRoot.querySelector('.advanced');this.dialog=this.shadowRoot.querySelector('dialog');this.presetGrid=this.shadowRoot.querySelector('.preset-grid');this.presetsSection=this.shadowRoot.querySelector('.presets-section');this.effect=this.shadowRoot.querySelector('.effect');this.palette=this.shadowRoot.querySelector('.palette');this.speed=this.shadowRoot.querySelector('.speed');this.speedValue=this.shadowRoot.querySelector('.speed-value');this.intensity=this.shadowRoot.querySelector('.intensity');this.intensityValue=this.shadowRoot.querySelector('.intensity-value');this.nativeColour=this.shadowRoot.querySelector('.native-colour');
+    this.power.onclick=()=>this.call('light','toggle',this.b?.main?[this.b.main]:[]);
+    this.identity.onclick=()=>this.openAdvanced(false);
+    this.presetsBtn.onclick=()=>this.openAdvanced(true);
+    this.advanced.onclick=()=>this.openAdvanced(false);
+    this.colour.onclick=()=>this.moreInfo(this.b?.effectLights?.[0]||this.b?.main);
+    this.nativeColour.onclick=()=>this.moreInfo(this.b?.effectLights?.[0]||this.b?.main);
+    this.shadowRoot.querySelector('.close').onclick=()=>this.dialog.close();
+    this.dialog.addEventListener('click',e=>{if(e.target===this.dialog)this.dialog.close()});
+    this.brightness.oninput=()=>this.brightnessValue.textContent=this.pct(this.brightness.value);
+    this.brightness.onchange=()=>{const v=Number(this.brightness.value);v<=0?this.call('light','turn_off',this.b?.main?[this.b.main]:[]):this.call('light','turn_on',this.b?.main?[this.b.main]:[],{brightness:v})};
+    this.effect.onchange=()=>this.effect.value&&this.call('light','turn_on',this.b?.effectLights||[],{effect:this.effect.value});
+    this.palette.onchange=()=>this.palette.value&&this.call('select','select_option',this.b?.palettes||[],{option:this.palette.value});
+    this.speed.oninput=()=>this.speedValue.textContent=this.speed.value;this.speed.onchange=()=>this.call('number','set_value',this.b?.speeds||[],{value:Number(this.speed.value)});
+    this.intensity.oninput=()=>this.intensityValue.textContent=this.intensity.value;this.intensity.onchange=()=>this.call('number','set_value',this.b?.intensities||[],{value:Number(this.intensity.value)});
+  }
+  setConfig(c){if(!c?.entity)throw new Error('WLED controller requires entity');this.c={...c};this.d=null;this.b=null;this.load()}
+  set hass(h){this.h=h;this.unsub||this.subscribe();this.load();if(this.b)this.render()}
+  connectedCallback(){this.subscribe();this.load()}
+  disconnectedCallback(){this.unsub?.();this.unsub=null}
+  getCardSize(){return 2}
+  subscribe(){if(this.unsub||!this.h||!WLED_HD.REG?.subscribe)return;this.unsub=WLED_HD.REG.subscribe(this.h,d=>{this.d=d;this.load(true)})}
+  async load(force=false){if(this.loading||!this.h||!this.c||!WLED_HD.REG?.load)return;this.loading=true;try{this.d=this.d||await WLED_HD.REG.load(this.h,force);this.b=this.bundle();this.render()}finally{this.loading=false}}
+  bundle(){const all=this.d?.entities||[],entry=all.find(e=>e.entity_id===this.c.entity),deviceId=this.c.device_id||entry?.device_id,siblings=(deviceId?this.d?.byDevice?.get(deviceId):[])||[],rows=siblings.filter(e=>e?.platform==='wled'&&!e.disabled_by&&this.h.states[e.entity_id]),lightRows=rows.filter(e=>WLED_DOMAIN(e.entity_id)==='light'),main=lightRows.find(e=>e.entity_id===this.c.entity)||lightRows.find(e=>WLED_NAME(e)==='main')||lightRows[0],effectRows=lightRows.filter(e=>Array.isArray(this.h.states[e.entity_id]?.attributes?.effect_list)),selectRows=rows.filter(e=>WLED_DOMAIN(e.entity_id)==='select'),numberRows=rows.filter(e=>WLED_DOMAIN(e.entity_id)==='number'),match=(e,re)=>re.test(`${e.entity_id} ${e.original_name||''} ${e.name||''}`),preset=selectRows.find(e=>match(e,/\bpreset\b/i)),palettes=selectRows.filter(e=>match(e,/color.?palette|colour.?palette/i)),speeds=numberRows.filter(e=>match(e,/\bspeed\b/i)),intensities=numberRows.filter(e=>match(e,/\bintensity\b/i)),dev=this.d?.devices?.find(x=>x.id===deviceId),deviceName=dev?.name_by_user||dev?.name||this.h.states[main?.entity_id]?.attributes?.friendly_name||'WLED';return{deviceId,deviceName,main:main?.entity_id||this.c.entity,effectLights:effectRows.map(e=>e.entity_id),preset:preset?.entity_id||null,palettes:palettes.map(e=>e.entity_id),speeds:speeds.map(e=>e.entity_id),intensities:intensities.map(e=>e.entity_id)}}
+  pct(v){const n=Number(v);return Number.isFinite(n)?`${Math.round(n/255*100)}%`:'—'}
+  same(ids,read){const vals=ids.map(id=>read(this.h.states[id])).filter(v=>v!==undefined&&v!==null&&!WLED_INVALID.has(String(v).toLowerCase()));if(!vals.length)return null;return vals.every(v=>String(v)===String(vals[0]))?vals[0]:'Mixed'}
+  setOptions(el,options,current,emptyLabel){const opts=Array.isArray(options)?options:[],valid=current!=null&&current!=='Mixed'&&opts.includes(String(current));el.replaceChildren();if(!valid){const o=document.createElement('option');o.value='';o.textContent=current==='Mixed'?'Mixed':emptyLabel;o.selected=true;el.append(o)}for(const v of opts){const o=document.createElement('option');o.value=String(v);o.textContent=String(v);o.selected=valid&&String(v)===String(current);el.append(o)}el.disabled=!opts.length}
+  renderPresets(options,current){this.presetGrid.replaceChildren();if(!options.length){const x=document.createElement('span');x.className='label';x.textContent='No presets configured';this.presetGrid.append(x);return}for(const value of options){const b=document.createElement('button');b.type='button';b.className=`preset-btn ${String(current)===String(value)?'active':''}`;b.textContent=String(value);b.title=String(value);b.onclick=async()=>{await this.call('select','select_option',this.b?.preset?[this.b.preset]:[],{option:value});this.dialog.close()};this.presetGrid.append(b)}}
+  render(){if(!this.h||!this.b)return;const main=this.h.states[this.b.main],on=main?.state==='on',brightness=on?Number(main?.attributes?.brightness??0):0,effect=this.same(this.b.effectLights,s=>s?.attributes?.effect),palette=this.same(this.b.palettes,s=>s?.state),speed=this.same(this.b.speeds,s=>s?.state),intensity=this.same(this.b.intensities,s=>s?.state),presetState=this.b.preset?this.h.states[this.b.preset]:null,presetOptions=presetState?.attributes?.options||[];this.head.classList.toggle('on',on);this.nameEl.textContent=this.b.deviceName;const status=on?[this.pct(brightness),effect&&effect!=='Mixed'?effect:null,palette&&palette!=='Mixed'?palette:null].filter(Boolean).join(' · '):'Off';this.statusEl.textContent=status;this.sheetName.textContent=this.b.deviceName;this.sheetState.textContent=status;this.brightness.disabled=!main;this.brightness.value=String(Math.max(0,Math.min(255,Number.isFinite(brightness)?brightness:0)));this.brightnessValue.textContent=this.pct(this.brightness.value);const fxState=this.b.effectLights.map(id=>this.h.states[id]).find(Boolean),fxOptions=fxState?.attributes?.effect_list||[],paletteState=this.b.palettes.map(id=>this.h.states[id]).find(Boolean),paletteOptions=paletteState?.attributes?.options||[];this.renderPresets(presetOptions,presetState?.state);this.setOptions(this.effect,fxOptions,effect,'Choose effect');this.setOptions(this.palette,paletteOptions,palette,'Choose palette');this.setRange(this.speed,this.speedValue,this.b.speeds,speed);this.setRange(this.intensity,this.intensityValue,this.b.intensities,intensity);this.power.disabled=!main;this.presetsBtn.disabled=!presetOptions.length;this.colour.disabled=!this.b.effectLights.length;this.nativeColour.disabled=!this.b.effectLights.length}
+  setRange(input,output,ids,value){const s=ids.map(id=>this.h.states[id]).find(Boolean),a=s?.attributes||{};input.min=String(a.min??0);input.max=String(a.max??255);input.step=String(a.step??1);const n=value==='Mixed'?Number(s?.state):Number(value);input.value=String(Number.isFinite(n)?n:Number(input.min));input.disabled=!ids.length;output.textContent=value==='Mixed'?'Mixed':ids.length?String(Math.round(Number(input.value))):'—'}
+  openAdvanced(presets=false){if(!this.dialog||!this.b)return;if(!this.dialog.open)this.dialog.showModal();queueMicrotask(()=>{if(presets)this.presetsSection?.scrollIntoView({block:'start'});else this.shadowRoot.querySelector('.close')?.focus()})}
+  async call(domain,service,ids,data={}){const targets=[...new Set((ids||[]).filter(Boolean))];if(!this.h||!targets.length)return;await Promise.all(targets.map(entity_id=>this.h.callService(domain,service,{entity_id,...data}))) }
+  moreInfo(entityId){openMoreInfo(this,entityId)}
+}
+registerCard({ type: "component-wled-controller-v1", element: ComponentWledControllerV1, name: "WLED Controller", description: "Reusable WLED controller with advanced settings." });
+}
+
+// Module: src/patches/wled-registry-integration.js
+{
+/** Registers WLED as a dynamic dashboard control without changing its UI. */
+const { WLED_HD, WLED_DOMAIN, WLED_NAME } =
+  globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+if(!WLED_HD.__wledComponentPatchV1){
+  WLED_HD.__wledComponentPatchV1=true;
+  const oldUi=WLED_HD.uiEntry;
+  WLED_HD.uiEntry=e=>{if(!oldUi?.(e))return false;if(e?.platform!=='wled')return true;if(WLED_DOMAIN(e.entity_id)!=='light')return false;const n=WLED_NAME(e),u=String(e.unique_id||'');return n==='main'||!/_\d+$/.test(u)};
+  const oldControl=WLED_HD.controlConfig;
+  WLED_HD.controlConfig=(e,s,d,h,split)=>e?.platform==='wled'&&WLED_DOMAIN(e.entity_id)==='light'?{type:'custom:component-wled-controller-v1',entity:e.entity_id,device_id:e.device_id}:oldControl?.(e,s,d,h,split)||null;
+  WLED_HD.REG?.refresh?.();
+}
+}
+
+// Module: src/patches/wled-controller-current-behaviour.js
+{
+/** Preserves the current WLED controller runtime patch from Home Assistant. */
+customElements.whenDefined('component-wled-controller-v1').then(()=>{
+  const C=customElements.get('component-wled-controller-v1');
+  if(!C||C.prototype.__stateAwareV3)return;
+  C.prototype.__stateAwareV3=true;
+
+  const usable=(h,id)=>{
+    const s=h?.states?.[id];
+    return Boolean(s&&!['unknown','unavailable'].includes(String(s.state).toLowerCase()));
+  };
+
+  const originalRender=C.prototype.render;
+  C.prototype.render=function(){
+    originalRender?.call(this);
+    if(!this.h||!this.b)return;
+
+    const main=this.h.states[this.b.main];
+    const state=String(main?.state||'unavailable').toLowerCase();
+    const on=state==='on';
+    const controllable=state==='on'||state==='off';
+    const body=this.shadowRoot?.querySelector('.body');
+
+    if(body)body.style.display=on?'grid':'none';
+    if(this.power)this.power.disabled=!controllable;
+
+    if(!on&&this.dialog?.open)this.dialog.close();
+
+    if(this.statusEl){
+      if(state==='unavailable')this.statusEl.textContent='Unavailable';
+      else if(state==='unknown')this.statusEl.textContent='Unknown';
+      else if(state==='off')this.statusEl.textContent='Off';
+    }
+
+    if(this.sheetState){
+      if(state==='unavailable')this.sheetState.textContent='Unavailable';
+      else if(state==='unknown')this.sheetState.textContent='Unknown';
+      else if(state==='off')this.sheetState.textContent='Off';
+    }
+
+    const presetOk=Boolean(this.b.preset&&usable(this.h,this.b.preset));
+    const effectOk=(this.b.effectLights||[]).some(id=>usable(this.h,id));
+    const paletteOk=(this.b.palettes||[]).some(id=>usable(this.h,id));
+    const speedOk=(this.b.speeds||[]).some(id=>usable(this.h,id));
+    const intensityOk=(this.b.intensities||[]).some(id=>usable(this.h,id));
+
+    if(this.presetsBtn)this.presetsBtn.disabled=!on||!presetOk;
+    if(this.colour)this.colour.disabled=!on||!effectOk;
+    if(this.nativeColour)this.nativeColour.disabled=!on||!effectOk;
+    if(this.effect)this.effect.disabled=!on||!effectOk;
+    if(this.palette)this.palette.disabled=!on||!paletteOk;
+    if(this.speed)this.speed.disabled=!on||!speedOk;
+    if(this.intensity)this.intensity.disabled=!on||!intensityOk;
+    if(this.advanced)this.advanced.disabled=!on||!(presetOk||effectOk||paletteOk||speedOk||intensityOk);
+  };
+
+  const originalOpenAdvanced=C.prototype.openAdvanced;
+  C.prototype.openAdvanced=function(presets=false){
+    const state=String(this.h?.states?.[this.b?.main]?.state||'unavailable').toLowerCase();
+    if(state!=='on')return;
+    return originalOpenAdvanced?.call(this,presets);
+  };
+});
+}
+
+// Module: src/patches/room-navigation-current-behaviour.js
+{
+/** Preserves the current room-navigation runtime patch from Home Assistant. */
+customElements.whenDefined('component-room-navigation-v1').then(()=>{
+  const Card=customElements.get('component-room-navigation-v1');
+  const P=Card?.prototype;
+  if(!P||P.__presenceGlowV1)return;
+  P.__presenceGlowV1=true;
+
+  P._presenceDetected=function(){
+    if(this.c?.demo_presence===true)return true;
+    if(this.c?.demo_presence===false)return false;
+    const explicit=this.c?.presence_entity;
+    if(explicit){
+      const state=this._hass?.states?.[explicit];
+      return !!state&&['on','home','occupied','present','detected'].includes(String(state.state).toLowerCase());
+    }
+    const states=typeof this._entities==='function'?this._entities():[];
+    return states.some(state=>{
+      if(!state?.entity_id?.startsWith('binary_sensor.')||state.state!=='on')return false;
+      const cls=String(state.attributes?.device_class||'').toLowerCase();
+      const identity=(state.entity_id+' '+String(state.attributes?.friendly_name||'')).toLowerCase();
+      return cls==='occupancy'||cls==='presence'||identity.includes('presence')||identity.includes('occupancy')||identity.includes('mmwave')||identity.includes('mmwave');
+    });
+  };
+
+  P._presenceHue=function(){
+    const key=String(this.c?.presence_colour_key||this.c?.area||this.c?.name||'room');
+    let hash=2166136261;
+    for(let i=0;i<key.length;i++){hash^=key.charCodeAt(i);hash=Math.imul(hash,16777619)}
+    return ((hash>>>0)%360+360)%360;
+  };
+
+  const original=P._render;
+  P._render=function(){
+    original.call(this);
+    const card=this.shadowRoot?.querySelector('ha-card');
+    if(!card)return;
+    card.style.transition='border-color 220ms ease, box-shadow 220ms ease';
+    if(!this._presenceDetected()){
+      card.style.removeProperty('border-color');
+      card.style.removeProperty('box-shadow');
+      card.removeAttribute('data-presence');
+      return;
+    }
+    const hue=this._presenceHue();
+    card.setAttribute('data-presence','true');
+    card.style.borderColor=`hsl(${hue} 82% 68% / .62)`;
+    card.style.boxShadow=`0 0 0 1px hsl(${hue} 82% 68% / .18), 0 0 14px 2px hsl(${hue} 82% 64% / .14)`;
+  };
+});
+}
+
+globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "1.0.0", components: 28 });

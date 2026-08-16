@@ -1,0 +1,167 @@
+[
+  {
+    "order": 1,
+    "file": "src/shared/core.js"
+  },
+  {
+    "order": 2,
+    "file": "src/shared/registry-cache.js"
+  },
+  {
+    "order": 3,
+    "file": "src/shared/dashboard-style-tokens.js"
+  },
+  {
+    "order": 4,
+    "file": "src/shared/split-system-registry.js"
+  },
+  {
+    "order": 5,
+    "file": "src/shared/dashboard-runtime.js"
+  },
+  {
+    "order": 6,
+    "file": "src/shared/wled-runtime.js"
+  },
+  {
+    "order": 7,
+    "file": "src/shared/update-styles.js"
+  },
+  {
+    "order": 8,
+    "file": "src/support/split-settings.js"
+  },
+  {
+    "order": 9,
+    "file": "src/support/device-aware-auto-entities.js"
+  },
+  {
+    "order": 10,
+    "file": "src/support/empty-state-v2.js"
+  },
+  {
+    "order": 11,
+    "file": "src/components/single-kpi.js"
+  },
+  {
+    "order": 12,
+    "file": "src/components/three-stat-summary.js"
+  },
+  {
+    "order": 13,
+    "file": "src/components/status-row.js"
+  },
+  {
+    "order": 14,
+    "file": "src/components/progress-target.js"
+  },
+  {
+    "order": 15,
+    "file": "src/components/action-card.js"
+  },
+  {
+    "order": 16,
+    "file": "src/components/list-ranking.js"
+  },
+  {
+    "order": 17,
+    "file": "src/components/notice.js"
+  },
+  {
+    "order": 18,
+    "file": "src/components/device-discovery.js"
+  },
+  {
+    "order": 19,
+    "file": "src/components/quick-navigation.js"
+  },
+  {
+    "order": 20,
+    "file": "src/components/navigation-tile.js"
+  },
+  {
+    "order": 21,
+    "file": "src/components/control-row.js"
+  },
+  {
+    "order": 22,
+    "file": "src/components/media-row.js"
+  },
+  {
+    "order": 23,
+    "file": "src/components/section-separator.js"
+  },
+  {
+    "order": 24,
+    "file": "src/components/room-sheet.js"
+  },
+  {
+    "order": 25,
+    "file": "src/components/household-attention.js"
+  },
+  {
+    "order": 26,
+    "file": "src/components/room-navigation.js"
+  },
+  {
+    "order": 27,
+    "file": "src/components/history-graph.js"
+  },
+  {
+    "order": 28,
+    "file": "src/components/context-strip.js"
+  },
+  {
+    "order": 29,
+    "file": "src/components/metric-pair.js"
+  },
+  {
+    "order": 30,
+    "file": "src/components/update-summary.js"
+  },
+  {
+    "order": 31,
+    "file": "src/components/update-row.js"
+  },
+  {
+    "order": 32,
+    "file": "src/components/empty-state.js"
+  },
+  {
+    "order": 33,
+    "file": "src/components/energy-day-selector.js"
+  },
+  {
+    "order": 34,
+    "file": "src/components/text-effect.js"
+  },
+  {
+    "order": 35,
+    "file": "src/components/split-system-controller.js"
+  },
+  {
+    "order": 36,
+    "file": "src/components/favourites.js"
+  },
+  {
+    "order": 37,
+    "file": "src/components/welcome-header.js"
+  },
+  {
+    "order": 38,
+    "file": "src/components/wled-controller.js"
+  },
+  {
+    "order": 39,
+    "file": "src/patches/wled-registry-integration.js"
+  },
+  {
+    "order": 40,
+    "file": "src/patches/wled-controller-current-behaviour.js"
+  },
+  {
+    "order": 41,
+    "file": "src/patches/room-navigation-current-behaviour.js"
+  }
+]
+
