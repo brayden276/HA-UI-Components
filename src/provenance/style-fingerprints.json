@@ -1,7 +1,7 @@
 {
   "algorithm": "fnv1a-64-utf16",
   "normalisation_version": 1,
-  "fragment_count": 37,
+  "fragment_count": 46,
   "fingerprints": [
     {
       "kind": "shared-style",
@@ -218,7 +218,60 @@
       "hash": "fce4212d7ac8c825",
       "count": 1,
       "example_source": "05-metric-pair.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "ac6e48639cfe4dd2",
+      "count": 1,
+      "example_source": "component-garage-door-controller-v1"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "5d849afbcbcee8b6",
+      "count": 1,
+      "example_source": "component-camera-controller-v1"
+    },
+    {
+      "kind": "runtime-style",
+      "hash": "6acc8bd77b9afdc7",
+      "count": 1,
+      "example_source": "split-profiles-ui.js"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "4da8df6f34d44673",
+      "count": 1,
+      "example_source": "dashboard-preference-editor-v3"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "e6acf9b654128f22",
+      "count": 1,
+      "example_source": "component-smart-collection-v3"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "92edf3dbb36cd25b",
+      "count": 1,
+      "example_source": "component-household-directory-v3"
+    },
+    {
+      "kind": "runtime-style",
+      "hash": "f6db785421029379",
+      "count": 1,
+      "example_source": "component-favourites-minimal-v1"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "bb422db84fe7335a",
+      "count": 1,
+      "example_source": "component-room-directory-v4"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "c0485d663bf4162d",
+      "count": 1,
+      "example_source": "component-home-overview-v4"
     }
   ]
 }
-

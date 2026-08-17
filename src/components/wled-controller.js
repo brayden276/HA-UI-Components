@@ -69,4 +69,4 @@ class ComponentWledControllerV1 extends HTMLElement{
   async call(domain,service,ids,data={}){const targets=[...new Set((ids||[]).filter(Boolean))];if(!this.h||!targets.length)return;await Promise.all(targets.map(entity_id=>this.h.callService(domain,service,{entity_id,...data}))) }
   moreInfo(entityId){openMoreInfo(this,entityId)}
 }
-registerCard({ type: "component-wled-controller-v1", element: ComponentWledControllerV1, name: "WLED Controller", description: "Reusable WLED controller with advanced settings." });
+registerCard({ type: "component-wled-controller-v1", element: ComponentWledControllerV1, name: "WLED Controller V1", description: "Minimal WLED control with advanced settings sheet." });

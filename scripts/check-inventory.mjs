@@ -41,6 +41,13 @@ const expected = [
   ["component-household-attention-v1", "ComponentHouseholdAttentionV1"],
   ["component-welcome-header-v1", "ComponentWelcomeHeaderV1"],
   ["component-wled-controller-v1", "ComponentWledControllerV1"],
+  ["component-garage-door-controller-v1", "ComponentGarageDoorControllerV1"],
+  ["component-camera-controller-v1", "ComponentCameraControllerV1"],
+  ["component-smart-collection-v3", "ComponentSmartCollectionV3"],
+  ["component-household-directory-v3", "ComponentHouseholdDirectoryV3"],
+  ["component-favourites-minimal-v1", "ComponentFavouritesMinimalV1"],
+  ["component-room-directory-v4", "ComponentRoomDirectoryV4"],
+  ["component-home-overview-v4", "ComponentHomeOverviewV4"],
 ];
 
 const componentEntries = manifest.filter((entry) =>
@@ -66,6 +73,14 @@ for (const entry of manifest) {
 
   for (const match of source.matchAll(
     /registerCard\(\{\s*type:\s*["']([^"']+)["'][\s\S]*?element:\s*([A-Za-z0-9_$]+)/g,
+  )) {
+    registrations.set(match[1], [
+      ...(registrations.get(match[1]) ?? []),
+      { element: match[2], file: entry.file },
+    ]);
+  }
+  for (const match of source.matchAll(
+    /if\(!customElements\.get\('([^']+)'\)\)customElements\.define\('\1',([A-Za-z0-9_$]+)\);window\.customCards=/g,
   )) {
     registrations.set(match[1], [
       ...(registrations.get(match[1]) ?? []),
@@ -101,10 +116,9 @@ if (lastShared >= firstComponent || firstPatch <= firstComponent) {
   throw new Error("Bundle dependency order is invalid");
 }
 
-if (!bundle.includes("components: 28")) {
-  throw new Error("Bundle metadata does not declare all 28 components");
+if (!bundle.includes("components: 35")) {
+  throw new Error("Bundle metadata does not declare all 35 components");
 }
 
 console.log(`Inventory check passed: ${expected.length} components`);
 console.log(`Module syntax and bundle-presence check passed: ${manifest.length} modules`);
-

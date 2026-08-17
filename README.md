@@ -6,11 +6,11 @@ The library turns the dashboard's inline JavaScript resources into one reusable 
 
 ## Scope
 
-- All 28 distinct `custom:` card types from the Components dashboard are included.
+- All 28 distinct `custom:` card types from the Components dashboard, two specialised device controllers, and five Home dashboard composition cards are included.
 - Every public card has its own descriptively named source module.
 - Shared registration, escaping, navigation, registry, Update, split-system and WLED logic is centralised under `src/shared/`.
 - The original component CSS and visual behaviour are preserved. No component was restyled.
-- Required supporting runtime modules and the current WLED and room-navigation patches are bundled.
+- Required supporting runtime modules and the current WLED, garage-door, camera and room-navigation patches are bundled.
 - Native Home Assistant `heading` cards are not duplicated because they are built into Home Assistant and require no custom resource.
 - Creating this repository did not change Home Assistant, its dashboards, entities or registered resources.
 
@@ -46,8 +46,9 @@ See [docs/components.md](docs/components.md) for a configured example of every c
 | Context and metrics | `component-context-strip-v3`, `metric-pair-card-v3`, `component-single-kpi-v2`, `component-three-stat-v2`, `component-status-row-v2`, `component-progress-v2` |
 | Charts and time | `component-energy-day-selector-v1`, `component-history-graph-v2` |
 | Actions and lists | `component-action-v2`, `component-list-v2`, `component-notice-v2`, `component-text-effect-v1` |
+| Home composition | `component-home-overview-v4`, `component-favourites-minimal-v1`, `component-smart-collection-v3`, `component-room-directory-v4`, `component-household-directory-v3` |
 | Home navigation | `component-quick-nav-v2`, `component-nav-tile-v2`, `component-room-navigation-v1`, `component-section-separator-v2`, `component-room-sheet-v2` |
-| Home controls | `component-favourites-v3`, `component-control-row-v2`, `component-split-controller-v4`, `component-media-row-v2`, `component-wled-controller-v1` |
+| Home controls | `component-favourites-v3`, `component-control-row-v2`, `component-split-controller-v4`, `component-media-row-v2`, `component-wled-controller-v1`, `component-garage-door-controller-v1`, `component-camera-controller-v1` |
 | System state | `component-update-summary-v3`, `component-update-row-v3`, `component-empty-state-v3`, `component-device-discovery-v2`, `component-household-attention-v1`, `component-welcome-header-v1` |
 
 ## Existing inline resources
@@ -57,10 +58,10 @@ The bundle guards custom-element registration, so it can be loaded while the cur
 ## Repository structure
 
 - `dist/ha-component-library.js` — the single file HACS installs.
-- `src/components/` — one descriptively named module for each of the 28 public cards.
+- `src/components/` — one descriptively named module for each of the 35 public cards.
 - `src/shared/` — shared primitives, registry caches, CSS tokens and controller runtimes.
-- `src/support/` — internal elements required by the public cards.
-- `src/patches/` — the current WLED and room-navigation compatibility patches.
+- `src/support/` — internal elements required by the public cards, including the Home preference editor.
+- `src/patches/` — the current WLED, garage-door, camera and room-navigation integration/compatibility patches.
 - `src/provenance/` — style fingerprints captured before source reorganisation.
 - `scripts/assemble.mjs` — deterministic bundle assembly with no third-party dependencies.
 - `scripts/check-all.mjs` — syntax, inventory, style-preservation and isolated load-order validation.

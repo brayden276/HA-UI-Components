@@ -109,6 +109,13 @@ const expected = [
   "component-household-attention-v1",
   "component-welcome-header-v1",
   "component-wled-controller-v1",
+  "component-garage-door-controller-v1",
+  "component-camera-controller-v1",
+  "component-smart-collection-v3",
+  "component-household-directory-v3",
+  "component-favourites-minimal-v1",
+  "component-room-directory-v4",
+  "component-home-overview-v4",
 ];
 
 const missingElements = expected.filter((type) => !definitions.has(type));
@@ -131,4 +138,3 @@ if (context.__HA_COMPONENT_LIBRARY__?.components !== expected.length) {
 console.log(
   "Isolated load-order check passed: " + expected.length + " public components",
 );
-

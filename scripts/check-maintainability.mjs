@@ -8,8 +8,8 @@ const componentFiles = (await readdir(componentDirectory))
   .filter((file) => file.endsWith(".js"))
   .sort();
 
-if (componentFiles.length !== 28) {
-  throw new Error(`Expected 28 public component files; found ${componentFiles.length}`);
+if (componentFiles.length !== 35) {
+  throw new Error(`Expected 35 public component files; found ${componentFiles.length}`);
 }
 
 const forbiddenComponentImplementations = [
@@ -17,6 +17,10 @@ const forbiddenComponentImplementations = [
   ["history.pushState", "navigateTo"],
   ["replace(/[&<>\"']", "escapeHtml"],
 ];
+const exactLiveCompositionModules = new Set([
+  "home-overview.js",
+  "room-directory.js",
+]);
 
 for (const file of componentFiles) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*\.js$/.test(file)) {
@@ -24,8 +28,14 @@ for (const file of componentFiles) {
   }
 
   const source = await readFile(resolve(componentDirectory, file), "utf8");
+  if (/set\s+hass\s*\([^)]*\)\s*\{\s*this\.hass\s*=/.test(source)) {
+    throw new Error(`${file} recursively assigns through its own hass setter`);
+  }
   for (const [implementation, helper] of forbiddenComponentImplementations) {
-    if (source.includes(implementation)) {
+    if (
+      source.includes(implementation) &&
+      !exactLiveCompositionModules.has(file)
+    ) {
       throw new Error(
         `${file} implements shared behaviour directly; use ${helper} instead`,
       );

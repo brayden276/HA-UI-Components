@@ -1,6 +1,6 @@
 # Component catalogue
 
-These examples cover all 28 custom card types found on the Components dashboard. They use the existing configuration API and do not require inline JavaScript.
+These examples cover all 35 public custom cards in the library, including the specialised device controllers and composition cards used by the current Home dashboard. They use the existing configuration API and do not require inline JavaScript.
 
 Values such as entity IDs, device IDs and navigation paths are examples; replace them with IDs from the target Home Assistant instance.
 
@@ -226,6 +226,77 @@ title: Room name
 
 This preserves the current room-sheet preview component exactly.
 
+## Home dashboard composition
+
+These registry-aware cards reproduce the current Home dashboard without storing dashboard state in the card. They require the standard HACS Bubble Card and Mushroom frontend resources, because discovered device controls use those existing card types.
+
+### Home overview
+
+```yaml
+type: custom:component-home-overview-v4
+weather_entity: weather.forecast_home
+base_path: /home-control
+current_dashboard: home-control
+favourites_helpers:
+  - input_text.dashboard_favourite_1
+  - input_text.dashboard_favourite_2
+  - input_text.dashboard_favourite_3
+  - input_text.dashboard_favourite_4
+```
+
+This composes the current Favourites, Active now, Rooms and Household sections. The configured helper IDs persist the favourite selections; the card does not create or alter helpers.
+
+### Smart control collection
+
+```yaml
+type: custom:component-smart-collection-v3
+mode: all
+title: Controls
+editable: true
+pref_key: home-control.controls.v2
+```
+
+Supported modes are `all`, `active`, `area`, `media` and `sound`. It discovers eligible registry entities, selects specialised split and garage controllers where applicable, and saves ordering/visibility preferences in Home Assistant frontend user data.
+
+### Room directory
+
+```yaml
+type: custom:component-room-directory-v4
+mode: home
+title: Rooms
+pref_key: home-control.rooms.v2
+base_path: /home-control
+navigation_path: /home-control/rooms
+```
+
+Room tiles are derived from Home Assistant Areas. Selecting a tile opens its responsive control sheet; the existing room preference editor and occupancy/presence glow remain available.
+
+### Household directory
+
+```yaml
+type: custom:component-household-directory-v3
+pref_key: home-control.household.v2
+base_path: /home-control
+current_dashboard: home-control
+```
+
+This discovers media and control views, visible dashboards and To-do entities, with per-user ordering and visibility preferences.
+
+### Minimal favourites
+
+```yaml
+type: custom:component-favourites-minimal-v1
+helpers:
+  - input_text.dashboard_favourite_1
+  - input_text.dashboard_favourite_2
+  - input_text.dashboard_favourite_3
+  - input_text.dashboard_favourite_4
+max: 4
+title: Favourites
+```
+
+This is the Home presentation of `component-favourites-v3`: the same live entity actions and editable persistent slots with the exact Home typography.
+
 ## Household controls
 
 ### Favourites
@@ -268,6 +339,18 @@ title: Living Room Split
 
 The bundled registry runtime preserves automatic discovery of associated vane, limit, last-mode and timer helpers using the existing naming and area conventions. The card also accepts the existing explicit entity override keys.
 
+The current saved-profile control is included. It becomes available when all five `input_text` helpers below exist for the split system area (or the explicit `profile_area_id`):
+
+```text
+input_text.<area_id>_split_profile_1
+input_text.<area_id>_split_profile_2
+input_text.<area_id>_split_profile_3
+input_text.<area_id>_split_profile_4
+input_text.<area_id>_split_profile_5
+```
+
+Profiles retain the live dashboard behaviour: create, edit, delete and apply up to five named mode, target-temperature, fan and vane combinations. The helpers are not created by the card and must accept up to 255 characters.
+
 ### Media row
 
 ```yaml
@@ -283,11 +366,33 @@ This preserves the current component-library media-row behaviour.
 
 ```yaml
 type: custom:component-wled-controller-v1
-entity: light.garage_wled_main
+entity: light.garage_wled_gledopto_main
 device_id: replace_with_device_registry_id
 ```
 
 The shared registry runtime and current WLED patch are bundled, including WLED entity discovery, presets/effects and the current control behaviour.
+
+### Garage-door controller
+
+```yaml
+type: custom:component-garage-door-controller-v1
+entity: binary_sensor.garage_door_status
+control_entity: button.garage_door_trigger
+availability_entity: binary_sensor.garage_door_controller_status
+confirmation_timeout: 30000
+```
+
+`entity` is the reed-switch state, while `control_entity` is the momentary button that operates the door. The card requires a second press before dispatching the command and confirms the requested state change before clearing its pending status. `availability_entity` and `confirmation_timeout` are optional.
+
+### Camera controller
+
+```yaml
+type: custom:component-camera-controller-v1
+entity: camera.garage_main_stream
+device_id: replace_with_camera_device_registry_id
+```
+
+The card discovers the other available ONVIF entities on the configured device. It opens the preferred main or sub stream, shows motion/person detection, toggles device switches, and asks for confirmation before running maintenance buttons. The smart-collection integration automatically supplies this configuration for each physical ONVIF camera.
 
 ## System and household state
 

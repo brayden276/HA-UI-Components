@@ -23,10 +23,9 @@ for (const entry of manifest) {
 }
 
 output +=
-  'globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "1.0.0", components: 28 });\n';
+  'globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "1.0.0", components: 35 });\n';
 
 const destination = resolve(root, "dist/ha-component-library.js");
 await mkdir(dirname(destination), { recursive: true });
 await writeFile(destination, output, "utf8");
 console.log(`Wrote ${destination}`);
-

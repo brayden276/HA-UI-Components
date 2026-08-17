@@ -82,7 +82,7 @@ const customElements = {
 };
 const document = {
   head: new MockNode("head"),
-  createElement: (name) => new MockNode(name),
+  createElement: (name) => definitions.has(name) ? new (definitions.get(name))() : new MockNode(name),
   getElementById: () => null,
 };
 class MockResizeObserver { observe() {} disconnect() {} }
@@ -92,7 +92,7 @@ const context = {
   CSS: { escape: String }, CustomEvent: MockEvent, Event: MockEvent,
   HTMLElement: MockHTMLElement, ResizeObserver: MockResizeObserver,
   clearInterval, clearTimeout, console, customElements, document,
-  history: { pushState() {} }, navigator: { language: "en-AU" },
+  history: { pushState() {}, replaceState() {} }, location: { hash: "", pathname: "/", search: "" }, navigator: { language: "en-AU" },
   queueMicrotask, setInterval, setTimeout,
 };
 context.window = context;
@@ -120,7 +120,7 @@ const configurations = {
   "component-nav-tile-v2": {},
   "component-room-navigation-v1": { area: "Smoke", navigation_path: "#smoke" },
   "component-control-row-v2": {},
-  "component-split-controller-v4": { entity: "climate.smoke" },
+  "component-split-controller-v4": { entity: "climate.smoke", profile_area_id: "smoke" },
   "component-media-row-v2": {},
   "component-section-separator-v2": {},
   "component-room-sheet-v2": {},
@@ -132,6 +132,13 @@ const configurations = {
   "component-household-attention-v1": { demo: true },
   "component-welcome-header-v1": { weather_entity: "weather.smoke" },
   "component-wled-controller-v1": { entity: "light.smoke" },
+  "component-garage-door-controller-v1": { entity: "binary_sensor.smoke_garage_door", control_entity: "button.smoke_garage_door_trigger" },
+  "component-camera-controller-v1": { entity: "camera.smoke_main_stream" },
+  "component-smart-collection-v3": {},
+  "component-household-directory-v3": {},
+  "component-favourites-minimal-v1": { items: [{ title: "Smoke" }] },
+  "component-room-directory-v4": {},
+  "component-home-overview-v4": {},
 };
 
 const failures = [];

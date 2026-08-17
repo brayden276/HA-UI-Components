@@ -41,130 +41,190 @@
   },
   {
     "order": 11,
-    "file": "src/components/single-kpi.js"
+    "file": "src/support/dashboard-preference-editor.js"
   },
   {
     "order": 12,
-    "file": "src/components/three-stat-summary.js"
+    "file": "src/components/single-kpi.js"
   },
   {
     "order": 13,
-    "file": "src/components/status-row.js"
+    "file": "src/components/three-stat-summary.js"
   },
   {
     "order": 14,
-    "file": "src/components/progress-target.js"
+    "file": "src/components/status-row.js"
   },
   {
     "order": 15,
-    "file": "src/components/action-card.js"
+    "file": "src/components/progress-target.js"
   },
   {
     "order": 16,
-    "file": "src/components/list-ranking.js"
+    "file": "src/components/action-card.js"
   },
   {
     "order": 17,
-    "file": "src/components/notice.js"
+    "file": "src/components/list-ranking.js"
   },
   {
     "order": 18,
-    "file": "src/components/device-discovery.js"
+    "file": "src/components/notice.js"
   },
   {
     "order": 19,
-    "file": "src/components/quick-navigation.js"
+    "file": "src/components/device-discovery.js"
   },
   {
     "order": 20,
-    "file": "src/components/navigation-tile.js"
+    "file": "src/components/quick-navigation.js"
   },
   {
     "order": 21,
-    "file": "src/components/control-row.js"
+    "file": "src/components/navigation-tile.js"
   },
   {
     "order": 22,
-    "file": "src/components/media-row.js"
+    "file": "src/components/control-row.js"
   },
   {
     "order": 23,
-    "file": "src/components/section-separator.js"
+    "file": "src/components/media-row.js"
   },
   {
     "order": 24,
-    "file": "src/components/room-sheet.js"
+    "file": "src/components/section-separator.js"
   },
   {
     "order": 25,
-    "file": "src/components/household-attention.js"
+    "file": "src/components/room-sheet.js"
   },
   {
     "order": 26,
-    "file": "src/components/room-navigation.js"
+    "file": "src/components/household-attention.js"
   },
   {
     "order": 27,
-    "file": "src/components/history-graph.js"
+    "file": "src/components/room-navigation.js"
   },
   {
     "order": 28,
-    "file": "src/components/context-strip.js"
+    "file": "src/components/history-graph.js"
   },
   {
     "order": 29,
-    "file": "src/components/metric-pair.js"
+    "file": "src/components/context-strip.js"
   },
   {
     "order": 30,
-    "file": "src/components/update-summary.js"
+    "file": "src/components/metric-pair.js"
   },
   {
     "order": 31,
-    "file": "src/components/update-row.js"
+    "file": "src/components/update-summary.js"
   },
   {
     "order": 32,
-    "file": "src/components/empty-state.js"
+    "file": "src/components/update-row.js"
   },
   {
     "order": 33,
-    "file": "src/components/energy-day-selector.js"
+    "file": "src/components/empty-state.js"
   },
   {
     "order": 34,
-    "file": "src/components/text-effect.js"
+    "file": "src/components/energy-day-selector.js"
   },
   {
     "order": 35,
-    "file": "src/components/split-system-controller.js"
+    "file": "src/components/text-effect.js"
   },
   {
     "order": 36,
-    "file": "src/components/favourites.js"
+    "file": "src/components/split-system-controller.js"
   },
   {
     "order": 37,
-    "file": "src/components/welcome-header.js"
+    "file": "src/components/favourites.js"
   },
   {
     "order": 38,
-    "file": "src/components/wled-controller.js"
+    "file": "src/components/welcome-header.js"
   },
   {
     "order": 39,
-    "file": "src/patches/wled-registry-integration.js"
+    "file": "src/components/wled-controller.js"
   },
   {
     "order": 40,
-    "file": "src/patches/wled-controller-current-behaviour.js"
+    "file": "src/components/garage-door-controller.js"
   },
   {
     "order": 41,
-    "file": "src/patches/room-navigation-current-behaviour.js"
+    "file": "src/components/camera-controller.js"
   },
   {
     "order": 42,
+    "file": "src/components/smart-collection.js"
+  },
+  {
+    "order": 43,
+    "file": "src/components/household-directory.js"
+  },
+  {
+    "order": 44,
+    "file": "src/components/favourites-minimal.js"
+  },
+  {
+    "order": 45,
+    "file": "src/components/room-directory.js"
+  },
+  {
+    "order": 46,
+    "file": "src/components/home-overview.js"
+  },
+  {
+    "order": 47,
+    "file": "src/patches/split-profiles-core.js"
+  },
+  {
+    "order": 48,
+    "file": "src/patches/split-profiles-ui.js"
+  },
+  {
+    "order": 49,
+    "file": "src/patches/wled-registry-integration.js"
+  },
+  {
+    "order": 50,
+    "file": "src/patches/wled-controller-current-behaviour.js"
+  },
+  {
+    "order": 51,
+    "file": "src/patches/room-navigation-current-behaviour.js"
+  },
+  {
+    "order": 52,
+    "file": "src/patches/garage-door-device-dedup.js"
+  },
+  {
+    "order": 53,
+    "file": "src/patches/camera-controller-integration.js"
+  },
+  {
+    "order": 54,
+    "file": "src/patches/camera-controller-current-behaviour.js"
+  },
+  {
+    "order": 55,
     "file": "src/patches/runtime-reliability.js"
+  },
+  {
+    "order": 56,
+    "file": "src/patches/home-editor-portal.js"
+  },
+  {
+    "order": 57,
+    "file": "src/patches/room-directory-presence-glow.js"
   }
 ]

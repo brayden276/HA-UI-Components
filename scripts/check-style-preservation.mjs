@@ -39,6 +39,20 @@ for (const { file, source } of sources) {
       value: normalise(match[1]),
     });
   }
+  for (const match of source.matchAll(/style\.textContent\s*=\s*`([\s\S]*?)`;/g)) {
+    fragments.push({
+      kind: "runtime-style",
+      source: file,
+      value: normalise(match[1]),
+    });
+  }
+  for (const match of source.matchAll(/s\.textContent='([\s\S]*?)';r\.append\(s\)/g)) {
+    fragments.push({
+      kind: "runtime-style",
+      source: file,
+      value: normalise(match[1]),
+    });
+  }
 }
 
 const namedPatterns = [
@@ -95,6 +109,4 @@ for (const expected of baseline.fingerprints) {
 console.log(
   `Style preservation check passed: ${baseline.fragment_count} original fragments`,
 );
-
-
 
