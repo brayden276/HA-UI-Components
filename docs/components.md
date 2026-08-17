@@ -4,6 +4,17 @@ These examples cover all 28 custom card types found on the Components dashboard.
 
 Values such as entity IDs, device IDs and navigation paths are examples; replace them with IDs from the target Home Assistant instance.
 
+## Capability model
+
+The catalogue contains both live Home Assistant integrations and reusable visual primitives:
+
+- Entity- or registry-aware cards document an `entity`, helper, area, device or navigation option below and react to Home Assistant state.
+- Input-driven cards render the configured labels, values and rows exactly as supplied. They are suitable for dashboards that calculate or inject those values elsewhere.
+- `component-history-graph-v2`, `component-nav-tile-v2`, `component-control-row-v2`, `component-media-row-v2` and `component-room-sheet-v2` preserve the Components dashboard's preview behaviour. Their apparent controls are local demonstrations rather than Home Assistant service calls.
+- Options named `demo` or `demo_presence` are intended for the Components dashboard only. Omit them for normal live use.
+
+This distinction prevents a preview component from being mistaken for a live control when it is reused on another dashboard.
+
 ## Context and metrics
 
 ### Context strip

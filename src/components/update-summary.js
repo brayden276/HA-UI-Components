@@ -31,6 +31,11 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
     return 1;
   }
 
+  disconnectedCallback() {
+    window.clearTimeout(this.messageTimer);
+    this.messageTimer = null;
+  }
+
   _all() {
     if (!this.h) return [];
     const ids = Array.isArray(this.c.entities)
@@ -154,4 +159,3 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
   }
 }
 registerCard({ type: "component-update-summary-v3", element: ComponentUpdateSummaryV3, name: "Update Summary", description: "Reusable update summary with live update support." });
-

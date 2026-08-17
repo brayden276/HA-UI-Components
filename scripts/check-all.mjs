@@ -9,6 +9,7 @@ const checks = [
   ["scripts/check-maintainability.mjs"],
   ["scripts/check-style-preservation.mjs"],
   ["scripts/check-load-order.mjs"],
+  ["scripts/check-runtime-contracts.mjs"],
 ];
 
 for (const args of checks) {

@@ -1,5 +1,5 @@
 /** ComponentContextStripV3 — reusable Home Assistant dashboard card. */
-const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentContextStripV3 extends HTMLElement{
   constructor(){super();this.attachShadow({mode:'open'})}
   setConfig(c){this.c={left_text:'Left context',center_1_label:'Primary metric',center_1_value:'00%',center_2_label:'Secondary metric',center_2_value:'00%',center_3_label:'Tertiary metric',center_3_value:'00%',right_text:'Right context',...(c||{})};this._render()}
@@ -13,7 +13,6 @@ button:active{transform:scale(.997)}button:focus-visible{outline:2px solid var(-
 .mid{justify-self:center;display:flex;align-items:center;justify-content:center;gap:18px;min-width:0;color:var(--secondary-text-color)}.item{display:flex;align-items:baseline;gap:4px}.lab{font-weight:500}.val{font-weight:600;color:var(--primary-text-color)}
 @media(max-width:900px){button{gap:10px;padding:11px 12px;font-size:11px}.mid{gap:10px}.item{gap:3px}}
 @media(max-width:650px){button{font-size:11px;gap:6px;padding:10px}.mid{gap:7px}}
-</style><ha-card><button type="button"><span class="phase">${CtxEsc(this.c.left_text)}</span><span class="mid">${[1,2,3].map(i=>`<span class="item"><span class="lab">${CtxEsc(this.c[`center_${i}_label`])}</span><span class="val">${CtxEsc(this.c[`center_${i}_value`])}</span></span>`).join('')}</span><span class="event">${CtxEsc(this.c.right_text)}</span></button></ha-card>`}
+</style><ha-card><button type="button"><span class="phase">${escapeHtml(this.c.left_text)}</span><span class="mid">${[1,2,3].map(i=>`<span class="item"><span class="lab">${escapeHtml(this.c[`center_${i}_label`])}</span><span class="val">${escapeHtml(this.c[`center_${i}_value`])}</span></span>`).join('')}</span><span class="event">${escapeHtml(this.c.right_text)}</span></button></ha-card>`}
 }
 registerCard({ type: "component-context-strip-v3", element: ComponentContextStripV3, name: "Context Strip", description: "Reusable context and metric strip component." });
-

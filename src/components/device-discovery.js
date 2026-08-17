@@ -1,5 +1,10 @@
 /** ComponentDeviceDiscoveryV2 — reusable Home Assistant dashboard card. */
-const { escapeHtml, navigateTo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const {
+  PRESENTATIONAL_CARD_STYLES,
+  escapeHtml,
+  navigateTo,
+  registerCard,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentDeviceDiscoveryV2 extends HTMLElement {
   constructor() {
     super();
@@ -35,6 +40,8 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
 
   disconnectedCallback() {
     clearInterval(this.timer);
+    this.timer = null;
+    this.started = false;
   }
 
   getCardSize() {
@@ -140,7 +147,7 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
   }
 
   styles() {
-    return `${B}
+    return `${PRESENTATIONAL_CARD_STYLES}
       .card { padding: 4px 14px; }
       .summary,
       .state {

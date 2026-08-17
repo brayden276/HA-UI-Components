@@ -37,7 +37,7 @@ support_value: 12.4 kWh
 support_label: generated today
 ```
 
-See [docs/components.md](docs/components.md) for a configured example of every card.
+See [docs/components.md](docs/components.md) for a configured example of every card and [AUDIT.md](AUDIT.md) for the component-by-component review and validation record.
 
 ## Included cards
 

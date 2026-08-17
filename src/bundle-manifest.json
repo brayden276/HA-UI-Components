@@ -162,6 +162,9 @@
   {
     "order": 41,
     "file": "src/patches/room-navigation-current-behaviour.js"
+  },
+  {
+    "order": 42,
+    "file": "src/patches/runtime-reliability.js"
   }
 ]
-
