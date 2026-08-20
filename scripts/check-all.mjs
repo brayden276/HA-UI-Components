@@ -10,6 +10,7 @@ const checks = [
   ["scripts/check-style-preservation.mjs"],
   ["scripts/check-load-order.mjs"],
   ["scripts/check-runtime-contracts.mjs"],
+  ["scripts/check-release-contract.mjs"],
 ];
 
 for (const args of checks) {

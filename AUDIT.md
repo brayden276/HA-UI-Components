@@ -2,7 +2,7 @@
 
 Audit date: 17 August 2026
 
-Scope: the 28 public custom cards shown on the Home Assistant Components dashboard, specialised physical-device controllers, and the current Home dashboard composition cards. Existing CSS and visual behaviour were treated as locked. The review covered registration, isolated loading, configuration handling, HTML escaping, Home Assistant integration points, timers, observers, disconnect/reconnect behaviour, documentation and distributable presence.
+Scope: the 28 public custom cards shown on the Home Assistant Components dashboard, the Solar dashboard cards, specialised physical-device controllers, and the current Home dashboard composition cards. Existing CSS and visual behaviour were treated as locked. The review covered registration, isolated loading, configuration handling, HTML escaping, Home Assistant integration points, recorder/weather service calls, timers, observers, disconnect/reconnect behaviour, documentation and distributable presence.
 
 ## Findings resolved
 
@@ -52,10 +52,12 @@ Scope: the 28 public custom cards shown on the Home Assistant Components dashboa
 | `component-device-discovery-v2` | Fixed | Shared style dependency and reconnect polling corrected. |
 | `component-household-attention-v1` | Passed | Live registry/state path and explicit demo mode retained. |
 | `component-welcome-header-v1` | Passed | Weather entity and greeting configuration remain reusable. |
+| `solar-daylight-card-v7` | Passed | Sun state, hourly weather forecast, cloud checkpoints and sun more-info action retain the live Solar dashboard behaviour. |
+| `energy-history-card-v3` | Passed | Recorder statistics, ten-minute bucketing, calendar-day channel updates, signed grid strip, pointer tooltip and legend more-info actions retain the live Solar dashboard behaviour. |
 
 ## Validation
 
-- The prior distributable continues to cover the original 28 components. The seven additional public card sources, Home composition support, specialised controller patches and Split profile patches were syntax checked, and their exact live style fragments were added to the preservation baseline.
-- The inventory, load-order and runtime-contract checks now cover all 35 public component classes, ready for the next authorised bundle generation.
+- The prior distributable continues to cover the original 28 components. The Solar cards, Home composition support, specialised controller patches and Split profile patches were syntax checked, and the live Solar style fragments were retained in their new source modules.
+- The inventory, load-order and runtime-contract checks now cover all 37 public component classes, ready for the next authorised bundle generation.
 - Live Home Assistant smoke render: `component-context-strip-v3` and `component-device-discovery-v2` rendered successfully after the compatibility resource loaded.
 - No bundle generation, build, project start or migration generation was performed.

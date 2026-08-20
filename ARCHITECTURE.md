@@ -26,7 +26,7 @@ Every public component:
 4. Keeps its existing Home Assistant card type and configuration contract.
 5. Keeps its existing CSS and visual behaviour.
 
-The 35 public card registrations are asserted by `scripts/check-inventory.mjs`.
+The 37 public card registrations are asserted by `scripts/check-inventory.mjs`.
 
 ## Shared ownership
 
@@ -52,12 +52,13 @@ This migration intentionally does not restyle components. `src/provenance/style-
 
 ## Validation
 
-`npm run check` performs four independent checks:
+`npm run check` performs the source, runtime and release-contract checks:
 
 - JavaScript syntax for the distributable.
-- Exactly one descriptively named registration for each of the 35 public card types.
+- Exactly one descriptively named registration for each of the 37 public card types.
 - Preservation of all original style fingerprints.
 - Isolated bundle loading with mocked browser/Home Assistant primitives, including dependency and patch order.
+- Bundle version, public component count, manifest coverage and HACS filename validation.
 
 The isolated loader does not connect to or modify Home Assistant.
 
@@ -69,4 +70,4 @@ The isolated loader does not connect to or modify Home Assistant.
 4. Add the source file to `src/bundle-manifest.json` after its dependencies.
 5. Add the card type and constructor to `scripts/check-inventory.mjs` and `scripts/check-load-order.mjs`.
 6. Document its configuration in `docs/components.md`.
-7. Regenerate the distributable and run `npm run check`.
+7. Run `npm run release:dry-run`, then `npm run release` to bump the version, regenerate the distributable and run the complete validation suite.

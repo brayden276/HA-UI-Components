@@ -6,7 +6,7 @@ The library turns the dashboard's inline JavaScript resources into one reusable 
 
 ## Scope
 
-- All 28 distinct `custom:` card types from the Components dashboard, two specialised device controllers, and five Home dashboard composition cards are included.
+- All 37 public `custom:` card types are included: the 28 original Components cards, two specialised device controllers, five Home dashboard composition cards and two Solar dashboard cards.
 - Every public card has its own descriptively named source module.
 - Shared registration, escaping, navigation, registry, Update, split-system and WLED logic is centralised under `src/shared/`.
 - The original component CSS and visual behaviour are preserved. No component was restyled.
@@ -44,7 +44,7 @@ See [docs/components.md](docs/components.md) for a configured example of every c
 | Group | Card types |
 | --- | --- |
 | Context and metrics | `component-context-strip-v3`, `metric-pair-card-v3`, `component-single-kpi-v2`, `component-three-stat-v2`, `component-status-row-v2`, `component-progress-v2` |
-| Charts and time | `component-energy-day-selector-v1`, `component-history-graph-v2` |
+| Charts and time | `component-energy-day-selector-v1`, `component-history-graph-v2`, `solar-daylight-card-v7`, `energy-history-card-v3` |
 | Actions and lists | `component-action-v2`, `component-list-v2`, `component-notice-v2`, `component-text-effect-v1` |
 | Home composition | `component-home-overview-v4`, `component-favourites-minimal-v1`, `component-smart-collection-v3`, `component-room-directory-v4`, `component-household-directory-v3` |
 | Home navigation | `component-quick-nav-v2`, `component-nav-tile-v2`, `component-room-navigation-v1`, `component-section-separator-v2`, `component-room-sheet-v2` |
@@ -58,22 +58,24 @@ The bundle guards custom-element registration, so it can be loaded while the cur
 ## Repository structure
 
 - `dist/ha-component-library.js` — the single file HACS installs.
-- `src/components/` — one descriptively named module for each of the 35 public cards.
+- `src/components/` — one descriptively named module for each of the 37 public cards.
 - `src/shared/` — shared primitives, registry caches, CSS tokens and controller runtimes.
 - `src/support/` — internal elements required by the public cards, including the Home preference editor.
 - `src/patches/` — the current WLED, garage-door, camera and room-navigation integration/compatibility patches.
 - `src/provenance/` — style fingerprints captured before source reorganisation.
 - `scripts/assemble.mjs` — deterministic bundle assembly with no third-party dependencies.
 - `scripts/check-all.mjs` — syntax, inventory, style-preservation and isolated load-order validation.
-- `.github/workflows/validate.yml` — official HACS repository validation workflow.
+- `scripts/check-release-contract.mjs` — verifies the versioned bundle and HACS filename contract.
+- `scripts/release.mjs` — non-destructive release preparation for versioning, bundling and validation.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and extension rules. For maintainers, `npm run check` runs the full static suite. `npm run bundle` regenerates the distributable from the ordered source modules.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and extension rules. For maintainers, `npm run check` runs the full static suite, while `npm run bundle` regenerates the distributable from the ordered source modules. `npm run release` bumps the patch version, assembles the bundle and runs every release check; use `npm run release -- minor` or `npm run release -- major` for a larger version change. `npm run release:dry-run` previews the target version and working-tree state without writing files. The release command never stages, commits, tags or pushes.
 
 ## Release checklist
 
 1. Choose and add the repository licence before public release.
 2. Set the GitHub repository description and topics.
-3. Push the repository and confirm the HACS validation workflow passes.
-4. Create a GitHub release such as `v1.0.0` for a stable HACS version selector.
+3. Run `npm run release:dry-run`, then `npm run release` and review the generated diff.
+4. Commit and push the version bump and generated `dist/ha-component-library.js`.
+5. Confirm HACS can install the pushed release and create a GitHub release such as `vX.Y.Z` for a stable version selector.
 
 A GitHub release is recommended but not required for a custom HACS repository; without one, HACS installs from the default branch.

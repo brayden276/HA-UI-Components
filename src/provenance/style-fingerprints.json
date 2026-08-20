@@ -1,7 +1,7 @@
 {
   "algorithm": "fnv1a-64-utf16",
   "normalisation_version": 1,
-  "fragment_count": 46,
+  "fragment_count": 48,
   "fingerprints": [
     {
       "kind": "shared-style",
@@ -272,6 +272,18 @@
       "hash": "c0485d663bf4162d",
       "count": 1,
       "example_source": "component-home-overview-v4"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "1d4c8b62bfec3d42",
+      "count": 1,
+      "example_source": "solar-daylight-card-v7"
+    },
+    {
+      "kind": "style-tag",
+      "hash": "afe9113f4772ab8c",
+      "count": 1,
+      "example_source": "energy-history-card-v3"
     }
   ]
 }

@@ -1,6 +1,6 @@
 # Component catalogue
 
-These examples cover all 35 public custom cards in the library, including the specialised device controllers and composition cards used by the current Home dashboard. They use the existing configuration API and do not require inline JavaScript.
+These examples cover all 37 public custom cards in the library, including the specialised device controllers, Solar cards and composition cards used by the current Home dashboard. They use the existing configuration API and do not require inline JavaScript.
 
 Values such as entity IDs, device IDs and navigation paths are examples; replace them with IDs from the target Home Assistant instance.
 
@@ -113,6 +113,33 @@ negative_label: Negative
 ```
 
 This preserves the current component-library graph behaviour and data treatment.
+
+## Solar dashboard
+
+### Solar daylight context
+
+```yaml
+type: custom:solar-daylight-card-v7
+sun_entity: sun.sun
+weather_entity: weather.forecast_home
+```
+
+The card shows the current sun phase/elevation, the next sunrise or sunset, and current, four-hour and eight-hour cloud coverage. Selecting the card opens the configured sun entity's more-info panel. Forecast values are requested from Home Assistant's hourly weather forecast service and are refreshed on a guarded interval.
+
+### Energy history
+
+```yaml
+type: custom:energy-history-card-v3
+house_entity: sensor.house_consumption_power
+solar_entity: sensor.total_solar_power
+grid_entity: sensor.refoss_smart_energy_monitor_em_channel_3_power
+hours: 24
+bucket_minutes: 10
+calendar_day: true
+day_channel: energy-usage-day
+```
+
+The chart retrieves recorder statistics for house, solar and signed grid power, buckets them into readable averages, and provides pointer tooltips plus entity more-info actions from the legend. With `calendar_day: true`, it listens to `component-energy-day-selector-v1` on the configured `day_channel` and renders the selected local day.
 
 ## Actions, lists and notices
 

@@ -116,6 +116,8 @@ const expected = [
   "component-favourites-minimal-v1",
   "component-room-directory-v4",
   "component-home-overview-v4",
+  "solar-daylight-card-v7",
+  "energy-history-card-v3",
 ];
 
 const missingElements = expected.filter((type) => !definitions.has(type));

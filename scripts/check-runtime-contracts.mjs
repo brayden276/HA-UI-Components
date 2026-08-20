@@ -139,6 +139,8 @@ const configurations = {
   "component-favourites-minimal-v1": { items: [{ title: "Smoke" }] },
   "component-room-directory-v4": {},
   "component-home-overview-v4": {},
+  "solar-daylight-card-v7": { sun_entity: "sun.smoke", weather_entity: "weather.smoke" },
+  "energy-history-card-v3": { house_entity: "sensor.smoke_house", solar_entity: "sensor.smoke_solar", grid_entity: "sensor.smoke_grid", day_channel: "smoke" },
 };
 
 const failures = [];

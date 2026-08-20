@@ -8,8 +8,8 @@ const componentFiles = (await readdir(componentDirectory))
   .filter((file) => file.endsWith(".js"))
   .sort();
 
-if (componentFiles.length !== 35) {
-  throw new Error(`Expected 35 public component files; found ${componentFiles.length}`);
+if (componentFiles.length !== 37) {
+  throw new Error(`Expected 37 public component files; found ${componentFiles.length}`);
 }
 
 const forbiddenComponentImplementations = [

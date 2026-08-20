@@ -185,46 +185,54 @@
   },
   {
     "order": 47,
-    "file": "src/patches/split-profiles-core.js"
+    "file": "src/components/solar-daylight-card.js"
   },
   {
     "order": 48,
-    "file": "src/patches/split-profiles-ui.js"
+    "file": "src/components/energy-history-card.js"
   },
   {
     "order": 49,
-    "file": "src/patches/wled-registry-integration.js"
+    "file": "src/patches/split-profiles-core.js"
   },
   {
     "order": 50,
-    "file": "src/patches/wled-controller-current-behaviour.js"
+    "file": "src/patches/split-profiles-ui.js"
   },
   {
     "order": 51,
-    "file": "src/patches/room-navigation-current-behaviour.js"
+    "file": "src/patches/wled-registry-integration.js"
   },
   {
     "order": 52,
-    "file": "src/patches/garage-door-device-dedup.js"
+    "file": "src/patches/wled-controller-current-behaviour.js"
   },
   {
     "order": 53,
-    "file": "src/patches/camera-controller-integration.js"
+    "file": "src/patches/room-navigation-current-behaviour.js"
   },
   {
     "order": 54,
-    "file": "src/patches/camera-controller-current-behaviour.js"
+    "file": "src/patches/garage-door-device-dedup.js"
   },
   {
     "order": 55,
-    "file": "src/patches/runtime-reliability.js"
+    "file": "src/patches/camera-controller-integration.js"
   },
   {
     "order": 56,
-    "file": "src/patches/home-editor-portal.js"
+    "file": "src/patches/camera-controller-current-behaviour.js"
   },
   {
     "order": 57,
+    "file": "src/patches/runtime-reliability.js"
+  },
+  {
+    "order": 58,
+    "file": "src/patches/home-editor-portal.js"
+  },
+  {
+    "order": 59,
     "file": "src/patches/room-directory-presence-glow.js"
   }
 ]

@@ -48,6 +48,8 @@ const expected = [
   ["component-favourites-minimal-v1", "ComponentFavouritesMinimalV1"],
   ["component-room-directory-v4", "ComponentRoomDirectoryV4"],
   ["component-home-overview-v4", "ComponentHomeOverviewV4"],
+  ["solar-daylight-card-v7", "SolarDaylightCardV7"],
+  ["energy-history-card-v3", "EnergyHistoryCardV3"],
 ];
 
 const componentEntries = manifest.filter((entry) =>
@@ -116,8 +118,8 @@ if (lastShared >= firstComponent || firstPatch <= firstComponent) {
   throw new Error("Bundle dependency order is invalid");
 }
 
-if (!bundle.includes("components: 35")) {
-  throw new Error("Bundle metadata does not declare all 35 components");
+if (!bundle.includes("components: 37")) {
+  throw new Error("Bundle metadata does not declare all 37 components");
 }
 
 console.log(`Inventory check passed: ${expected.length} components`);
