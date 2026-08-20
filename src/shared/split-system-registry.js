@@ -1,5 +1,13 @@
 /** Shared split-system registry backed by the split_state_registry integration. */
 const SPLIT_REGISTRY_ENTITY="sensor.split_state_registry";
+const splitV4RoomId=identity=>{
+  const parts=identity.split("_");
+  for(let index=1;index<parts.length;index++){
+    const candidate=parts.slice(0,index).join("_");
+    if(`${candidate}_${candidate}`===identity)return candidate;
+  }
+  return identity;
+};
 const splitV4Room=(roomId,room)=>room&&room.climate?{
   room_id:roomId,
   registry_entity:SPLIT_REGISTRY_ENTITY,
@@ -15,14 +23,41 @@ const splitV4Room=(roomId,room)=>room&&room.climate?{
   deadline:room.deadline,
   profiles:Array.isArray(room.profiles)?room.profiles:[]
 }:null;
+const splitV4HardwareRoom=entityId=>{
+  const objectId=String(entityId).slice("climate.".length);
+  if(!objectId.endsWith("_split_climate"))return null;
+  const identity=objectId.slice(0,-"_split_climate".length);
+  const roomId=splitV4RoomId(identity);
+  const controllerBase=`${identity}_split`;
+  return{
+    room_id:roomId,
+    registry_entity:SPLIT_REGISTRY_ENTITY,
+    climate:entityId,
+    controller_entity:`binary_sensor.${controllerBase}_controller_status`,
+    vertical_vane_entity:`select.${controllerBase}_vertical_vane`,
+    horizontal_vane_entity:`select.${controllerBase}_horizontal_vane`,
+    minimum_target:null,
+    maximum_target:null,
+    fan_ceiling:null,
+    last_mode:null,
+    deadline:null,
+    profiles:[]
+  };
+};
 const buildSplitV4Registry=hass=>{
   const source=hass?.states?.[SPLIT_REGISTRY_ENTITY],rooms=source?.attributes?.rooms,systems=new Map,claimed=new Set;
   source?.entity_id&&claimed.add(source.entity_id);
-  if(!rooms||typeof rooms!=="object")return{systems,claimed,error:null};
-  for(const[roomId,room]of Object.entries(rooms)){
+  if(rooms&&typeof rooms==="object")for(const[roomId,room]of Object.entries(rooms)){
     const entry=splitV4Room(roomId,room);
+    if(entry)systems.set(entry.climate,entry);
+  }
+  for(const entityId of Object.keys(hass?.states??{})){
+    if(systems.has(entityId))continue;
+    const entry=splitV4HardwareRoom(entityId);
     if(!entry)continue;
     systems.set(entry.climate,entry);
+  }
+  for(const entry of systems.values()){
     for(const entityId of[entry.climate,entry.controller_entity,entry.vertical_vane_entity,entry.horizontal_vane_entity].filter(Boolean))claimed.add(entityId);
   }
   return{systems,claimed,error:null};

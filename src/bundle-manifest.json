@@ -238,5 +238,9 @@
   {
     "order": 60,
     "file": "src/patches/room-directory-presence-glow.js"
+  },
+  {
+    "order": 61,
+    "file": "src/patches/split-registry-discovery.js"
   }
 ]

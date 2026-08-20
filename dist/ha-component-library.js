@@ -1,5 +1,5 @@
 /**
- * HA Component Library v4.0.0
+ * HA Component Library v5.0.0
  * Generated HACS Dashboard bundle.
  *
  * Source is organised by component under src/components. Shared logic lives
@@ -118,6 +118,14 @@ dashboardSharedStyle.textContent=":root{--dashboard-radius-card:8px;--dashboard-
 {
 /** Shared split-system registry backed by the split_state_registry integration. */
 const SPLIT_REGISTRY_ENTITY="sensor.split_state_registry";
+const splitV4RoomId=identity=>{
+  const parts=identity.split("_");
+  for(let index=1;index<parts.length;index++){
+    const candidate=parts.slice(0,index).join("_");
+    if(`${candidate}_${candidate}`===identity)return candidate;
+  }
+  return identity;
+};
 const splitV4Room=(roomId,room)=>room&&room.climate?{
   room_id:roomId,
   registry_entity:SPLIT_REGISTRY_ENTITY,
@@ -133,14 +141,41 @@ const splitV4Room=(roomId,room)=>room&&room.climate?{
   deadline:room.deadline,
   profiles:Array.isArray(room.profiles)?room.profiles:[]
 }:null;
+const splitV4HardwareRoom=entityId=>{
+  const objectId=String(entityId).slice("climate.".length);
+  if(!objectId.endsWith("_split_climate"))return null;
+  const identity=objectId.slice(0,-"_split_climate".length);
+  const roomId=splitV4RoomId(identity);
+  const controllerBase=`${identity}_split`;
+  return{
+    room_id:roomId,
+    registry_entity:SPLIT_REGISTRY_ENTITY,
+    climate:entityId,
+    controller_entity:`binary_sensor.${controllerBase}_controller_status`,
+    vertical_vane_entity:`select.${controllerBase}_vertical_vane`,
+    horizontal_vane_entity:`select.${controllerBase}_horizontal_vane`,
+    minimum_target:null,
+    maximum_target:null,
+    fan_ceiling:null,
+    last_mode:null,
+    deadline:null,
+    profiles:[]
+  };
+};
 const buildSplitV4Registry=hass=>{
   const source=hass?.states?.[SPLIT_REGISTRY_ENTITY],rooms=source?.attributes?.rooms,systems=new Map,claimed=new Set;
   source?.entity_id&&claimed.add(source.entity_id);
-  if(!rooms||typeof rooms!=="object")return{systems,claimed,error:null};
-  for(const[roomId,room]of Object.entries(rooms)){
+  if(rooms&&typeof rooms==="object")for(const[roomId,room]of Object.entries(rooms)){
     const entry=splitV4Room(roomId,room);
+    if(entry)systems.set(entry.climate,entry);
+  }
+  for(const entityId of Object.keys(hass?.states??{})){
+    if(systems.has(entityId))continue;
+    const entry=splitV4HardwareRoom(entityId);
     if(!entry)continue;
     systems.set(entry.climate,entry);
+  }
+  for(const entry of systems.values()){
     for(const entityId of[entry.climate,entry.controller_entity,entry.vertical_vane_entity,entry.horizontal_vane_entity].filter(Boolean))claimed.add(entityId);
   }
   return{systems,claimed,error:null};
@@ -1111,7 +1146,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   build() {
     this.built = true;
     this.shadowRoot.innerHTML = `<style>
-      :host{display:block;min-width:0}*{box-sizing:border-box}button,input{font:inherit;color:inherit}button{appearance:none;border:0;background:transparent;cursor:pointer}ha-card{container-type:inline-size;display:block;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,8px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color)}ha-icon{--mdc-icon-size:20px}.atv-wrap{padding:12px 14px}.atv-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px}.atv-identity{min-width:0;min-height:44px;padding:0;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:12px;text-align:left;border-radius:var(--dashboard-radius-control,8px)}.atv-icon{width:40px;height:40px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);color:var(--secondary-text-color);background:transparent}.atv-icon.active{color:var(--primary-color)}.atv-copy{min-width:0}.atv-name,.atv-status{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-name{font-size:13px;line-height:1.25;font-weight:650}.atv-status{margin-top:3px;font-size:13px;line-height:1.25;color:var(--secondary-text-color)}.atv-open{min-height:40px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:flex;align-items:center;gap:6px;color:var(--secondary-text-color);font-size:13px;font-weight:650}.atv-open ha-icon{--mdc-icon-size:18px}.atv-open[aria-expanded=true],.atv-open:hover{color:var(--primary-color);background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.atv-volume{margin-top:11px;display:grid;grid-template-columns:44px minmax(82px,1fr) 44px;align-items:center;gap:10px}.atv-volume.unavailable{grid-template-columns:1fr}.atv-volume-btn{width:44px;height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center;color:var(--secondary-text-color)}.atv-volume-btn:not(:disabled):hover,.atv-volume-btn:not(:disabled):focus-visible{color:var(--primary-color);background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.atv-volume-btn.pending{color:var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.atv-volume-value{min-width:0;text-align:center;font-size:14px;line-height:1.2;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-feedback,.atv-panel-feedback{min-height:0;margin:0;font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.atv-feedback:not(:empty){margin-top:10px;padding-top:10px;border-top:1px solid var(--divider-color)}.atv-feedback.error,.atv-panel-feedback.error{color:var(--error-color)}.atv-panel{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:16px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,rgba(0,0,0,.16)));overscroll-behavior:contain}.atv-panel[hidden]{display:none!important}.atv-sheet{width:min(380px,calc(100vw - 32px));max-height:calc(100dvh - 32px);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,10px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}.atv-sheet-head{min-height:54px;padding:7px 8px 7px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) 40px;align-items:center;gap:9px;border-bottom:1px solid var(--divider-color)}.atv-sheet-head .atv-icon{width:34px;height:34px}.atv-sheet-title{min-width:0}.atv-sheet-name,.atv-sheet-state{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-sheet-name{font-size:14px;line-height:1.25;font-weight:650}.atv-sheet-state{margin-top:2px;font-size:12px;line-height:1.25;color:var(--secondary-text-color)}.atv-close{width:40px;height:40px;border-radius:var(--dashboard-radius-control,8px);display:grid;place-items:center;color:var(--secondary-text-color)}.atv-body{overflow:auto;overscroll-behavior:contain;padding:12px 14px 8px;display:grid;gap:14px}.atv-panel-feedback{padding:0 14px max(14px,env(safe-area-inset-bottom))}.atv-panel-feedback:not(:empty){padding-top:10px;border-top:1px solid var(--divider-color)}.atv-section{display:grid;gap:9px}.atv-section-title{font-size:13px;line-height:1.25;font-weight:650}.atv-note{margin:0;font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.atv-remote{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:center}.atv-remote-btn{min-height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:flex;align-items:center;justify-content:center;gap:6px;color:var(--secondary-text-color);font-size:13px;font-weight:650}.atv-remote-btn.select{min-height:58px;color:var(--primary-color);border-color:color-mix(in srgb,var(--primary-color) 45%,var(--divider-color));background:var(--dashboard-active-surface,var(--card-background-color))}.atv-remote-btn.pending{color:var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.atv-remote-btn.empty{visibility:hidden;pointer-events:none}.atv-source-tools{display:grid;grid-template-columns:1fr;gap:8px}.atv-search{width:100%;height:40px;min-width:0;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);background:var(--card-background-color);color:var(--primary-text-color)}.atv-sources{max-height:220px;overflow:auto;display:grid;gap:6px;padding-right:2px}.atv-source{min-height:42px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:grid;grid-template-columns:minmax(0,1fr) 20px;align-items:center;gap:8px;text-align:left;color:var(--primary-text-color);font-size:13px;font-weight:600}.atv-source span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-source[aria-selected=true]{color:var(--primary-color);border-color:color-mix(in srgb,var(--primary-color) 45%,var(--divider-color));background:var(--dashboard-active-surface,var(--card-background-color))}.atv-source ha-icon{--mdc-icon-size:18px}.atv-audio{display:grid;grid-template-columns:44px minmax(88px,1fr) 44px;align-items:center;gap:9px}.atv-audio .atv-volume-value{min-height:44px;display:grid;place-items:center;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px)}.atv-audio-actions{display:grid;grid-template-columns:1fr;gap:8px}.atv-secondary-btn,.atv-power-btn{min-height:44px;padding:0 11px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:flex;align-items:center;justify-content:center;gap:7px;color:var(--secondary-text-color);font-size:13px;font-weight:650}.atv-secondary-btn.active,.atv-power-btn:not(:disabled):hover{color:var(--primary-color);background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.atv-power{display:grid;grid-template-columns:1fr 1fr;gap:8px}.atv-keyboard{min-height:40px;display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);font-size:13px;color:var(--secondary-text-color)}button:disabled,button[aria-disabled=true]{opacity:.45;cursor:default}:is(button,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.atv-open:active,.atv-volume-btn:active,.atv-remote-btn:active,.atv-source:active,.atv-secondary-btn:active,.atv-power-btn:active{background:var(--dashboard-active-surface,var(--card-background-color))}@container (max-width:340px){.atv-wrap{padding:12px}.atv-head{grid-template-columns:1fr}.atv-open{width:100%;justify-content:center}.atv-volume{gap:8px}.atv-open .atv-open-text{display:inline}}@media(max-width:420px){.atv-panel{padding:8px}.atv-sheet{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.atv-body{padding:10px 12px 8px}.atv-panel-feedback{padding:0 12px max(16px,env(safe-area-inset-bottom))}.atv-remote{gap:6px}.atv-remote-btn{font-size:12px}.atv-power{grid-template-columns:1fr}}
+      :host{display:block;min-width:0}*{box-sizing:border-box}button,input{font:inherit;color:inherit}button{appearance:none;border:0;background:transparent;cursor:pointer}ha-card{container-type:inline-size;display:block;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,8px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color)}ha-icon{--mdc-icon-size:20px}.atv-wrap{padding:12px 14px}.atv-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px}.atv-identity{min-width:0;min-height:44px;padding:0;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:12px;text-align:left;border-radius:var(--dashboard-radius-control,8px)}.atv-icon{width:40px;height:40px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);color:var(--secondary-text-color);background:transparent}.atv-icon.active{color:var(--primary-color)}.atv-copy{min-width:0}.atv-name,.atv-status{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-name{font-size:13px;line-height:1.25;font-weight:650}.atv-status{margin-top:3px;font-size:13px;line-height:1.25;color:var(--secondary-text-color)}.atv-open{min-height:40px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:flex;align-items:center;gap:6px;color:var(--secondary-text-color);font-size:13px;font-weight:650}.atv-open ha-icon{--mdc-icon-size:18px}.atv-open[aria-expanded=true],.atv-open:hover{color:var(--primary-color);background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.atv-volume{width:min(100%,232px);margin:8px auto 0;display:grid;grid-template-columns:44px minmax(0,126px) 44px;align-items:center;justify-content:center;gap:9px}.atv-volume.unavailable{width:auto;grid-template-columns:1fr;justify-content:stretch}.atv-volume-btn{width:44px;height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center;color:var(--secondary-text-color)}.atv-volume-btn:not(:disabled):hover,.atv-volume-btn:not(:disabled):focus-visible{color:var(--primary-color);background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.atv-volume-btn.pending{color:var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.atv-volume-value{min-width:0;text-align:center;font-size:14px;line-height:1.2;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-feedback,.atv-panel-feedback{min-height:0;margin:0;font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.atv-feedback:not(:empty){margin-top:10px;padding-top:10px;border-top:1px solid var(--divider-color)}.atv-feedback.error,.atv-panel-feedback.error{color:var(--error-color)}.atv-panel{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:16px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,rgba(0,0,0,.16)));overscroll-behavior:contain}.atv-panel[hidden]{display:none!important}.atv-sheet{width:min(380px,calc(100vw - 32px));max-height:calc(100dvh - 32px);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,10px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}.atv-sheet-head{min-height:54px;padding:7px 8px 7px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) 40px;align-items:center;gap:9px;border-bottom:1px solid var(--divider-color)}.atv-sheet-head .atv-icon{width:34px;height:34px}.atv-sheet-title{min-width:0}.atv-sheet-name,.atv-sheet-state{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-sheet-name{font-size:14px;line-height:1.25;font-weight:650}.atv-sheet-state{margin-top:2px;font-size:12px;line-height:1.25;color:var(--secondary-text-color)}.atv-close{width:40px;height:40px;border-radius:var(--dashboard-radius-control,8px);display:grid;place-items:center;color:var(--secondary-text-color)}.atv-body{overflow:auto;overscroll-behavior:contain;padding:12px 14px 8px;display:grid;gap:14px}.atv-panel-feedback{padding:0 14px max(14px,env(safe-area-inset-bottom))}.atv-panel-feedback:not(:empty){padding-top:10px;border-top:1px solid var(--divider-color)}.atv-section{display:grid;gap:9px}.atv-section-title{font-size:13px;line-height:1.25;font-weight:650}.atv-note{margin:0;font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.atv-remote{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:center}.atv-remote-btn{min-height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:flex;align-items:center;justify-content:center;gap:6px;color:var(--secondary-text-color);font-size:13px;font-weight:650}.atv-remote-btn.select{min-height:58px;color:var(--primary-color);border-color:color-mix(in srgb,var(--primary-color) 45%,var(--divider-color));background:var(--dashboard-active-surface,var(--card-background-color))}.atv-remote-btn.pending{color:var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.atv-remote-btn.empty{visibility:hidden;pointer-events:none}.atv-source-tools{display:grid;grid-template-columns:1fr;gap:8px}.atv-search{width:100%;height:40px;min-width:0;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);background:var(--card-background-color);color:var(--primary-text-color)}.atv-sources{max-height:220px;overflow:auto;display:grid;gap:6px;padding-right:2px}.atv-source{min-height:42px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:grid;grid-template-columns:minmax(0,1fr) 20px;align-items:center;gap:8px;text-align:left;color:var(--primary-text-color);font-size:13px;font-weight:600}.atv-source span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-source[aria-selected=true]{color:var(--primary-color);border-color:color-mix(in srgb,var(--primary-color) 45%,var(--divider-color));background:var(--dashboard-active-surface,var(--card-background-color))}.atv-source ha-icon{--mdc-icon-size:18px}.atv-audio{width:min(100%,232px);margin:0 auto;display:grid;grid-template-columns:44px minmax(0,126px) 44px;align-items:center;justify-content:center;gap:9px}.atv-audio .atv-volume-value{min-height:44px;display:grid;place-items:center;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px)}.atv-audio-actions{display:grid;grid-template-columns:1fr;gap:8px}.atv-secondary-btn,.atv-power-btn{min-height:44px;padding:0 11px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:flex;align-items:center;justify-content:center;gap:7px;color:var(--secondary-text-color);font-size:13px;font-weight:650}.atv-secondary-btn.active,.atv-power-btn:not(:disabled):hover{color:var(--primary-color);background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.atv-power{display:grid;grid-template-columns:1fr 1fr;gap:8px}.atv-keyboard{min-height:40px;display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);font-size:13px;color:var(--secondary-text-color)}button:disabled,button[aria-disabled=true]{opacity:.45;cursor:default}:is(button,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.atv-open:active,.atv-volume-btn:active,.atv-remote-btn:active,.atv-source:active,.atv-secondary-btn:active,.atv-power-btn:active{background:var(--dashboard-active-surface,var(--card-background-color))}@container (max-width:340px){.atv-wrap{padding:12px}.atv-head{grid-template-columns:1fr}.atv-open{width:100%;justify-content:center}.atv-volume{width:min(100%,216px);gap:8px}.atv-open .atv-open-text{display:inline}}@media(max-width:420px){.atv-panel{padding:8px}.atv-sheet{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.atv-body{padding:10px 12px 8px}.atv-panel-feedback{padding:0 12px max(16px,env(safe-area-inset-bottom))}.atv-remote{gap:6px}.atv-remote-btn{font-size:12px}.atv-audio{width:min(100%,216px);gap:8px}.atv-power{grid-template-columns:1fr}}
     </style><ha-card><div class="atv-wrap"><div class="atv-head"><button class="atv-identity" type="button"><span class="atv-icon"><ha-icon></ha-icon></span><span class="atv-copy"><span class="atv-name"></span><span class="atv-status" role="status"></span></span></button><button class="atv-open" type="button" aria-controls="apple-tv-controls-panel" aria-expanded="false"><span class="atv-open-text">Controls</span><ha-icon icon="mdi:chevron-right"></ha-icon></button></div><div class="atv-volume"><button class="atv-volume-btn atv-volume-down" type="button" aria-label="Volume down"><ha-icon icon="mdi:volume-minus"></ha-icon></button><span class="atv-volume-value"></span><button class="atv-volume-btn atv-volume-up" type="button" aria-label="Volume up"><ha-icon icon="mdi:volume-plus"></ha-icon></button></div><p class="atv-feedback" role="status" aria-live="polite"></p></div></ha-card><section class="atv-panel" id="apple-tv-controls-panel" role="dialog" aria-modal="true" aria-labelledby="apple-tv-controls-title" hidden><div class="atv-sheet"><div class="atv-sheet-head"><span class="atv-icon"><ha-icon></ha-icon></span><span class="atv-sheet-title"><span class="atv-sheet-name" id="apple-tv-controls-title"></span><span class="atv-sheet-state"></span></span><button class="atv-close" type="button" aria-label="Close Apple TV controls"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="atv-body"></div><p class="atv-panel-feedback" role="status" aria-live="polite"></p></div></section>`;
     this.elements = {
       identity: this.shadowRoot.querySelector(".atv-identity"),
@@ -3892,4 +3927,70 @@ customElements.whenDefined('component-room-directory-v4').then(()=>{
 })();
 }
 
-globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "4.0.0", components: 38 });
+// Module: src/patches/split-registry-discovery.js
+{
+/** Route room and active collections through the shared split-system registry. */
+(()=>{
+  const HD2=globalThis.__homeDashboardV2;
+  if(HD2?.controlConfig&&!HD2.__splitRegistryDiscoveryV1){
+    HD2.__splitRegistryDiscoveryV1=true;
+    const originalControlConfig=HD2.controlConfig;
+    HD2.controlConfig=(entry,state,data,hass,split)=>{
+      const system=split?.systems?.get(entry?.entity_id);
+      if(system)return{
+        type:"custom:component-split-controller-v4",
+        entity:entry.entity_id,
+        room_id:system.room_id,
+        registry_entity:system.registry_entity,
+        controller_entity:system.controller_entity,
+        vertical_vane_entity:system.vertical_vane_entity,
+        horizontal_vane_entity:system.horizontal_vane_entity,
+        minimum_target:system.minimum_target,
+        maximum_target:system.maximum_target,
+        fan_ceiling:system.fan_ceiling,
+        last_mode:system.last_mode,
+        deadline:system.deadline,
+        profiles:system.profiles
+      };
+      return originalControlConfig(entry,state,data,hass,split);
+    };
+  }
+
+  customElements.whenDefined("component-smart-collection-v3").then(()=>{
+    const Collection=customElements.get("component-smart-collection-v3");
+    const prototype=Collection?.prototype;
+    if(!prototype||prototype.__splitRegistryDiscoveryV1)return;
+    prototype.__splitRegistryDiscoveryV1=true;
+    const hassDescriptor=Object.getOwnPropertyDescriptor(prototype,"hass");
+    const originalConnected=prototype.connectedCallback;
+    const originalDisconnected=prototype.disconnectedCallback;
+    prototype.subscribeSplitRegistryV1=function(){
+      const registry=globalThis.__componentSplitRegistryV4;
+      if(this._splitRegistryUnsubV1||!this.h||!registry?.subscribe)return;
+      this._splitRegistryUnsubV1=registry.subscribe(this.h,()=>{
+        this.split=null;
+        this.structureSig="";
+        this.schedule();
+      });
+    };
+    Object.defineProperty(prototype,"hass",{
+      ...hassDescriptor,
+      set(value){
+        hassDescriptor.set.call(this,value);
+        this.subscribeSplitRegistryV1();
+      }
+    });
+    prototype.connectedCallback=function(){
+      originalConnected.call(this);
+      this.subscribeSplitRegistryV1();
+    };
+    prototype.disconnectedCallback=function(){
+      this._splitRegistryUnsubV1?.();
+      this._splitRegistryUnsubV1=null;
+      originalDisconnected.call(this);
+    };
+  });
+})();
+}
+
+globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "5.0.0", components: 38 });
