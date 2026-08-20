@@ -1,5 +1,5 @@
 /**
- * HA Component Library v1.1.0
+ * HA Component Library v1.2.0
  * Generated HACS Dashboard bundle.
  *
  * Source is organised by component under src/components. Shared logic lives
@@ -2901,4 +2901,4 @@ customElements.whenDefined('component-room-directory-v4').then(()=>{
 })();
 }
 
-globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "1.1.0", components: 37 });
+globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "1.2.0", components: 37 });
