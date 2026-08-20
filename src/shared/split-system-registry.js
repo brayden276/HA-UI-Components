@@ -1,3 +1,52 @@
-/** Shared split-system entity registry and subscription cache. */
-const splitV4Domain=t=>String(t?.entity_id??"").split(".",1)[0],splitV4Name=t=>String(t?.original_name||t?.name||"").trim().toLowerCase().replaceAll("_"," ").replace(/\s+/g," "),splitV4Suffix=t=>String(t?.entity_id??"").split(".")[1]??"",splitV4Usable=t=>Boolean(t&&!t.disabled_by&&!t.hidden_by),splitV4Role=(t,i,e,s)=>splitV4Usable(t)&&splitV4Domain(t)===i&&(splitV4Name(t)===e||splitV4Suffix(t).endsWith(s)),splitV4EntityArea=(t,i)=>t?.area_id||(t?.device_id?i.get(t.device_id):null)||null,buildSplitV4Registry=(t,e)=>{const i=new Map((Array.isArray(e)?e:[]).flatMap(t=>{const e=t?.id??t?.device_id;return e?[[e,t.area_id??null]]:[]})),s=new Map;for(const e of Array.isArray(t)?t:[]){if(!e?.device_id||!e?.entity_id)continue;const t=s.get(e.device_id)??[];t.push(e),s.set(e.device_id,t)}const n=new Map,o=new Set,r=new Map;for(const e of Array.isArray(t)?t:[]){if(!splitV4Usable(e))continue;const t=splitV4EntityArea(e,i);if(!t)continue;const s=r.get(t)??{minimum:[],maximum:[],fan:[],last:[],timer:[],deadline:[],active:[]};splitV4Role(e,"input_number","split minimum target","_split_minimum_target")?(s.minimum.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"input_number","split maximum target","_split_maximum_target")?(s.maximum.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"input_select","split fan ceiling","_split_fan_ceiling")?(s.fan.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"input_select","split last mode","_split_last_mode")?(s.last.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"script","split off timer","_split_off_timer")?(s.timer.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"input_datetime","split off deadline","_split_off_deadline")?(s.deadline.push(e.entity_id),o.add(e.entity_id)):splitV4Role(e,"input_boolean","split off deadline active","_split_off_deadline_active")&&(s.active.push(e.entity_id),o.add(e.entity_id)),r.set(t,s)}for(const[t,e]of s){const s=e.find(t=>splitV4Role(t,"binary_sensor","controller status","_controller_status")),a=e.find(t=>splitV4Role(t,"select","vertical vane","_vertical_vane")),l=e.find(t=>splitV4Role(t,"select","horizontal vane","_horizontal_vane"));if(!s)continue;const h=e.filter(t=>splitV4Usable(t)&&"climate"===splitV4Domain(t)&&"esphome"===t.platform),c=new Set(h.map(t=>t.entity_id));e.filter(t=>!c.has(t.entity_id)).forEach(t=>o.add(t.entity_id));for(const e of h){const h=splitV4EntityArea(e,i)??i.get(t)??null,d=h?r.get(h):null,u={};d&&1===d.minimum.length&&1===d.maximum.length&&1===d.fan.length&&Object.assign(u,{minimum_temperature_entity:d.minimum[0],maximum_temperature_entity:d.maximum[0],fan_ceiling_entity:d.fan[0]}),d&&1===d.last.length&&(u.last_mode_entity=d.last[0]),d&&1===d.timer.length&&1===d.deadline.length&&1===d.active.length&&Object.assign(u,{timer_script:d.timer[0],timer_deadline_entity:d.deadline[0],timer_active_entity:d.active[0]}),n.set(e.entity_id,{controller_entity:s.entity_id,vertical_vane_entity:a?.entity_id,horizontal_vane_entity:l?.entity_id,area_id:h,...u})}}return{systems:n,claimed:o,error:null}},splitV4RegistrySignature=t=>JSON.stringify([[...t.systems].sort(([t],[e])=>t.localeCompare(e)),[...t.claimed].sort()]);globalThis.__componentSplitRegistryV4??={promise:null,result:{systems:new Map,claimed:new Set,error:null},failedAt:0,loaded:!1,subscribers:new Set,eventSubscription:null,eventRetry:null,load(t,e=!1){return e&&(this.loaded=!1,this.failedAt=0),this.loaded?Promise.resolve(this.result):this.promise?this.promise:this.failedAt&&Date.now()-this.failedAt<3e4?Promise.resolve(this.result):(this.promise=Promise.all([t.callWS({type:"config/entity_registry/list"}),t.callWS({type:"config/device_registry/list"})]).then(([t,e])=>(this.result=buildSplitV4Registry(t,e),this.failedAt=0,this.loaded=!0,this.result)).catch(t=>(this.failedAt=Date.now(),this.loaded=!1,this.result={systems:this.result.systems,claimed:this.result.claimed,error:t},this.result)).finally(()=>{this.promise=null}),this.promise)},refresh(t){const e=this.result,i=splitV4RegistrySignature(e);return this.load(t,!0).then(t=>{if(e.error||t.error||splitV4RegistrySignature(t)!==i)for(const e of[...this.subscribers])try{e(t)}catch{}return t})},ensureEvents(t){if(this.eventSubscription||this.eventRetry||!t?.connection?.subscribeEvents)return;const e=Promise.all([t.connection.subscribeEvents(()=>this.refresh(t),"entity_registry_updated"),t.connection.subscribeEvents(()=>this.refresh(t),"device_registry_updated")]).then(t=>()=>{for(const e of t)e?.()});this.eventSubscription=e,e.catch(()=>{this.eventSubscription===e&&(this.eventSubscription=null),this.subscribers.size&&!this.eventRetry&&(this.eventRetry=setTimeout(()=>{this.eventRetry=null,this.ensureEvents(t)},31e3))})},subscribe(t,e){const i=0===this.subscribers.size;return this.subscribers.add(e),this.ensureEvents(t),i&&this.refresh(t),()=>{if(this.subscribers.delete(e),this.subscribers.size)return;if(clearTimeout(this.eventRetry),this.eventRetry=null,!this.eventSubscription)return;const t=this.eventSubscription;this.eventSubscription=null,t.then(t=>t?.()).catch(()=>{})}}};
-
+/** Shared split-system registry backed by the split_state_registry integration. */
+const SPLIT_REGISTRY_ENTITY="sensor.split_state_registry";
+const splitV4Room=(roomId,room)=>room&&room.climate?{
+  room_id:roomId,
+  registry_entity:SPLIT_REGISTRY_ENTITY,
+  climate:room.climate,
+  controller_entity:room.controller,
+  vertical_vane_entity:room.vertical_vane,
+  horizontal_vane_entity:room.horizontal_vane,
+  area_id:roomId,
+  minimum_target:room.minimum_target,
+  maximum_target:room.maximum_target,
+  fan_ceiling:room.fan_ceiling,
+  last_mode:room.last_mode,
+  deadline:room.deadline,
+  profiles:Array.isArray(room.profiles)?room.profiles:[]
+}:null;
+const buildSplitV4Registry=hass=>{
+  const source=hass?.states?.[SPLIT_REGISTRY_ENTITY],rooms=source?.attributes?.rooms,systems=new Map,claimed=new Set;
+  source?.entity_id&&claimed.add(source.entity_id);
+  if(!rooms||typeof rooms!=="object")return{systems,claimed,error:null};
+  for(const[roomId,room]of Object.entries(rooms)){
+    const entry=splitV4Room(roomId,room);
+    if(!entry)continue;
+    systems.set(entry.climate,entry);
+    for(const entityId of[entry.climate,entry.controller_entity,entry.vertical_vane_entity,entry.horizontal_vane_entity].filter(Boolean))claimed.add(entityId);
+  }
+  return{systems,claimed,error:null};
+};
+const splitV4RegistrySignature=registry=>JSON.stringify([[...registry.systems].sort(([left],[right])=>left.localeCompare(right)),[...registry.claimed].sort()]);
+globalThis.__componentSplitRegistryV4??={
+  result:{systems:new Map,claimed:new Set,error:null},
+  subscribers:new Set,
+  eventSubscription:null,
+  load(hass,force=false){
+    const previous=this.result,next=buildSplitV4Registry(hass);
+    this.result=next;
+    if(force||splitV4RegistrySignature(previous)!==splitV4RegistrySignature(next))for(const subscriber of[...this.subscribers])try{subscriber(next)}catch{}
+    return Promise.resolve(next);
+  },
+  refresh(hass){return this.load(hass,true)},
+  ensureEvents(hass){
+    if(this.eventSubscription||!hass?.connection?.subscribeEvents)return;
+    this.eventSubscription=hass.connection.subscribeEvents(event=>{
+      event?.data?.entity_id===SPLIT_REGISTRY_ENTITY&&this.refresh(hass);
+    },"state_changed").catch(()=>{this.eventSubscription=null});
+  },
+  subscribe(hass,subscriber){
+    this.subscribers.add(subscriber),this.ensureEvents(hass),this.refresh(hass);
+    return()=>{this.subscribers.delete(subscriber)};
+  }
+};

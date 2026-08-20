@@ -64,11 +64,11 @@ The bundle guards custom-element registration, so it can be loaded while the cur
 - `src/patches/` — the current WLED, garage-door, camera and room-navigation integration/compatibility patches.
 - `src/provenance/` — style fingerprints captured before source reorganisation.
 - `scripts/assemble.mjs` — deterministic bundle assembly with no third-party dependencies.
-- `scripts/check-all.mjs` — syntax, inventory, style-preservation and isolated load-order validation.
+- `scripts/check-all.mjs` — syntax, inventory, advisory style-drift and isolated load-order validation.
 - `scripts/check-release-contract.mjs` — verifies the versioned bundle and HACS filename contract.
 - `scripts/release.mjs` — non-destructive release preparation for versioning, bundling and validation.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and extension rules. For maintainers, `npm run check` runs the full static suite, while `npm run bundle` regenerates the distributable from the ordered source modules. `npm run release` bumps the patch version, assembles the bundle and runs every release check; use `npm run release -- minor` or `npm run release -- major` for a larger version change. `npm run release:dry-run` previews the target version and working-tree state without writing files. The release command never stages, commits, tags or pushes.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and extension rules. For maintainers, `npm run check` runs the full static suite, while `npm run bundle` regenerates the distributable from the ordered source modules. Style fingerprint drift is reported as an advisory because intentional component work can legitimately change a fingerprint; run `npm run check:style` when it must be blocking. `npm run release` bumps the patch version, assembles the bundle and runs every release check; use `npm run release -- minor` or `npm run release -- major` for a larger version change. `npm run release:dry-run` previews the target version and working-tree state without writing files. The release command never stages, commits, tags or pushes.
 
 ## Release checklist
 

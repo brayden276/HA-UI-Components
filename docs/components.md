@@ -364,19 +364,21 @@ entity: climate.living_room_split
 title: Living Room Split
 ```
 
-The bundled registry runtime preserves automatic discovery of associated vane, limit, last-mode and timer helpers using the existing naming and area conventions. The card also accepts the existing explicit entity override keys.
+Split room state is now provided by the bundled `split_state_registry` Home Assistant integration. Register each room once with `split_state_registry.configure_room`, keyed by the stable room ID:
 
-The current saved-profile control is included. It becomes available when all five `input_text` helpers below exist for the split system area (or the explicit `profile_area_id`):
-
-```text
-input_text.<area_id>_split_profile_1
-input_text.<area_id>_split_profile_2
-input_text.<area_id>_split_profile_3
-input_text.<area_id>_split_profile_4
-input_text.<area_id>_split_profile_5
+```yaml
+room_id: living_room
+climate: climate.living_room_split
+controller: binary_sensor.living_room_split_controller_status
+vertical_vane: select.living_room_split_vertical_vane
+horizontal_vane: select.living_room_split_horizontal_vane
+minimum_target: 16
+maximum_target: 31
+fan_ceiling: Quiet
+last_mode: cool
 ```
 
-Profiles retain the live dashboard behaviour: create, edit, delete and apply up to five named mode, target-temperature, fan and vane combinations. The helpers are not created by the card and must accept up to 255 characters.
+Profiles retain the live dashboard behaviour: create, edit, delete and apply up to five named mode, target-temperature, fan and vane combinations. They are stored in the room registry record rather than per-room `input_text` helpers.
 
 ### Media row
 

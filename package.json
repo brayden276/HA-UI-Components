@@ -1,12 +1,13 @@
 {
   "name": "ha-component-library",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
   "description": "HACS Dashboard bundle for the reusable cards from the Home Assistant Components dashboard.",
   "scripts": {
     "bundle": "node scripts/assemble.mjs",
     "check": "node scripts/check-all.mjs",
+    "check:style": "node scripts/check-style-preservation.mjs --strict",
     "check:release": "node scripts/check-release-contract.mjs",
     "release": "node scripts/release.mjs",
     "release:dry-run": "node scripts/release.mjs --dry-run"
