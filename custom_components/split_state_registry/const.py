@@ -10,6 +10,7 @@ SERVICE_REGISTER_ROOM = "configure_room"
 SERVICE_REMOVE_ROOM = "remove_room"
 SERVICE_SET_SETTINGS = "update_room"
 SERVICE_SET_TIMER = "set_timer"
+SERVICE_RESUME_ROOM = "resume_room"
 SERVICE_UPSERT_PROFILE = "upsert_profile"
 SERVICE_DELETE_PROFILE = "remove_profile"
 

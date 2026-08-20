@@ -1,5 +1,5 @@
-/** Shared split-system registry backed by the split_state_registry integration. */
-const SPLIT_REGISTRY_ENTITY="sensor.split_state_registry";
+/** Shared split-system registry backed by the HA Component Backend integration. */
+const SPLIT_REGISTRY_ENTITY="sensor.ha_component_backend";
 const splitV4ObjectId=entityId=>String(entityId||"").split(".")[1]||"";
 const splitV4RoomId=identity=>{
   const parts=identity.split("_");

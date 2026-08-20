@@ -25,6 +25,10 @@ HACS custom repositories must be public GitHub repositories. To make this folder
 
 HACS reads `hacs.json`, finds `dist/ha-component-library.js`, downloads it under `/hacsfiles/`, and normally registers the dashboard resource automatically. The repository layout follows the current [HACS Dashboard plugin requirements](https://hacs.xyz/docs/publish/plugin/).
 
+## Split System backend
+
+Split System Components also require the companion **HA Component Backend** integration. Install it once from HACS as an **Integration**, restart Home Assistant when prompted, then add **HA Component Backend** in **Settings → Devices & services**. The card detects `sensor.ha_component_backend` automatically; no legacy split helpers are used after the backend migration is complete.
+
 ## Use a component
 
 After installation, add cards using their existing `custom:` type. No inline JavaScript is required:

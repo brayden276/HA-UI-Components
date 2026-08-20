@@ -146,6 +146,15 @@ set_timer:
           max: 720
           mode: box
 
+resume_room:
+  name: Resume room
+  description: Restores the room's last confirmed non-off HVAC mode.
+  fields:
+    room_id:
+      required: true
+      selector:
+        text:
+
 upsert_profile:
   name: Save profile
   description: Creates or updates a named saved profile by stable profile ID.

@@ -26,6 +26,7 @@ from .const import (
     SERVICE_DELETE_PROFILE,
     SERVICE_REGISTER_ROOM,
     SERVICE_REMOVE_ROOM,
+    SERVICE_RESUME_ROOM,
     SERVICE_SET_SETTINGS,
     SERVICE_SET_TIMER,
     SERVICE_UPSERT_PROFILE,
@@ -44,7 +45,7 @@ _REGISTER = _ROOM.extend(
         vol.Optional("minimum_target", default=16): vol.Coerce(float),
         vol.Optional("maximum_target", default=31): vol.Coerce(float),
         vol.Optional("fan_ceiling", default="Quiet"): cv.string,
-        vol.Optional("last_mode", default="cool"): cv.string,
+        vol.Optional("last_mode"): cv.string,
         vol.Optional("deadline"): cv.string,
         vol.Optional("profiles", default=[]): list,
     }
@@ -92,6 +93,7 @@ class SplitRegistry:
         self._state_unsub = self.hass.bus.async_listen("state_changed", self._on_state_changed)
         for room_id in self.data[ROOMS]:
             self._schedule_deadline(room_id)
+        await self._seed_active_modes()
 
     async def async_close(self) -> None:
         """Release listeners when the config entry unloads."""
@@ -137,7 +139,8 @@ class SplitRegistry:
         profiles = [self._profile(profile) for profile in call.data.get("profiles") or []]
 
         def mutate(rooms: dict[str, dict[str, Any]]) -> None:
-            room = rooms.get(room_id, self._new_room(climate))
+            existing = rooms.get(room_id)
+            room = existing or self._new_room(climate)
             room.update(
                 {
                     "climate": climate,
@@ -147,7 +150,10 @@ class SplitRegistry:
                     "minimum_target": minimum,
                     "maximum_target": maximum,
                     "fan_ceiling": ceiling,
-                    "last_mode": call.data.get("last_mode") or room.get("last_mode") or "cool",
+                    "last_mode": self._normalise_mode(call.data.get("last_mode"))
+                    or (existing or {}).get("last_mode")
+                    or self._current_mode(climate)
+                    or "cool",
                     "deadline": call.data.get("deadline"),
                     "profiles": profiles,
                 }
@@ -185,7 +191,7 @@ class SplitRegistry:
                 room["fan_ceiling"] = self._ceiling(call.data["fan_ceiling"])
             for key in ("climate", "controller", "vertical_vane", "horizontal_vane", "last_mode", "deadline"):
                 if key in call.data:
-                    room[key] = call.data[key]
+                    room[key] = self._normalise_mode(call.data[key]) if key == "last_mode" else call.data[key]
             if "profiles" in call.data:
                 room["profiles"] = [self._profile(profile) for profile in call.data["profiles"]]
 
@@ -199,6 +205,22 @@ class SplitRegistry:
             self._room_id(call.data["room_id"]),
             call.data["operation"],
             call.data["minutes"],
+        )
+
+    async def async_resume_room(self, call: ServiceCall) -> None:
+        """Restore the room's last confirmed non-off HVAC mode."""
+        room_id = self._room_id(call.data["room_id"])
+        room = self.data[ROOMS].get(room_id)
+        if room is None:
+            raise HomeAssistantError(f"Unknown split-system room: {room_id}")
+        mode = str(room.get("last_mode") or "").strip()
+        if not mode or mode in {"off", "unknown", "unavailable"}:
+            raise HomeAssistantError("No resumable split-system mode is stored")
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": room["climate"], "hvac_mode": mode},
+            blocking=True,
         )
 
     async def _set_timer(self, room_id: str, operation: str, minutes: int) -> None:
@@ -321,13 +343,22 @@ class SplitRegistry:
         if not room_id or state is None:
             return
         if state.state == "off":
+            old_state = event.data.get("old_state")
+            previous_mode = self._normalise_mode(getattr(old_state, "state", None))
+            if previous_mode:
+                self.hass.async_create_task(self._record_mode(room_id, previous_mode))
             self.hass.async_create_task(self._set_timer(room_id, "cancel", 0))
             return
-        if state.state not in {"unknown", "unavailable"}:
-            self.hass.async_create_task(self._record_mode(room_id, state.state))
+        mode = self._normalise_mode(state.state)
+        if mode:
+            self.hass.async_create_task(self._record_mode(room_id, mode))
             self.hass.async_create_task(self.async_enforce(room_id))
 
     async def _record_mode(self, room_id: str, mode: str) -> None:
+        mode = self._normalise_mode(mode)
+        if mode is None:
+            return
+
         def mutate(rooms: dict[str, dict[str, Any]]) -> None:
             room = self._require(rooms, room_id)
             if room.get("last_mode") == mode:
@@ -335,6 +366,26 @@ class SplitRegistry:
             room["last_mode"] = mode
 
         await self._mutate(mutate)
+
+    async def _seed_active_modes(self) -> None:
+        """Capture already-active climate modes after HA restarts or reloads."""
+
+        def mutate(rooms: dict[str, dict[str, Any]]) -> None:
+            for room in rooms.values():
+                mode = self._current_mode(room["climate"])
+                if mode and room.get("last_mode") != mode:
+                    room["last_mode"] = mode
+
+        await self._mutate(mutate)
+
+    def _current_mode(self, climate: str) -> str | None:
+        state = self.hass.states.get(climate)
+        return self._normalise_mode(state.state if state else None)
+
+    @staticmethod
+    def _normalise_mode(value: Any) -> str | None:
+        mode = str(value or "").strip()
+        return mode if mode and mode not in {"off", "unknown", "unavailable"} else None
 
     def _schedule_deadline(self, room_id: str) -> None:
         self._cancel_deadline(room_id)
@@ -451,6 +502,7 @@ class SplitRegistry:
                     "minimum_target": minimum,
                     "maximum_target": maximum,
                     "fan_ceiling": self._ceiling(room.get("fan_ceiling", "Quiet")),
+                    "last_mode": self._normalise_mode(room.get("last_mode")) or "cool",
                     "profiles": [self._profile(profile) for profile in room.get("profiles") or []],
                 }
             except (TypeError, ValueError, HomeAssistantError):
@@ -491,6 +543,9 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     async def set_timer(call: ServiceCall) -> None:
         await get_registry(hass).async_set_timer(call)
 
+    async def resume_room(call: ServiceCall) -> None:
+        await get_registry(hass).async_resume_room(call)
+
     async def upsert_profile(call: ServiceCall) -> None:
         await get_registry(hass).async_upsert_profile(call)
 
@@ -501,6 +556,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     hass.services.async_register(DOMAIN, SERVICE_REMOVE_ROOM, remove_room, schema=_ROOM)
     hass.services.async_register(DOMAIN, SERVICE_SET_SETTINGS, update_room, schema=_SETTINGS)
     hass.services.async_register(DOMAIN, SERVICE_SET_TIMER, set_timer, schema=_TIMER)
+    hass.services.async_register(DOMAIN, SERVICE_RESUME_ROOM, resume_room, schema=_ROOM)
     hass.services.async_register(DOMAIN, SERVICE_UPSERT_PROFILE, upsert_profile, schema=_PROFILE)
     hass.services.async_register(DOMAIN, SERVICE_DELETE_PROFILE, remove_profile, schema=_DELETE_PROFILE)
     return True
