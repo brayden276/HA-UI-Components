@@ -396,16 +396,11 @@ This preserves the current component-library media-row behaviour.
 ```yaml
 type: custom:component-apple-tv-controller-v1
 entity: media_player.front_living_room_apple_tv_4k
-remote_entity: remote.front_living_room_apple_tv_4k
-keyboard_entity: binary_sensor.front_living_room_apple_tv_4k_keyboard_focus
 title: Apple TV 4K
 icon: mdi:apple
-show_app_selector: true
-show_power_controls: true
-show_keyboard_status: true
 ```
 
-The main card shows Apple TV identity, live state/app text and only the immediate volume down/up controls. Advanced navigation, dynamic source selection, mute, wake/sleep and keyboard-focus status open in a Split System-style controls panel. Source rows come from the media-player entity's live `source_list`; applications are not hard-coded.
+The media-player is the only required entity. The controller discovers its Apple TV remote, keyboard-focus sensor and integration entry through the shared device registry, then derives every visible control from current availability, state, supported features and live attributes. The main row shows only relevant quick actions; the modal has no empty or disabled fallback sections.
 
 For component-library previews without live entities:
 
