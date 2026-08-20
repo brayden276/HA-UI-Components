@@ -1,5 +1,5 @@
 /**
- * HA Component Library v1.3.0
+ * HA Component Library v1.4.0
  * Generated HACS Dashboard bundle.
  *
  * Source is organised by component under src/components. Shared logic lives
@@ -2893,18 +2893,24 @@ customElements.whenDefined('component-room-directory-v4').then(()=>{
   const original=P.updateTile;
   P.updateTile=function(button,area){
     original.call(this,button,area);
-    button.style.transition='box-shadow 220ms ease';
+    button.style.transition='box-shadow 220ms ease, border-left-color 220ms ease';
     if(!this._roomActive(area)){
       button.style.removeProperty('box-shadow');
+      button.style.removeProperty('border-left-color');
       button.removeAttribute('data-presence');
       return;
     }
     const hue=this._roomPresenceHue(area);
     button.setAttribute('data-presence','true');
+    if(button.classList.contains('warning')||button.classList.contains('critical')){
+      button.style.removeProperty('border-left-color');
+    }else{
+      button.style.borderLeftColor=`hsl(${hue} 82% 68% / .72)`;
+    }
     button.style.boxShadow=`inset 0 0 0 1px hsl(${hue} 82% 68% / .46), 0 0 14px 2px hsl(${hue} 82% 64% / .14)`;
   };
 });
 })();
 }
 
-globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "1.3.0", components: 37 });
+globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "1.4.0", components: 37 });
