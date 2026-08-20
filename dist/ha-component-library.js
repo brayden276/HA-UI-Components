@@ -1,5 +1,5 @@
 /**
- * HA Component Library v6.0.0
+ * HA Component Library v7.0.0
  * Generated HACS Dashboard bundle.
  *
  * Source is organised by component under src/components. Shared logic lives
@@ -116,8 +116,8 @@ dashboardSharedStyle.textContent=":root{--dashboard-radius-card:8px;--dashboard-
 
 // Module: src/shared/split-system-registry.js
 {
-/** Shared split-system registry backed by the split_state_registry integration. */
-const SPLIT_REGISTRY_ENTITY="sensor.split_state_registry";
+/** Shared split-system registry backed by the HA Component Backend integration. */
+const SPLIT_REGISTRY_ENTITY="sensor.ha_component_backend";
 const splitV4ObjectId=entityId=>String(entityId||"").split(".")[1]||"";
 const splitV4RoomId=identity=>{
   const parts=identity.split("_");
@@ -296,7 +296,8 @@ HD2.controlDomains=new Set(['light','fan','switch','input_boolean','media_player
 HD2.isPotential=(e,s)=>HD2.uiEntry(e)&&(HD2.controlDomains.has(HD2.domain(e.entity_id))||(HD2.domain(e.entity_id)==='binary_sensor'&&s?.attributes?.device_class==='garage_door'));
 HD2.isActive=(e,s)=>{if(!HD2.uiEntry(e)||!s)return false;const d=HD2.domain(e.entity_id),st=s.state,a=s.attributes||{};if(['light','fan','switch','input_boolean'].includes(d))return st==='on';if(d==='media_player'){if(['playing','paused','buffering','on'].includes(st))return true;if(st==='idle'){const v=String(a.media_title||a.app_name||'');return Boolean(v&&!/^(idle|home(?: screen)?|default media receiver)$/i.test(v))}return false}if(d==='climate')return /^(heat|cool|heat_cool|auto|dry|fan_only)$/.test(st);if(d==='cover')return /^(open|opening|closing)$/.test(st);if(d==='lock')return st==='unlocked';if(d==='vacuum')return /^(cleaning|returning)$/.test(st);if(d==='binary_sensor')return st==='on'&&/^(door|window|garage_door|smoke|moisture|gas)$/.test(a.device_class||'');return false};
 HD2.garageControl=(e,d,h)=>{if(!e?.device_id)return null;const sib=d?.byDevice?.get(e.device_id)||[],buttons=sib.filter(x=>HD2.domain(x.entity_id)==='button'&&HD2.uiEntry(x)&&h.states[x.entity_id]);return buttons.find(x=>/trigger|operate|door/i.test(`${x.entity_id} ${x.name||''} ${x.original_name||''}`))?.entity_id||buttons[0]?.entity_id||null};
-HD2.appleTvBundle=(e,s,d,h)=>{if(HD2.domain(e?.entity_id)!=='media_player'||e?.platform!=='apple_tv')return null;const siblings=d?.byDevice?.get(e.device_id)||[],available=x=>x?.entity_id&&!x.disabled_by&&h.states[x.entity_id],named=x=>`${x.entity_id} ${x.name||''} ${x.original_name||''}`.toLowerCase(),find=(domain,match)=>siblings.find(x=>available(x)&&HD2.domain(x.entity_id)===domain&&x.platform==='apple_tv'&&(!match||match(x)));const remote=find('remote'),keyboard=find('binary_sensor',x=>/keyboard.*focus|focus.*keyboard/.test(named(x)));return{type:'custom:component-apple-tv-controller-v1',entity:e.entity_id,remote_entity:remote?.entity_id,keyboard_entity:keyboard?.entity_id,title:HD2.stateName(h,e,s),icon:'mdi:apple'}};
+HD2.appleTvRegistry=(entityId,d,h,options={})=>{const entity=(d?.entities||[]).find(x=>x?.entity_id===entityId)||null,deviceId=entity?.device_id||options.deviceId||null,siblings=deviceId?(d?.byDevice?.get(deviceId)||[]):[],named=x=>`${x?.entity_id||''} ${x?.name||''} ${x?.original_name||''}`.toLowerCase(),isUi=x=>HD2.uiEntry(x)&&x?.entity_id&&!x.disabled_by,byDomain=domain=>siblings.filter(x=>isUi(x)&&HD2.domain(x.entity_id)===domain),mediaEntry=entity||byDomain('media_player').find(x=>x.entity_id===entityId)||null,remoteEntry=byDomain('remote').find(x=>x.platform==='apple_tv')||byDomain('remote')[0]||null,keyboardEntry=byDomain('binary_sensor').find(x=>/keyboard.*focus|focus.*keyboard/.test(named(x)))||null,configEntryId=mediaEntry?.config_entry_id||remoteEntry?.config_entry_id||keyboardEntry?.config_entry_id||entity?.config_entry_id||(Array.isArray((d?.devices||[]).find(x=>x.id===deviceId)?.config_entries)?(d.devices.find(x=>x.id===deviceId)?.config_entries||[])[0]:null)||null,signature=JSON.stringify([deviceId,configEntryId,siblings.map(x=>[x.entity_id,x.platform,x.disabled_by,x.hidden_by])]);return{entityId,deviceId,mediaEntry,remoteEntry,keyboardEntry,remoteEntityId:remoteEntry?.entity_id||null,keyboardEntityId:keyboardEntry?.entity_id||null,configEntryId,signature}};
+HD2.appleTvBundle=(e,s,d,h)=>{if(HD2.domain(e?.entity_id)!=='media_player'||e?.platform!=='apple_tv')return null;const info=HD2.appleTvRegistry(e.entity_id,d,h,{deviceId:e.device_id});return{type:'custom:component-apple-tv-controller-v1',entity:e.entity_id,device_id:info?.deviceId||e.device_id||null,title:HD2.stateName(h,e,s),icon:'mdi:apple'}};
 HD2.splitBundle=(e,d)=>{if(!e?.device_id||!d)return null;const siblings=d.byDevice?.get(e.device_id)||[],suffix=x=>String(x?.entity_id||'').split('.')[1]||'',find=(rows,domain,end)=>rows.find(x=>!x?.disabled_by&&HD2.domain(x.entity_id)===domain&&suffix(x).endsWith(end)),controller=find(siblings,'binary_sensor','_controller_status');if(!controller)return null;const vertical=find(siblings,'select','_vertical_vane'),horizontal=find(siblings,'select','_horizontal_vane');return{controller_entity:controller.entity_id,vertical_vane_entity:vertical?.entity_id,horizontal_vane_entity:horizontal?.entity_id,room_id:HD2.areaOf(e,d)}};HD2.splitRegistryConfig=(id,split)=>{const system=split?.systems?.get(id)||globalThis.__componentSplitRegistryV4?.result?.systems?.get(id);return system?{type:'custom:component-split-controller-v4',entity:id,room_id:system.room_id,registry_entity:system.registry_entity,controller_entity:system.controller_entity,vertical_vane_entity:system.vertical_vane_entity,horizontal_vane_entity:system.horizontal_vane_entity,minimum_target:system.minimum_target,maximum_target:system.maximum_target,fan_ceiling:system.fan_ceiling,last_mode:system.last_mode,deadline:system.deadline,profiles:system.profiles}:null};HD2.controlConfig=(e,s,d,h,split)=>{const id=e.entity_id,dom=HD2.domain(id),registry=dom==='climate'?HD2.splitRegistryConfig(id,split):null,bundle=!registry&&dom==='climate'?HD2.splitBundle(e,d):null;if(registry)return registry;if(bundle)return{type:'custom:component-split-controller-v4',entity:id,...bundle};if(dom==='binary_sensor'&&s?.attributes?.device_class==='garage_door'){const b=HD2.garageControl(e,d,h);return b?{type:'custom:component-garage-door-controller-v1',title:HD2.stateName(h,e,s).replace(/ Garage Door Status$/i,''),entity:id,control_entity:b}:{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true}}if(['light','fan','number'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'slider',entity:id,show_state:true,tap_action:{action:'more-info'}};if(['switch','input_boolean'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'switch',entity:id,show_state:true,button_action:{tap_action:{action:'toggle'}},tap_action:{action:'more-info'}};if(dom==='media_player')return HD2.appleTvBundle(e,s,d,h)||{type:'custom:bubble-card',card_type:'media-player',entity:id,show_state:true,tap_action:{action:'more-info'}};if(dom==='climate')return{type:'custom:bubble-card',card_type:'climate',entity:id,show_state:true};if(dom==='cover')return{type:'custom:bubble-card',card_type:'cover',entity:id,show_state:true};if(dom==='lock')return{type:'custom:mushroom-lock-card',entity:id};if(dom==='vacuum')return{type:'custom:mushroom-vacuum-card',entity:id};if(dom==='select')return{type:'custom:mushroom-select-card',entity:id};if(dom==='button')return{type:'custom:mushroom-entity-card',entity:id,tap_action:{action:'perform-action',perform_action:'button.press',target:{entity_id:id},confirmation:{text:'Run this control?'}},hold_action:{action:'more-info'}};if(dom==='binary_sensor')return{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true,show_last_changed:false};return null};
 class DashboardPreferenceEditorV2 extends HTMLElement{constructor(){super();this.attachShadow({mode:'open'});this.built=false}open(o){this.o=o;this.items=o.items.map(x=>({...x}));const ids=new Set(this.items.map(x=>x.id));this.hidden=new Set((o.hidden||[]).filter(id=>ids.has(id)));this.build();this.render();this.d.showModal();queueMicrotask(()=>this.shadowRoot.querySelector('.x')?.focus())}build(){if(this.built)return;this.built=true;this.shadowRoot.innerHTML=`<style>*{box-sizing:border-box}dialog{width:min(580px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 24px));border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,8px);padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.hd{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--divider-color)}h2{font-size:20px;margin:0}.x,.move,.vis{width:44px;height:44px;border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center}.x{border:1px solid var(--divider-color)}.body{padding:12px 14px 92px}.copy{font-size:13px;color:var(--secondary-text-color);line-height:1.4;margin:0 2px 10px}.rows{display:grid;gap:7px}.row{min-height:58px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px}.row.off{opacity:.58}.ico{width:34px;height:34px;display:grid;place-items:center;color:var(--primary-color)}.name{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{font-size:12px;color:var(--secondary-text-color);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.acts{display:flex}.move[disabled]{opacity:.25}.vis.off{color:var(--error-color)}.ft{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--divider-color);background:var(--card-background-color)}.count{font-size:13px;color:var(--secondary-text-color)}.buttons{display:flex;gap:8px}.cancel,.save{min-height:44px;padding:0 13px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,6px);background:transparent;font-weight:650}.save{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}:is(button):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}</style><dialog><div class="hd"><h2></h2><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"><div class="copy"></div><div class="rows"></div></div><div class="ft"><span class="count"></span><span class="buttons"><button class="cancel" type="button">Cancel</button><button class="save" type="button">Save</button></span></div></dialog>`;this.d=this.shadowRoot.querySelector('dialog');this.d.addEventListener('click',e=>{if(e.target===this.d)this.d.close()});this.shadowRoot.querySelector('.x').onclick=()=>this.d.close();this.shadowRoot.querySelector('.cancel').onclick=()=>this.d.close();this.shadowRoot.querySelector('.save').onclick=()=>this.save()}render(){this.shadowRoot.querySelector('h2').textContent=this.o.title||'Edit';this.shadowRoot.querySelector('.copy').textContent=this.o.description||'Reorder items and hide anything you do not want shown.';const rows=this.shadowRoot.querySelector('.rows');rows.replaceChildren();this.items.forEach((x,i)=>{const r=document.createElement('div'),off=this.hidden.has(x.id);r.className=`row ${off?'off':''}`;r.innerHTML=`<span class="ico"><ha-icon icon="${HD2.esc(x.icon||'mdi:circle-outline')}"></ha-icon></span><span><div class="name">${HD2.esc(x.name)}</div><div class="meta">${HD2.esc(x.meta||'')}</div></span><span class="acts"><button class="move up" type="button" aria-label="Move earlier" ${i===0?'disabled':''}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="move down" type="button" aria-label="Move later" ${i===this.items.length-1?'disabled':''}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="vis ${off?'off':''}" type="button" aria-label="${off?'Show':'Hide'} ${HD2.esc(x.name)}"><ha-icon icon="mdi:${off?'eye-outline':'eye-off-outline'}"></ha-icon></button></span>`;r.querySelector('.up').onclick=()=>this.move(i,-1);r.querySelector('.down').onclick=()=>this.move(i,1);r.querySelector('.vis').onclick=()=>{off?this.hidden.delete(x.id):this.hidden.add(x.id);this.render()};rows.append(r)});this.shadowRoot.querySelector('.count').textContent=`${this.items.length-this.hidden.size} of ${this.items.length} shown`}move(i,d){const n=i+d;if(n<0||n>=this.items.length)return;[this.items[i],this.items[n]]=[this.items[n],this.items[i]];this.render()}async save(){const b=this.shadowRoot.querySelector('.save');b.disabled=true;b.textContent='Saving…';try{await this.o.onSave?.({order:this.items.map(x=>x.id),hidden:[...this.hidden]});this.d.close()}finally{b.disabled=false;b.textContent='Save'}}}
 if(!customElements.get('dashboard-preference-editor-v2'))customElements.define('dashboard-preference-editor-v2',DashboardPreferenceEditorV2);
@@ -1078,655 +1079,76 @@ registerCard({ type: "component-media-row-v2", element: ComponentMediaRowV2, nam
 
 // Module: src/components/component-apple-tv-controller-v1.js
 {
-/** ComponentAppleTvControllerV1 - compact Apple TV controller with Split-style advanced controls. */
+/** Live, registry-aware Apple TV controller. */
 const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-
-const ATV_INVALID = new Set(["unknown", "unavailable", "none", ""]);
-const ATV_MEDIA_VOLUME_MUTE = 8;
-const ATV_MEDIA_VOLUME_STEP = 1024;
-const ATV_MEDIA_SELECT_SOURCE = 2048;
-const ATV_REMOTE_COMMANDS = [
-  ["menu", "Menu", "mdi:keyboard-return"],
-  ["up", "Up", "mdi:chevron-up"],
-  ["top_menu", "Top menu", "mdi:format-list-bulleted"],
-  ["left", "Left", "mdi:chevron-left"],
-  ["select", "Select", "mdi:circle-outline"],
-  ["right", "Right", "mdi:chevron-right"],
-  ["home", "Home", "mdi:home-variant-outline"],
-  ["down", "Down", "mdi:chevron-down"],
-];
+const INVALID = new Set(["unknown", "unavailable", "none", ""]);
+const F = { PAUSE:1, SET_VOLUME:4, MUTE:8, PREVIOUS:16, NEXT:32, PLAY:512, STEP_VOLUME:1024, SOURCE:2048, STOP:4096 };
+const NAV = [["up","Up","mdi:chevron-up"],["left","Left","mdi:chevron-left"],["select","Select","mdi:circle-outline"],["right","Right","mdi:chevron-right"],["down","Down","mdi:chevron-down"],["menu","Menu","mdi:keyboard-return"],["home","Home","mdi:home-variant-outline"],["top_menu","Top menu","mdi:format-list-bulleted"]];
 
 class ComponentAppleTvControllerV1 extends HTMLElement {
-  static getGridOptions() { return { columns: 12, rows: "auto" }; }
-
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this.built = false;
-    this.signature = "";
-    this.sourceFilter = "";
-    this.pending = "";
-    this.message = "";
-    this.messageType = "info";
-    this.panelOpen = false;
-    this.panelTrigger = null;
-    this.sleepConfirm = false;
-    this.messageTimer = null;
-    this.pendingTimer = null;
-    this.sleepTimer = null;
+  static getGridOptions(){return {columns:12,rows:"auto"}}
+  constructor(){super();this.attachShadow({mode:"open"});this.pending=new Set;this.panelOpen=false;this.registry=null;this.unsubscribe=null;this.sourceFilter="";this.message="";this.messageTimer=null}
+  setConfig(config){if(!config?.entity&&!config?.demo)throw new Error("An Apple TV media-player entity is required");this.config={icon:"mdi:apple",...config,entity:config?.entity||"media_player.demo_apple_tv"};this.render()}
+  set hass(hass){this._hass=hass;this.subscribe();this.render()}
+  connectedCallback(){this.subscribe();this.render()}
+  disconnectedCallback(){this.unsubscribe?.();this.unsubscribe=null;clearTimeout(this.messageTimer)}
+  getCardSize(){return 2}
+  subscribe(){const registry=globalThis.__homeDashboardV2?.REG;if(!registry||!this._hass||this.config?.demo||this.unsubscribe)return;this.unsubscribe=registry.subscribe(this._hass,data=>{this.registry=data;this.render()})}
+  state(id){return id?this._hass?.states?.[id]??this.demoState(id):null}
+  demoState(id){if(!this.config?.demo)return null;if(id==="remote.demo_apple_tv")return {state:"on",attributes:{supported_commands:NAV.map(x=>x[0]).concat(["wakeup","suspend"])}};if(id==="binary_sensor.demo_apple_tv_keyboard_focus")return {state:"off",attributes:{}};return {state:"playing",attributes:{friendly_name:"Apple TV 4K",source:"Netflix",source_list:["Netflix","YouTube","Apple TV"],volume_level:.42,supported_features:F.PAUSE|F.PLAY|F.SET_VOLUME|F.MUTE|F.STEP_VOLUME|F.SOURCE|F.PREVIOUS|F.NEXT|F.STOP}}}
+  valid(state){return Boolean(state&&!INVALID.has(String(state.state).toLowerCase()))}
+  supported(state,feature){return Boolean((Number(state?.attributes?.supported_features)||0)&feature)}
+  domain(id){return String(id||"").split(".")[0]}
+  discovery(){
+    if(this.config?.demo)return {media:this.config.entity,remote:"remote.demo_apple_tv",keyboard:"binary_sensor.demo_apple_tv_keyboard_focus",configEntryId:"demo"};
+    const shared=globalThis.__homeDashboardV2?.appleTvRegistry?.(this.config?.entity,this.registry,this._hass,{deviceId:this.config?.device_id});
+    if(shared)return {media:this.config?.entity,remote:shared.remoteEntityId,keyboard:shared.keyboardEntityId,configEntryId:shared.configEntryId};
+    const all=this.registry?.entities||[],mediaEntry=all.find(x=>x.entity_id===this.config?.entity),siblings=mediaEntry?.device_id?this.registry?.byDevice?.get(mediaEntry.device_id)||[]:[];
+    const usable=x=>x&&!x.disabled_by&&!x.hidden_by&&(x.platform==="apple_tv"||x.config_entry_id===mediaEntry?.config_entry_id);
+    const remote=siblings.find(x=>usable(x)&&this.domain(x.entity_id)==="remote");
+    const keyboard=siblings.find(x=>usable(x)&&this.domain(x.entity_id)==="binary_sensor"&&/keyboard.*focus|focus.*keyboard/i.test(String(x.entity_id)+" "+String(x.name||"")+" "+String(x.original_name||"")));
+    return {media:this.config?.entity,remote:remote?.entity_id||null,keyboard:keyboard?.entity_id||null,configEntryId:mediaEntry?.config_entry_id||remote?.config_entry_id||keyboard?.config_entry_id||null};
   }
-
-  setConfig(config) {
-    if (!config?.entity && !config?.demo) throw new Error("An Apple TV media-player entity is required");
-    const demoDefaults = config?.demo ? {
-      entity: "media_player.demo_apple_tv",
-      remote_entity: "remote.demo_apple_tv",
-      keyboard_entity: "binary_sensor.demo_apple_tv_keyboard_focus",
-    } : {};
-    this.clearTransientState();
-    this.config = {
-      icon: "mdi:apple",
-      show_app_selector: true,
-      show_power_controls: true,
-      show_keyboard_status: true,
-      ...demoDefaults,
-      ...config,
-    };
-    this.signature = "";
-    this.sourceFilter = "";
+  model(){
+    const entities=this.discovery(),media=this.state(entities.media),remote=this.state(entities.remote),keyboard=this.state(entities.keyboard),raw=String(media?.state||"unknown").toLowerCase(),available=this.valid(media),sleeping=available&&["off","standby"].includes(raw),awake=available&&!sleeping,attrs=media?.attributes||{},commands=Array.isArray(remote?.attributes?.supported_commands)?new Set(remote.attributes.supported_commands):null,remoteUsable=this.valid(remote),remoteCan=command=>remoteUsable&&(!commands||commands.has(command)),level=Number(attrs.volume_level),hasLevel=Number.isFinite(level)&&level>=0&&level<=1,playing=awake&&raw==="playing",paused=awake&&raw==="paused",idle=awake&&["idle","on","buffering"].includes(raw),sources=Array.isArray(attrs.source_list)?attrs.source_list.filter(x=>typeof x==="string"&&x.trim()):[],keyboardFocused=awake&&this.valid(keyboard)&&String(keyboard.state).toLowerCase()==="on";
+    return {entities,media,remote,available,awake,sleeping,playing,paused,idle,sources,currentSource:attrs.app_name||attrs.source||null,level:hasLevel?level:null,muted:attrs.is_volume_muted===true,canWake:sleeping&&remoteCan("wakeup"),canSleep:awake&&remoteCan("suspend"),canNavigate:awake&&remoteUsable&&NAV.some(x=>remoteCan(x[0])),canPlay:awake&&(paused||idle)&&this.supported(media,F.PLAY),canPause:playing&&this.supported(media,F.PAUSE),canStop:(playing||paused)&&this.supported(media,F.STOP),canPrevious:(playing||paused)&&this.supported(media,F.PREVIOUS),canNext:(playing||paused)&&this.supported(media,F.NEXT),canVolumeUp:awake&&this.supported(media,F.STEP_VOLUME),canVolumeDown:awake&&this.supported(media,F.STEP_VOLUME),canSetVolume:awake&&hasLevel&&this.supported(media,F.SET_VOLUME),canMute:awake&&this.supported(media,F.MUTE),canSelectSource:awake&&sources.length>0&&this.supported(media,F.SOURCE),keyboardFocused,canSetKeyboardText:keyboardFocused&&Boolean(entities.configEntryId),canAppendKeyboardText:keyboardFocused&&Boolean(entities.configEntryId),canClearKeyboardText:keyboardFocused&&Boolean(entities.configEntryId),status:!available?(raw==="unknown"?"Status unknown":"Apple TV unavailable"):[sleeping?"Sleeping":playing?"Playing":paused?"Paused":idle?"Idle":this.label(raw),attrs.app_name||attrs.source].filter(Boolean).join(" · ")};
   }
-
-  set hass(hass) {
-    this._hass = hass;
-    if (!this.built) this.build();
-    const signature = this.stateSignature();
-    if (signature !== this.signature) {
-      this.signature = signature;
-      this.render();
-    } else {
-      this.renderMessage();
-    }
+  label(value){return String(value||"").replaceAll("_"," ").replace(/^./,x=>x.toUpperCase())}
+  name(model){return this.config?.title||model.media?.attributes?.friendly_name||"Apple TV"}
+  canOpen(model){return model.canNavigate||model.canPlay||model.canPause||model.canStop||model.canPrevious||model.canNext||model.canSetVolume||model.canMute||model.canSelectSource||model.canSetKeyboardText}
+  busy(action){return this.pending.has(action)}
+  build(){
+    if(this.el)return;
+    this.shadowRoot.innerHTML='<style>:host{display:block;min-width:0}*{box-sizing:border-box}button,input{font:inherit;color:inherit}button{appearance:none;border:0;background:transparent;cursor:pointer}button:disabled{opacity:.45;cursor:default}ha-card{display:block;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,8px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color)}.wrap{padding:12px 14px}.identity{width:100%;min-height:44px;display:grid;grid-template-columns:40px minmax(0,1fr);gap:12px;align-items:center;text-align:left}.identity:disabled{opacity:1}.ico{width:40px;height:40px;display:grid;place-items:center;color:var(--secondary-text-color)}.ico.on{color:var(--primary-color)}.name,.status{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name{font-size:13px;font-weight:650}.status{margin-top:3px;font-size:13px;color:var(--secondary-text-color)}.row{min-height:44px;margin-top:8px;display:flex;align-items:center;justify-content:space-between;gap:8px}.quick,.volume{display:flex;align-items:center;gap:8px}.button,.open,.remote,.action,.source{min-height:40px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:inline-flex;align-items:center;justify-content:center;gap:6px;color:var(--secondary-text-color);font-size:13px;font-weight:650}.square{width:44px;padding:0}.open{margin-left:auto}.volume-label{font-size:14px;font-weight:650;white-space:nowrap}.notice{margin:0;font-size:13px;color:var(--secondary-text-color)}.notice:not(:empty){margin-top:10px;padding-top:10px;border-top:1px solid var(--divider-color)}.error{color:var(--error-color)}.panel{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:16px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,rgba(0,0,0,.16)))}.panel[hidden]{display:none!important}.sheet{width:min(400px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,10px);background:var(--card-background-color)}.head{min-height:54px;padding:7px 8px 7px 14px;display:grid;grid-template-columns:minmax(0,1fr) 40px;align-items:center;border-bottom:1px solid var(--divider-color)}.sheet-name{font-size:14px;font-weight:650}.sheet-state{display:block;margin-top:2px;font-size:12px;color:var(--secondary-text-color)}.close{width:40px;height:40px}.body{overflow:auto;padding:12px 14px 8px;display:grid;gap:14px}.section{display:grid;gap:9px}.section-title{font-size:13px;font-weight:650}.dpad{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.remote{width:100%;margin:0}.remote.select{min-height:56px;color:var(--primary-color)}.blank{visibility:hidden}.action{margin:0 7px 7px 0}.volume-modal{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:8px}.slider{width:100%;accent-color:var(--primary-color)}.search,.keyboard-input{width:100%;min-height:40px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);background:transparent}.sources{display:grid;gap:6px;max-height:220px;overflow:auto}.source{text-align:left}.source[aria-selected=true]{color:var(--primary-color);border-color:var(--primary-color)}.panel-notice{padding:0 14px max(14px,env(safe-area-inset-bottom));margin:0;font-size:13px;color:var(--secondary-text-color)}.panel-notice:not(:empty){padding-top:10px;border-top:1px solid var(--divider-color)}:is(button,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}@media(max-width:420px){.panel{padding:8px}.sheet{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.wrap{padding:12px}}</style><ha-card><div class="wrap"><button class="identity" type="button"><span class="ico"><ha-icon></ha-icon></span><span><span class="name"></span><span class="status" role="status"></span></span></button><div class="row"><div class="quick"></div><button class="open" type="button" aria-controls="apple-tv-controls-panel" aria-expanded="false">Controls <ha-icon icon="mdi:chevron-right"></ha-icon></button></div><p class="notice" role="status" aria-live="polite"></p></div></ha-card><section class="panel" id="apple-tv-controls-panel" role="dialog" aria-modal="true" aria-labelledby="apple-tv-controls-title" hidden><div class="sheet"><header class="head"><span><span class="sheet-name" id="apple-tv-controls-title"></span><span class="sheet-state"></span></span><button class="close" type="button" aria-label="Close Apple TV controls"><ha-icon icon="mdi:close"></ha-icon></button></header><div class="body"></div><p class="panel-notice" role="status" aria-live="polite"></p></div></section>';
+    const q=x=>this.shadowRoot.querySelector(x);this.el={identity:q(".identity"),icon:q(".identity ha-icon"),iconWrap:q(".ico"),name:q(".name"),status:q(".status"),quick:q(".quick"),open:q(".open"),notice:q(".notice"),panel:q(".panel"),close:q(".close"),body:q(".body"),sheetName:q(".sheet-name"),sheetState:q(".sheet-state"),panelNotice:q(".panel-notice")};
+    this.el.identity.onclick=()=>this.openPanel(this.el.identity);this.el.open.onclick=()=>this.openPanel(this.el.open);this.el.close.onclick=()=>this.closePanel(true);this.el.panel.onclick=e=>{if(e.target===this.el.panel)this.closePanel(true)};this.shadowRoot.addEventListener("keydown",e=>{if(e.key==="Escape"&&this.panelOpen){e.preventDefault();this.closePanel(true)}else if(e.key==="Tab"&&this.panelOpen)this.trapFocus(e)});
   }
-
-  connectedCallback() {
-    if (this.config && !this.built) this.build();
-  }
-
-  disconnectedCallback() {
-    this.clearTransientState();
-  }
-
-  getCardSize() { return 2; }
-
-  build() {
-    this.built = true;
-    this.shadowRoot.innerHTML = `<style>
-      :host{display:block;min-width:0}*{box-sizing:border-box}button,input{font:inherit;color:inherit}button{appearance:none;border:0;background:transparent;cursor:pointer}ha-card{container-type:inline-size;display:block;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,8px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color)}ha-icon{--mdc-icon-size:20px}.atv-wrap{padding:12px 14px}.atv-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px}.atv-identity{min-width:0;min-height:44px;padding:0;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:12px;text-align:left;border-radius:var(--dashboard-radius-control,8px)}.atv-icon{width:40px;height:40px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);color:var(--secondary-text-color);background:transparent}.atv-icon.active{color:var(--primary-color)}.atv-copy{min-width:0}.atv-name,.atv-status{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-name{font-size:13px;line-height:1.25;font-weight:650}.atv-status{margin-top:3px;font-size:13px;line-height:1.25;color:var(--secondary-text-color)}.atv-open{min-height:40px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:flex;align-items:center;gap:6px;color:var(--secondary-text-color);font-size:13px;font-weight:650}.atv-open ha-icon{--mdc-icon-size:18px}.atv-open[aria-expanded=true],.atv-open:hover{color:var(--primary-color);background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.atv-volume{width:min(100%,232px);margin:8px auto 0;display:grid;grid-template-columns:44px minmax(0,126px) 44px;align-items:center;justify-content:center;gap:9px}.atv-volume.unavailable{width:auto;grid-template-columns:1fr;justify-content:stretch}.atv-volume-btn{width:44px;height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center;color:var(--secondary-text-color)}.atv-volume-btn:not(:disabled):hover,.atv-volume-btn:not(:disabled):focus-visible{color:var(--primary-color);background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.atv-volume-btn.pending{color:var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.atv-volume-value{min-width:0;text-align:center;font-size:14px;line-height:1.2;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-feedback,.atv-panel-feedback{min-height:0;margin:0;font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.atv-feedback:not(:empty){margin-top:10px;padding-top:10px;border-top:1px solid var(--divider-color)}.atv-feedback.error,.atv-panel-feedback.error{color:var(--error-color)}.atv-panel{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:16px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,rgba(0,0,0,.16)));overscroll-behavior:contain}.atv-panel[hidden]{display:none!important}.atv-sheet{width:min(380px,calc(100vw - 32px));max-height:calc(100dvh - 32px);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,10px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}.atv-sheet-head{min-height:54px;padding:7px 8px 7px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) 40px;align-items:center;gap:9px;border-bottom:1px solid var(--divider-color)}.atv-sheet-head .atv-icon{width:34px;height:34px}.atv-sheet-title{min-width:0}.atv-sheet-name,.atv-sheet-state{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-sheet-name{font-size:14px;line-height:1.25;font-weight:650}.atv-sheet-state{margin-top:2px;font-size:12px;line-height:1.25;color:var(--secondary-text-color)}.atv-close{width:40px;height:40px;border-radius:var(--dashboard-radius-control,8px);display:grid;place-items:center;color:var(--secondary-text-color)}.atv-body{overflow:auto;overscroll-behavior:contain;padding:12px 14px 8px;display:grid;gap:14px}.atv-panel-feedback{padding:0 14px max(14px,env(safe-area-inset-bottom))}.atv-panel-feedback:not(:empty){padding-top:10px;border-top:1px solid var(--divider-color)}.atv-section{display:grid;gap:9px}.atv-section-title{font-size:13px;line-height:1.25;font-weight:650}.atv-note{margin:0;font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.atv-remote{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:center}.atv-remote-btn{min-height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:flex;align-items:center;justify-content:center;gap:6px;color:var(--secondary-text-color);font-size:13px;font-weight:650}.atv-remote-btn.select{min-height:58px;color:var(--primary-color);border-color:color-mix(in srgb,var(--primary-color) 45%,var(--divider-color));background:var(--dashboard-active-surface,var(--card-background-color))}.atv-remote-btn.pending{color:var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.atv-remote-btn.empty{visibility:hidden;pointer-events:none}.atv-source-tools{display:grid;grid-template-columns:1fr;gap:8px}.atv-search{width:100%;height:40px;min-width:0;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);background:var(--card-background-color);color:var(--primary-text-color)}.atv-sources{max-height:220px;overflow:auto;display:grid;gap:6px;padding-right:2px}.atv-source{min-height:42px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:grid;grid-template-columns:minmax(0,1fr) 20px;align-items:center;gap:8px;text-align:left;color:var(--primary-text-color);font-size:13px;font-weight:600}.atv-source span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atv-source[aria-selected=true]{color:var(--primary-color);border-color:color-mix(in srgb,var(--primary-color) 45%,var(--divider-color));background:var(--dashboard-active-surface,var(--card-background-color))}.atv-source ha-icon{--mdc-icon-size:18px}.atv-audio{width:min(100%,232px);margin:0 auto;display:grid;grid-template-columns:44px minmax(0,126px) 44px;align-items:center;justify-content:center;gap:9px}.atv-audio .atv-volume-value{min-height:44px;display:grid;place-items:center;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px)}.atv-audio-actions{display:grid;grid-template-columns:1fr;gap:8px}.atv-secondary-btn,.atv-power-btn{min-height:44px;padding:0 11px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);display:flex;align-items:center;justify-content:center;gap:7px;color:var(--secondary-text-color);font-size:13px;font-weight:650}.atv-secondary-btn.active,.atv-power-btn:not(:disabled):hover{color:var(--primary-color);background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.atv-power{display:grid;grid-template-columns:1fr 1fr;gap:8px}.atv-keyboard{min-height:40px;display:flex;align-items:center;gap:8px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,6px);font-size:13px;color:var(--secondary-text-color)}button:disabled,button[aria-disabled=true]{opacity:.45;cursor:default}:is(button,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.atv-open:active,.atv-volume-btn:active,.atv-remote-btn:active,.atv-source:active,.atv-secondary-btn:active,.atv-power-btn:active{background:var(--dashboard-active-surface,var(--card-background-color))}@container (max-width:340px){.atv-wrap{padding:12px}.atv-head{grid-template-columns:1fr}.atv-open{width:100%;justify-content:center}.atv-volume{width:min(100%,216px);gap:8px}.atv-open .atv-open-text{display:inline}}@media(max-width:420px){.atv-panel{padding:8px}.atv-sheet{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.atv-body{padding:10px 12px 8px}.atv-panel-feedback{padding:0 12px max(16px,env(safe-area-inset-bottom))}.atv-remote{gap:6px}.atv-remote-btn{font-size:12px}.atv-audio{width:min(100%,216px);gap:8px}.atv-power{grid-template-columns:1fr}}
-    </style><ha-card><div class="atv-wrap"><div class="atv-head"><button class="atv-identity" type="button"><span class="atv-icon"><ha-icon></ha-icon></span><span class="atv-copy"><span class="atv-name"></span><span class="atv-status" role="status"></span></span></button><button class="atv-open" type="button" aria-controls="apple-tv-controls-panel" aria-expanded="false"><span class="atv-open-text">Controls</span><ha-icon icon="mdi:chevron-right"></ha-icon></button></div><div class="atv-volume"><button class="atv-volume-btn atv-volume-down" type="button" aria-label="Volume down"><ha-icon icon="mdi:volume-minus"></ha-icon></button><span class="atv-volume-value"></span><button class="atv-volume-btn atv-volume-up" type="button" aria-label="Volume up"><ha-icon icon="mdi:volume-plus"></ha-icon></button></div><p class="atv-feedback" role="status" aria-live="polite"></p></div></ha-card><section class="atv-panel" id="apple-tv-controls-panel" role="dialog" aria-modal="true" aria-labelledby="apple-tv-controls-title" hidden><div class="atv-sheet"><div class="atv-sheet-head"><span class="atv-icon"><ha-icon></ha-icon></span><span class="atv-sheet-title"><span class="atv-sheet-name" id="apple-tv-controls-title"></span><span class="atv-sheet-state"></span></span><button class="atv-close" type="button" aria-label="Close Apple TV controls"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="atv-body"></div><p class="atv-panel-feedback" role="status" aria-live="polite"></p></div></section>`;
-    this.elements = {
-      identity: this.shadowRoot.querySelector(".atv-identity"),
-      mainIcon: this.shadowRoot.querySelector(".atv-identity ha-icon"),
-      mainIconWrap: this.shadowRoot.querySelector(".atv-identity .atv-icon"),
-      name: this.shadowRoot.querySelector(".atv-name"),
-      status: this.shadowRoot.querySelector(".atv-status"),
-      open: this.shadowRoot.querySelector(".atv-open"),
-      volumeRow: this.shadowRoot.querySelector(".atv-volume"),
-      volumeDown: this.shadowRoot.querySelector(".atv-volume-down"),
-      volumeValue: this.shadowRoot.querySelector(".atv-volume-value"),
-      volumeUp: this.shadowRoot.querySelector(".atv-volume-up"),
-      feedback: this.shadowRoot.querySelector(".atv-feedback"),
-      panelFeedback: this.shadowRoot.querySelector(".atv-panel-feedback"),
-      panel: this.shadowRoot.querySelector(".atv-panel"),
-      sheetIcon: this.shadowRoot.querySelector(".atv-sheet-head ha-icon"),
-      sheetIconWrap: this.shadowRoot.querySelector(".atv-sheet-head .atv-icon"),
-      sheetName: this.shadowRoot.querySelector(".atv-sheet-name"),
-      sheetState: this.shadowRoot.querySelector(".atv-sheet-state"),
-      close: this.shadowRoot.querySelector(".atv-close"),
-      body: this.shadowRoot.querySelector(".atv-body"),
-    };
-    this.elements.identity.addEventListener("click", () => this.openPanel(this.elements.identity));
-    this.elements.open.addEventListener("click", () => this.openPanel(this.elements.open));
-    this.elements.volumeDown.addEventListener("click", () => this.adjustVolume("down"));
-    this.elements.volumeUp.addEventListener("click", () => this.adjustVolume("up"));
-    this.elements.close.addEventListener("click", () => this.closePanel(true));
-    this.elements.panel.addEventListener("click", (event) => { if (event.target === this.elements.panel) this.closePanel(true); });
-    this.shadowRoot.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && this.panelOpen) {
-        event.preventDefault();
-        this.closePanel(true);
-      } else if (event.key === "Tab" && this.panelOpen) {
-        this.trapFocus(event);
-      }
-    });
-  }
-
-  clearTransientState() {
-    clearTimeout(this.messageTimer);
-    clearTimeout(this.pendingTimer);
-    clearTimeout(this.sleepTimer);
-    this.messageTimer = null;
-    this.pendingTimer = null;
-    this.sleepTimer = null;
-    this.pending = "";
-    this.message = "";
-    this.sleepConfirm = false;
-  }
-
-  demoState(entityId) {
-    if (!this.config?.demo) return null;
-    if (entityId === this.config?.keyboard_entity) return { state: "on", attributes: { friendly_name: "Apple TV keyboard focus" } };
-    if (entityId === this.config?.remote_entity) return { state: "on", attributes: { friendly_name: "Apple TV remote" } };
-    return {
-      state: "playing",
-      attributes: {
-        friendly_name: "Apple TV 4K",
-        app_name: "Netflix",
-        source: "Netflix",
-        source_list: ["Netflix", "Disney+", "YouTube", "Spotify", "Prime Video", "ABC iview", "Apple TV"],
-        volume_level: 0.42,
-        is_volume_muted: false,
-        supported_features: ATV_MEDIA_VOLUME_STEP | ATV_MEDIA_VOLUME_MUTE | ATV_MEDIA_SELECT_SOURCE,
-      },
-    };
-  }
-
-  state(entityId) { return entityId ? this._hass?.states?.[entityId] ?? this.demoState(entityId) : null; }
-  validState(state) { return Boolean(state && !ATV_INVALID.has(String(state.state).toLowerCase())); }
-  supported(state, feature) { return Boolean((Number(state?.attributes?.supported_features) || 0) & feature); }
-
-  mediaState() { return this.state(this.config?.entity); }
-  remoteState() { return this.state(this.config?.remote_entity); }
-  keyboardState() { return this.state(this.config?.keyboard_entity); }
-  remoteAvailable() { return Boolean(this.config?.remote_entity && this.validState(this.remoteState())); }
-  mediaAvailable() { return this.validState(this.mediaState()); }
-
-  stateSignature() {
-    const ids = [this.config?.entity, this.config?.remote_entity, this.config?.keyboard_entity].filter(Boolean);
-    return JSON.stringify([this.panelOpen, this.sourceFilter, this.pending, this.message, this.sleepConfirm, ...ids.map((entityId) => {
-      const state = this.state(entityId);
-      return [entityId, state?.state, state?.attributes];
-    })]);
-  }
-
-  title() {
-    const state = this.mediaState();
-    return this.config?.title || state?.attributes?.friendly_name || "Apple TV";
-  }
-
-  appName() {
-    const attributes = this.mediaState()?.attributes ?? {};
-    return attributes.app_name || attributes.source || null;
-  }
-
-  displayStatus() {
-    const state = this.mediaState();
-    if (!state) return this.config?.demo ? "Playing · Netflix" : "Apple TV unavailable";
-    const value = String(state.state || "").toLowerCase();
-    const app = this.appName();
-    if (value === "unavailable") return "Apple TV unavailable";
-    if (value === "unknown") return "Status unknown";
-    if (value === "off") return "Sleeping";
-    const label = value === "playing" ? "Playing" : value === "paused" ? "Paused" : value === "idle" ? "Idle" : value === "on" ? "Ready" : this.toTitle(value);
-    return [label, app].filter(Boolean).join(" · ");
-  }
-
-  volumeInfo() {
-    const media = this.mediaState();
-    const attributes = media?.attributes ?? {};
-    const level = Number(attributes.volume_level);
-    const hasLevel = Number.isFinite(level) && level >= 0 && level <= 1;
-    const percent = hasLevel ? `${Math.round(level * 100)}%` : null;
-    const muted = attributes.is_volume_muted === true;
-    const mediaStep = this.mediaAvailable() && this.supported(media, ATV_MEDIA_VOLUME_STEP);
-    const remoteStep = this.remoteAvailable() && this.commandSupported("volume_up") && this.commandSupported("volume_down");
-    return {
-      hasLevel,
-      muted,
-      percent,
-      label: muted ? "Muted" : percent ?? (this.mediaAvailable() || remoteStep ? "Volume" : "Volume unavailable"),
-      mediaStep,
-      remoteStep,
-      canStep: mediaStep || remoteStep,
-      canMute: this.mediaAvailable() && this.supported(media, ATV_MEDIA_VOLUME_MUTE),
-      unavailable: !mediaStep && !remoteStep,
-    };
-  }
-
-  render() {
-    if (!this.built || !this.config) return;
-    const available = this.mediaAvailable();
-    const title = this.title();
-    const status = this.displayStatus();
-    const volume = this.volumeInfo();
-    const active = available && !["off", "idle"].includes(String(this.mediaState()?.state).toLowerCase());
-    this.elements.name.textContent = title;
-    this.elements.status.textContent = status;
-    this.elements.mainIcon.setAttribute("icon", this.config.icon);
-    this.elements.sheetIcon.setAttribute("icon", this.config.icon);
-    this.elements.mainIconWrap.classList.toggle("active", active);
-    this.elements.sheetIconWrap.classList.toggle("active", active);
-    this.elements.identity.setAttribute("aria-label", available ? `Open controls for ${title}` : `${title}. ${status}`);
-    this.elements.open.setAttribute("aria-label", `Open controls for ${title}`);
-    this.elements.open.setAttribute("aria-expanded", String(this.panelOpen));
-    this.elements.open.disabled = !available && !this.remoteAvailable();
-    this.elements.sheetName.textContent = title;
-    this.elements.sheetState.textContent = status;
-    this.renderVolumeRow(this.elements.volumeRow, volume, false);
-    this.renderMessage();
-    if (this.panelOpen) this.renderPanel();
-  }
-
-  renderVolumeRow(container, volume, modal) {
-    container.classList.toggle("unavailable", volume.unavailable && !modal);
-    const down = container.querySelector(".atv-volume-down");
-    const up = container.querySelector(".atv-volume-up");
-    const value = container.querySelector(".atv-volume-value");
-    if (!modal && volume.unavailable) {
-      down.hidden = true;
-      up.hidden = true;
-      value.textContent = "Volume unavailable";
-      value.setAttribute("aria-label", "Volume unavailable");
-      return;
-    }
-    down.hidden = false;
-    up.hidden = false;
-    down.disabled = !volume.canStep || this.pending === "volume-down";
-    up.disabled = !volume.canStep || this.pending === "volume-up";
-    down.classList.toggle("pending", this.pending === "volume-down");
-    up.classList.toggle("pending", this.pending === "volume-up");
-    const label = volume.muted && volume.percent ? `Muted, ${volume.percent}` : volume.label;
-    value.textContent = volume.label;
-    value.setAttribute("aria-label", label);
-  }
-
-  renderPanel() {
-    const remoteAvailable = this.remoteAvailable();
-    const mediaAvailable = this.mediaAvailable();
-    const volume = this.volumeInfo();
-    this.elements.body.replaceChildren();
-    this.elements.body.append(this.statusSection(mediaAvailable, remoteAvailable));
-    this.elements.body.append(this.remoteSection(remoteAvailable));
-    const sourceSection = this.sourceSection();
-    if (sourceSection) this.elements.body.append(sourceSection);
-    this.elements.body.append(this.audioSection(volume));
-    if (this.config.show_power_controls !== false) this.elements.body.append(this.powerSection(remoteAvailable));
-    const keyboardSection = this.keyboardSection();
-    if (keyboardSection) this.elements.body.append(keyboardSection);
-    this.renderMessage();
-  }
-
-  statusSection(mediaAvailable, remoteAvailable) {
-    const section = this.section("Apple TV status");
-    const note = document.createElement("p");
-    note.className = "atv-note";
-    if (!mediaAvailable) note.textContent = "Controls return when the Apple TV reconnects.";
-    else if (this.config.remote_entity && !remoteAvailable) note.textContent = "Media state is available. Remote controls are unavailable.";
-    else note.textContent = this.displayStatus();
-    section.append(note);
-    return section;
-  }
-
-  remoteSection(remoteAvailable) {
-    const section = this.section("Navigation remote");
-    if (!this.config.remote_entity || !remoteAvailable) {
-      const note = document.createElement("p");
-      note.className = "atv-note";
-      note.textContent = this.config.remote_entity ? "Remote controls are unavailable." : "Configure a remote entity to enable navigation controls.";
-      section.append(note);
-      return section;
-    }
-    const grid = document.createElement("div");
-    grid.className = "atv-remote";
-    const order = [
-      ["empty"], ["up"], ["empty"],
-      ["left"], ["select"], ["right"],
-      ["empty"], ["down"], ["empty"],
-      ["menu"], ["home"], ["top_menu"],
-    ];
-    for (const [command] of order) {
-      if (command === "empty") {
-        const blank = document.createElement("span");
-        blank.className = "atv-remote-btn empty";
-        grid.append(blank);
-        continue;
-      }
-      if (!this.commandSupported(command)) {
-        const blank = document.createElement("span");
-        blank.className = "atv-remote-btn empty";
-        grid.append(blank);
-        continue;
-      }
-      const [, label, icon] = ATV_REMOTE_COMMANDS.find(([value]) => value === command);
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `atv-remote-btn ${command === "select" ? "select" : ""}`;
-      button.setAttribute("aria-label", label);
-      button.append(this.icon(icon), document.createTextNode(label));
-      button.classList.toggle("pending", this.pending === `remote-${command}`);
-      button.disabled = this.pending === `remote-${command}`;
-      button.addEventListener("click", () => this.sendRemoteCommand(command, label));
-      grid.append(button);
-    }
-    section.append(grid);
-    return section;
-  }
-
-  sourceSection() {
-    if (this.config.show_app_selector === false) return null;
-    const media = this.mediaState();
-    const sources = Array.isArray(media?.attributes?.source_list) ? media.attributes.source_list.filter(Boolean) : [];
-    if (!sources.length) return null;
-    const section = this.section("App selector");
-    if (sources.length > 8) {
-      const tools = document.createElement("div");
-      tools.className = "atv-source-tools";
-      const input = document.createElement("input");
-      input.className = "atv-search";
-      input.type = "search";
-      input.placeholder = "Search apps";
-      input.value = this.sourceFilter;
-      input.setAttribute("aria-label", "Search Apple TV apps");
-      input.addEventListener("input", () => {
-        this.sourceFilter = input.value;
-        this.signature = "";
-        this.renderPanel();
-        queueMicrotask(() => this.elements.body.querySelector(".atv-search")?.focus());
-      });
-      tools.append(input);
-      section.append(tools);
-    }
-    const list = document.createElement("div");
-    list.className = "atv-sources";
-    list.setAttribute("role", "listbox");
-    list.setAttribute("aria-label", "Apple TV apps");
-    const current = media?.attributes?.source;
-    const filter = this.sourceFilter.trim().toLowerCase();
-    const filtered = filter ? sources.filter((source) => String(source).toLowerCase().includes(filter)) : sources;
-    for (const source of filtered) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "atv-source";
-      button.setAttribute("role", "option");
-      button.setAttribute("aria-selected", String(source === current));
-      const label = document.createElement("span");
-      label.textContent = String(source);
-      button.append(label, this.icon(source === current ? "mdi:check" : "mdi:chevron-right"));
-      button.disabled = !this.mediaAvailable() || this.pending === `source-${source}`;
-      button.addEventListener("click", () => this.selectSource(source));
-      list.append(button);
-    }
-    if (!filtered.length) {
-      const note = document.createElement("p");
-      note.className = "atv-note";
-      note.textContent = "No matching apps.";
-      list.append(note);
-    }
-    section.append(list);
-    return section;
-  }
-
-  audioSection(volume) {
-    const section = this.section("Volume and audio");
-    const row = document.createElement("div");
-    row.className = "atv-audio";
-    row.innerHTML = '<button class="atv-volume-btn atv-volume-down" type="button" aria-label="Volume down"><ha-icon icon="mdi:volume-minus"></ha-icon></button><span class="atv-volume-value"></span><button class="atv-volume-btn atv-volume-up" type="button" aria-label="Volume up"><ha-icon icon="mdi:volume-plus"></ha-icon></button>';
-    row.querySelector(".atv-volume-down").addEventListener("click", () => this.adjustVolume("down"));
-    row.querySelector(".atv-volume-up").addEventListener("click", () => this.adjustVolume("up"));
-    this.renderVolumeRow(row, volume, true);
-    section.append(row);
-    if (volume.canMute) {
-      const actions = document.createElement("div");
-      actions.className = "atv-audio-actions";
-      const mute = document.createElement("button");
-      mute.type = "button";
-      mute.className = `atv-secondary-btn ${volume.muted ? "active" : ""}`;
-      mute.setAttribute("aria-label", volume.muted ? "Unmute Apple TV" : "Mute Apple TV");
-      mute.append(this.icon(volume.muted ? "mdi:volume-high" : "mdi:volume-mute"), document.createTextNode(volume.muted ? "Unmute" : "Mute"));
-      mute.disabled = this.pending === "mute";
-      mute.addEventListener("click", () => this.toggleMute());
-      actions.append(mute);
-      section.append(actions);
-    }
-    if (!volume.canStep && !volume.canMute) {
-      const note = document.createElement("p");
-      note.className = "atv-note";
-      note.textContent = "Volume controls are unavailable.";
-      section.append(note);
-    }
-    return section;
-  }
-
-  powerSection(remoteAvailable) {
-    const section = this.section("Power and sleep");
-    if (!this.config.remote_entity || !remoteAvailable) {
-      const note = document.createElement("p");
-      note.className = "atv-note";
-      note.textContent = this.config.remote_entity ? "Wake and sleep controls are unavailable." : "Configure a remote entity to enable wake and sleep controls.";
-      section.append(note);
-      return section;
-    }
-    const grid = document.createElement("div");
-    grid.className = "atv-power";
-    const wake = document.createElement("button");
-    wake.type = "button";
-    wake.className = "atv-power-btn";
-    wake.setAttribute("aria-label", "Wake Apple TV");
-    wake.append(this.icon("mdi:power"), document.createTextNode("Wake Apple TV"));
-    wake.disabled = this.pending === "wake";
-    wake.addEventListener("click", () => this.callRemotePower("wakeup", "Wake Apple TV", false));
-    const sleep = document.createElement("button");
-    sleep.type = "button";
-    sleep.className = "atv-power-btn";
-    sleep.setAttribute("aria-label", this.sleepConfirm ? "Confirm Sleep Apple TV" : "Sleep Apple TV");
-    sleep.append(this.icon(this.sleepConfirm ? "mdi:check" : "mdi:power-sleep"), document.createTextNode(this.sleepConfirm ? "Confirm sleep" : "Sleep Apple TV"));
-    sleep.disabled = this.pending === "sleep";
-    sleep.addEventListener("click", () => this.callRemotePower("suspend", "Sleep Apple TV", true));
-    grid.append(wake, sleep);
-    section.append(grid);
-    return section;
-  }
-
-  keyboardSection() {
-    if (this.config.show_keyboard_status === false || !this.config.keyboard_entity) return null;
-    const keyboard = this.keyboardState();
-    if (!this.validState(keyboard) || keyboard.state !== "on") return null;
-    const section = this.section("Keyboard status");
-    const status = document.createElement("div");
-    status.className = "atv-keyboard";
-    status.append(this.icon("mdi:keyboard-outline"), document.createTextNode("Keyboard active"));
-    section.append(status);
-    return section;
-  }
-
-  section(title) {
-    const section = document.createElement("section");
-    section.className = "atv-section";
-    const heading = document.createElement("div");
-    heading.className = "atv-section-title";
-    heading.textContent = title;
-    section.append(heading);
-    return section;
-  }
-
-  icon(name) {
-    const icon = document.createElement("ha-icon");
-    icon.setAttribute("icon", name);
-    return icon;
-  }
-
-  commandSupported(command) {
-    const commands = this.remoteState()?.attributes?.supported_commands;
-    return !Array.isArray(commands) || !commands.length || commands.includes(command);
-  }
-
-  async adjustVolume(direction) {
-    const volume = this.volumeInfo();
-    if (!volume.canStep) return this.setMessage("Volume controls unavailable", "error");
-    const pending = `volume-${direction}`;
-    this.startPending(pending);
-    try {
-      if (volume.mediaStep && !this.config.demo) await this._hass.callService("media_player", direction === "up" ? "volume_up" : "volume_down", { entity_id: this.config.entity });
-      else if (volume.remoteStep && !this.config.demo) await this._hass.callService("remote", "send_command", { entity_id: this.config.remote_entity, command: direction === "up" ? "volume_up" : "volume_down" });
-      this.finishPending(`${direction === "up" ? "Volume up" : "Volume down"} sent`);
-    } catch {
-      this.failPending("Apple TV did not respond");
-    }
-  }
-
-  async sendRemoteCommand(command, label) {
-    if (!this.remoteAvailable() || !this.commandSupported(command)) return this.setMessage("Remote controls unavailable", "error");
-    this.startPending(`remote-${command}`);
-    try {
-      if (!this.config.demo) await this._hass.callService("remote", "send_command", { entity_id: this.config.remote_entity, command });
-      this.finishPending(`${label} sent`);
-    } catch {
-      this.failPending("Apple TV did not respond");
-    }
-  }
-
-  async selectSource(source) {
-    if (!this.mediaAvailable() || !this.supported(this.mediaState(), ATV_MEDIA_SELECT_SOURCE)) return this.setMessage("Source selection unavailable", "error");
-    this.startPending(`source-${source}`);
-    try {
-      if (!this.config.demo) await this._hass.callService("media_player", "select_source", { entity_id: this.config.entity, source });
-      this.finishPending(`Opening ${source}`);
-    } catch {
-      this.failPending(`Could not open ${source}`);
-    }
-  }
-
-  async toggleMute() {
-    const volume = this.volumeInfo();
-    if (!volume.canMute) return this.setMessage("Mute is unavailable", "error");
-    this.startPending("mute");
-    try {
-      if (!this.config.demo) await this._hass.callService("media_player", "volume_mute", { entity_id: this.config.entity, is_volume_muted: !volume.muted });
-      this.finishPending(volume.muted ? "Unmute sent" : "Mute sent");
-    } catch {
-      this.failPending("Could not change mute");
-    }
-  }
-
-  async callRemotePower(service, label, needsConfirm) {
-    if (!this.remoteAvailable()) return this.setMessage("Remote controls unavailable", "error");
-    if (needsConfirm && !this.sleepConfirm) {
-      this.sleepConfirm = true;
-      this.setMessage("Press again to sleep Apple TV", "info", 5000);
-      clearTimeout(this.sleepTimer);
-      this.sleepTimer = setTimeout(() => {
-        this.sleepConfirm = false;
-        this.signature = "";
-        this.render();
-      }, 5000);
-      this.signature = "";
-      this.render();
-      return;
-    }
-    clearTimeout(this.sleepTimer);
-    this.sleepConfirm = false;
-    this.startPending(service === "wakeup" ? "wake" : "sleep");
-    try {
-      if (!this.config.demo) await this._hass.callService("remote", service, { entity_id: this.config.remote_entity });
-      this.finishPending(`${label} sent`);
-    } catch {
-      this.failPending("Apple TV did not respond");
-    }
-  }
-
-  startPending(pending) {
-    clearTimeout(this.pendingTimer);
-    this.pending = pending;
-    this.message = "Sending command...";
-    this.messageType = "info";
-    this.signature = "";
-    this.render();
-    this.pendingTimer = setTimeout(() => {
-      if (this.pending === pending) this.failPending("Apple TV did not respond");
-    }, 10000);
-  }
-
-  finishPending(message) {
-    clearTimeout(this.pendingTimer);
-    this.pendingTimer = null;
-    this.pending = "";
-    this.setMessage(message, "info");
-  }
-
-  failPending(message) {
-    clearTimeout(this.pendingTimer);
-    this.pendingTimer = null;
-    this.pending = "";
-    this.setMessage(message, "error", 4000);
-  }
-
-  setMessage(message, type = "info", timeout = 1800) {
-    clearTimeout(this.messageTimer);
-    this.message = message;
-    this.messageType = type;
-    this.signature = "";
-    this.render();
-    if (timeout) {
-      this.messageTimer = setTimeout(() => {
-        this.message = "";
-        this.messageType = "info";
-        this.signature = "";
-        this.render();
-      }, timeout);
-    }
-  }
-
-  renderMessage() {
-    if (!this.elements) return;
-    this.elements.feedback.textContent = this.message;
-    this.elements.feedback.classList.toggle("error", this.messageType === "error");
-    this.elements.panelFeedback.textContent = this.message;
-    this.elements.panelFeedback.classList.toggle("error", this.messageType === "error");
-  }
-
-  openPanel(trigger) {
-    if (!this.elements || this.elements.open.disabled) return;
-    this.panelOpen = true;
-    this.panelTrigger = trigger;
-    this.elements.panel.hidden = false;
-    this.signature = "";
-    this.render();
-    queueMicrotask(() => this.elements.close.focus());
-  }
-
-  closePanel(restoreFocus) {
-    if (!this.elements) return;
-    this.panelOpen = false;
-    this.sleepConfirm = false;
-    this.elements.panel.hidden = true;
-    this.elements.open.setAttribute("aria-expanded", "false");
-    const trigger = this.panelTrigger;
-    this.panelTrigger = null;
-    this.signature = "";
-    this.render();
-    if (restoreFocus) queueMicrotask(() => (trigger?.isConnected ? trigger : this.elements.open)?.focus());
-  }
-
-  trapFocus(event) {
-    const focusable = [...this.elements.panel.querySelectorAll('button:not([disabled]):not([hidden]),input:not([disabled])')];
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    const current = this.shadowRoot.activeElement;
-    if (event.shiftKey && current === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && current === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  toTitle(value) {
-    return String(value || "").replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
-  }
+  icon(name){const icon=document.createElement("ha-icon");icon.setAttribute("icon",name);return icon}
+  button(className,label,icon,click,disabled=false,pending=false){const button=document.createElement("button"),text=document.createElement("span");button.type="button";button.className=className;button.setAttribute("aria-label",label);button.setAttribute("aria-busy",String(pending));button.disabled=disabled;text.textContent=label;button.append(this.icon(icon),text);button.onclick=click;return button}
+  section(title){const section=document.createElement("section"),heading=document.createElement("div");section.className="section";heading.className="section-title";heading.textContent=title;section.append(heading);return section}
+  render(){if(!this.config)return;this.build();const model=this.model(),name=this.name(model),open=this.canOpen(model);this.el.name.textContent=name;this.el.status.textContent=model.status;this.el.icon.setAttribute("icon",this.config.icon);this.el.iconWrap.classList.toggle("on",model.awake);this.el.identity.disabled=!open;this.el.identity.setAttribute("aria-label",open?"Open controls for "+name:name+". "+model.status);this.el.open.hidden=!open;this.el.open.setAttribute("aria-expanded",String(this.panelOpen));this.renderQuick(model);this.el.notice.textContent=this.message;this.el.notice.classList.toggle("error",this.messageType==="error");if(this.panelOpen)this.renderPanel(model)}
+  renderQuick(model){const quick=this.el.quick;quick.replaceChildren();if(model.canVolumeDown||model.canVolumeUp){const volume=document.createElement("div"),label=document.createElement("span");volume.className="volume";label.className="volume-label";label.textContent=model.muted?"Muted":model.level===null?"Volume":"Volume · "+Math.round(model.level*100)+"%";volume.append(this.button("button square","Volume down","mdi:volume-minus",()=>this.adjustVolume("down"),this.busy("volume-down"),this.busy("volume-down")),label,this.button("button square","Volume up","mdi:volume-plus",()=>this.adjustVolume("up"),this.busy("volume-up"),this.busy("volume-up")));quick.append(volume)}else if(model.canWake||model.canSleep){const wake=model.canWake,action=wake?"wake":"sleep";quick.append(this.button("button",wake?"Wake Apple TV":"Sleep Apple TV",wake?"mdi:power":"mdi:power-sleep",()=>this.remoteCommand(wake?"wakeup":"suspend",action),this.busy(action),this.busy(action)))}}
+  renderPanel(model){const body=this.el.body;body.replaceChildren();this.el.sheetName.textContent=this.name(model);this.el.sheetState.textContent=model.status;for(const section of [this.power(model),this.navigation(model),this.playback(model),this.volume(model),this.apps(model),this.keyboard(model)])if(section)body.append(section);this.el.panelNotice.textContent=this.message;this.el.panelNotice.classList.toggle("error",this.messageType==="error")}
+  power(model){if(!model.canWake&&!model.canSleep)return null;const wake=model.canWake,action=wake?"wake":"sleep",section=this.section("Power");section.append(this.button("action",wake?"Wake Apple TV":"Sleep Apple TV",wake?"mdi:power":"mdi:power-sleep",()=>this.remoteCommand(wake?"wakeup":"suspend",action),this.busy(action),this.busy(action)));return section}
+  navigation(model){if(!model.canNavigate)return null;const commands=new Set(Array.isArray(model.remote?.attributes?.supported_commands)?model.remote.attributes.supported_commands:NAV.map(x=>x[0])),section=this.section("Navigation"),grid=document.createElement("div");grid.className="dpad";for(const command of [null,"up",null,"left","select","right",null,"down",null]){if(!command||!commands.has(command)){const blank=document.createElement("span");blank.className="blank";grid.append(blank);continue}const [,label,icon]=NAV.find(x=>x[0]===command),action="remote-"+command;grid.append(this.button("remote "+(command==="select"?"select":""),label,icon,()=>this.remoteCommand(command,action),this.busy(action),this.busy(action)))}for(const [command,label,icon] of NAV.filter(x=>!["up","down","left","right","select"].includes(x[0])&&commands.has(x[0]))){const action="remote-"+command;grid.append(this.button("remote",label,icon,()=>this.remoteCommand(command,action),this.busy(action),this.busy(action)))}section.append(grid);return section}
+  playback(model){const actions=[[model.canPlay,"media_play","Play","mdi:play"],[model.canPause,"media_pause","Pause","mdi:pause"],[model.canPrevious,"media_previous_track","Previous","mdi:skip-previous"],[model.canNext,"media_next_track","Next","mdi:skip-next"],[model.canStop,"media_stop","Stop","mdi:stop"]].filter(x=>x[0]);if(!actions.length)return null;const section=this.section("Playback");for(const [,service,label,icon] of actions)section.append(this.button("action",label,icon,()=>this.mediaAction(service),this.busy(service),this.busy(service)));return section}
+  volume(model){if(!model.canVolumeDown&&!model.canSetVolume&&!model.canMute)return null;const section=this.section("Volume");if(model.canVolumeDown||model.canSetVolume){const row=document.createElement("div");row.className="volume-modal";row.append(this.button("button square","Volume down","mdi:volume-minus",()=>this.adjustVolume("down"),!model.canVolumeDown||this.busy("volume-down"),this.busy("volume-down")));if(model.canSetVolume){const slider=document.createElement("input");slider.className="slider";slider.type="range";slider.min="0";slider.max="100";slider.value=String(Math.round(model.level*100));slider.setAttribute("aria-label","Set volume");slider.disabled=this.busy("volume-set");slider.onchange=()=>this.setVolume(Number(slider.value)/100);row.append(slider)}else{const label=document.createElement("span");label.className="volume-label";label.textContent="Volume";row.append(label)}row.append(this.button("button square","Volume up","mdi:volume-plus",()=>this.adjustVolume("up"),!model.canVolumeUp||this.busy("volume-up"),this.busy("volume-up")));section.append(row)}if(model.canMute)section.append(this.button("action",model.muted?"Unmute":"Mute",model.muted?"mdi:volume-high":"mdi:volume-mute",()=>this.mute(model),this.busy("mute"),this.busy("mute")));return section}
+  apps(model){if(!model.canSelectSource)return null;const section=this.section("Apps");if(model.sources.length>8){const search=document.createElement("input");search.className="search";search.type="search";search.placeholder="Search apps";search.value=this.sourceFilter;search.setAttribute("aria-label","Search Apple TV apps");search.oninput=()=>{this.sourceFilter=search.value;this.renderPanel(model);this.el.body.querySelector(".search")?.focus()};section.append(search)}const list=document.createElement("div"),filter=this.sourceFilter.trim().toLowerCase();list.className="sources";list.setAttribute("role","listbox");for(const source of model.sources.filter(x=>!filter||x.toLowerCase().includes(filter))){const action="source-"+source,button=document.createElement("button");button.type="button";button.className="source";button.textContent=source;button.setAttribute("role","option");button.setAttribute("aria-selected",String(source===model.currentSource));button.disabled=this.busy(action);button.onclick=()=>this.selectSource(source);list.append(button)}section.append(list);return section}
+  keyboard(model){if(!model.canSetKeyboardText)return null;const section=this.section("Keyboard"),input=document.createElement("input");input.className="keyboard-input";input.type="text";input.placeholder="Enter text for Apple TV";input.setAttribute("aria-label","Apple TV keyboard text");const set=this.button("action","Set text","mdi:keyboard",()=>this.keyboardAction("set_keyboard_text",input.value,"keyboard-set"),true),append=this.button("action","Append text","mdi:keyboard-plus",()=>this.keyboardAction("append_keyboard_text",input.value,"keyboard-append"),true),clear=this.button("action","Clear text","mdi:backspace-outline",()=>this.keyboardAction("clear_keyboard_text",null,"keyboard-clear"),this.busy("keyboard-clear"),this.busy("keyboard-clear"));input.oninput=()=>{set.disabled=!input.value;append.disabled=!input.value};section.append(input,set,append,clear);return section}
+  async invoke(action,request,success){if(this.busy(action))return;this.pending.add(action);this.setMessage("Sending command…");try{if(!this.config.demo)await request();this.setMessage(success)}catch{this.setMessage("Apple TV did not respond","error",4000)}finally{this.pending.delete(action);this.render()}}
+  remoteCommand(command,action){const model=this.model();if(command==="wakeup"?!model.canWake:command==="suspend"?!model.canSleep:!model.canNavigate)return;return this.invoke(action,()=>this._hass.callService("remote","send_command",{entity_id:model.entities.remote,command}),"Command sent")}
+  mediaAction(service){const model=this.model();return this.invoke(service,()=>this._hass.callService("media_player",service,{entity_id:model.entities.media}),"Command sent")}
+  adjustVolume(direction){const model=this.model();if(direction==="up"?!model.canVolumeUp:!model.canVolumeDown)return;const action="volume-"+direction;return this.invoke(action,()=>this._hass.callService("media_player","volume_"+direction,{entity_id:model.entities.media}),"Volume changed")}
+  setVolume(level){const model=this.model();if(!model.canSetVolume)return;return this.invoke("volume-set",()=>this._hass.callService("media_player","volume_set",{entity_id:model.entities.media,volume_level:level}),"Volume changed")}
+  mute(model){return this.invoke("mute",()=>this._hass.callService("media_player","volume_mute",{entity_id:model.entities.media,is_volume_muted:!model.muted}),"Audio changed")}
+  selectSource(source){const model=this.model();if(!model.canSelectSource||!model.sources.includes(source))return;const action="source-"+source;return this.invoke(action,()=>this._hass.callService("media_player","select_source",{entity_id:model.entities.media,source}),"Opening "+source)}
+  keyboardAction(service,text,action){const model=this.model();if(!model.keyboardFocused||!model.entities.configEntryId)return;const data={config_entry_id:model.entities.configEntryId};if(text!==null)data.text=text;return this.invoke(action,()=>this._hass.callService("apple_tv",service,data),"Keyboard updated")}
+  setMessage(message,type="info",timeout=1800){clearTimeout(this.messageTimer);this.message=message;this.messageType=type;this.render();if(timeout)this.messageTimer=setTimeout(()=>{this.message="";this.messageType="info";this.render()},timeout)}
+  openPanel(trigger){if(!this.canOpen(this.model()))return;this.panelOpen=true;this.panelTrigger=trigger;this.el.panel.hidden=false;this.render();queueMicrotask(()=>this.el.close.focus())}
+  closePanel(restore){this.panelOpen=false;this.el.panel.hidden=true;const trigger=this.panelTrigger;this.panelTrigger=null;this.render();if(restore)queueMicrotask(()=>((trigger?.isConnected?trigger:this.el.open)?.focus()))}
+  trapFocus(event){const focusable=[...this.el.panel.querySelectorAll("button:not([disabled]),input:not([disabled])")];if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1),active=this.shadowRoot.activeElement;if(event.shiftKey&&active===first){event.preventDefault();last.focus()}else if(!event.shiftKey&&active===last){event.preventDefault();first.focus()}}
 }
-
-registerCard({ type: "component-apple-tv-controller-v1", element: ComponentAppleTvControllerV1, name: "Apple TV Controller", description: "Compact Apple TV status and volume control with Split-style advanced navigation, source and power controls." });
+registerCard({type:"component-apple-tv-controller-v1",element:ComponentAppleTvControllerV1,name:"Apple TV Controller",description:"Compact Apple TV controls generated from live Home Assistant capabilities."});
 }
 
 // Module: src/components/section-separator.js
@@ -4003,4 +3425,55 @@ customElements.whenDefined("component-room-directory-v4").then(()=>{
 });
 }
 
-globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "6.0.0", components: 38 });
+// Module: src/patches/split-registry-resume.js
+{
+/** Resume an off split from durable registry state instead of reopening mode selection. */
+customElements.whenDefined("component-split-controller-v4").then(()=>{
+  const Controller=customElements.get("component-split-controller-v4");
+  const prototype=Controller?.prototype;
+  if(!prototype||prototype.__splitRegistryResumeV1)return;
+  prototype.__splitRegistryResumeV1=true;
+  const originalPower=prototype.G;
+  prototype.G=function(){
+    const split=this.Z();
+    if(split.uv||split.state?.state!=="off")return originalPower.call(this);
+    const mode=this.gt();
+    if(!mode||!this.config.room_id)return originalPower.call(this);
+    this.Rt("hvac",{
+      requested:mode,
+      label:this.tt(mode),
+      call:()=>this.P.callService("split_state_registry","resume_room",{room_id:this.config.room_id}),
+      matches:()=>this.X(this.config.entity)?.state===mode,
+      closePanel:true,
+      timeout:10000
+    },true);
+  };
+});
+}
+
+// Module: src/patches/ha-component-backend-bridge.js
+{
+/** Route Split System Components through the scalable HA Component Backend. */
+(()=>{
+  const LEGACY_DOMAIN="split_state_registry",BACKEND_DOMAIN="ha_component_backend",TAG="component-split-controller-v4",proxies=new WeakMap;
+  const backendHass=hass=>{
+    if(!hass||typeof hass!=="object"||typeof hass.callService!=="function")return hass;
+    if(proxies.has(hass))return proxies.get(hass);
+    const proxy=new Proxy(hass,{get(target,key,receiver){
+      const value=Reflect.get(target,key,receiver);
+      if(key==="callService")return(domain,...args)=>value.call(target,domain===LEGACY_DOMAIN?BACKEND_DOMAIN:domain,...args);
+      return typeof value==="function"?value.bind(target):value;
+    }});
+    proxies.set(hass,proxy);
+    return proxy;
+  };
+  customElements.whenDefined(TAG).then(()=>{
+    const Controller=customElements.get(TAG),prototype=Controller?.prototype,descriptor=prototype&&Object.getOwnPropertyDescriptor(prototype,"hass");
+    if(!prototype||!descriptor?.set||prototype.__haComponentBackendBridgeV1)return;
+    prototype.__haComponentBackendBridgeV1=true;
+    Object.defineProperty(prototype,"hass",{...descriptor,set(value){return descriptor.set.call(this,backendHass(value))}});
+  });
+})();
+}
+
+globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "7.0.0", components: 38 });
