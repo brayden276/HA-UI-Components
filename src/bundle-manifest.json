@@ -242,5 +242,9 @@
   {
     "order": 61,
     "file": "src/patches/split-registry-discovery.js"
+  },
+  {
+    "order": 62,
+    "file": "src/patches/room-directory-open-guard.js"
   }
 ]

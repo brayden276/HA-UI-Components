@@ -1,5 +1,6 @@
 /** Shared split-system registry backed by the split_state_registry integration. */
 const SPLIT_REGISTRY_ENTITY="sensor.split_state_registry";
+const splitV4ObjectId=entityId=>String(entityId||"").split(".")[1]||"";
 const splitV4RoomId=identity=>{
   const parts=identity.split("_");
   for(let index=1;index<parts.length;index++){
@@ -7,6 +8,10 @@ const splitV4RoomId=identity=>{
     if(`${candidate}_${candidate}`===identity)return candidate;
   }
   return identity;
+};
+const splitV4IdentityFromClimate=entityId=>{
+  const objectId=splitV4ObjectId(entityId);
+  return objectId.endsWith("_split_climate")?objectId.slice(0,-"_split_climate".length):null;
 };
 const splitV4Room=(roomId,room)=>room&&room.climate?{
   room_id:roomId,
@@ -24,9 +29,8 @@ const splitV4Room=(roomId,room)=>room&&room.climate?{
   profiles:Array.isArray(room.profiles)?room.profiles:[]
 }:null;
 const splitV4HardwareRoom=entityId=>{
-  const objectId=String(entityId).slice("climate.".length);
-  if(!objectId.endsWith("_split_climate"))return null;
-  const identity=objectId.slice(0,-"_split_climate".length);
+  const identity=splitV4IdentityFromClimate(entityId);
+  if(!identity)return null;
   const roomId=splitV4RoomId(identity);
   const controllerBase=`${identity}_split`;
   return{
@@ -44,6 +48,11 @@ const splitV4HardwareRoom=entityId=>{
     profiles:[]
   };
 };
+const splitV4ClaimsRoomEntity=(entityId,entry)=>{
+  if(String(entityId).split(".")[0]==="climate")return false;
+  const objectId=splitV4ObjectId(entityId),identity=splitV4IdentityFromClimate(entry.climate);
+  return[entry.room_id,identity].filter(Boolean).some(prefix=>objectId.startsWith(`${prefix}_split_`));
+};
 const buildSplitV4Registry=hass=>{
   const source=hass?.states?.[SPLIT_REGISTRY_ENTITY],rooms=source?.attributes?.rooms,systems=new Map,claimed=new Set;
   source?.entity_id&&claimed.add(source.entity_id);
@@ -60,6 +69,9 @@ const buildSplitV4Registry=hass=>{
   for(const entry of systems.values()){
     for(const entityId of[entry.climate,entry.controller_entity,entry.vertical_vane_entity,entry.horizontal_vane_entity].filter(Boolean))claimed.add(entityId);
   }
+  for(const entityId of Object.keys(hass?.states??{})){
+    for(const entry of systems.values())if(splitV4ClaimsRoomEntity(entityId,entry)){claimed.add(entityId);break;}
+  }
   return{systems,claimed,error:null};
 };
 const splitV4RegistrySignature=registry=>JSON.stringify([[...registry.systems].sort(([left],[right])=>left.localeCompare(right)),[...registry.claimed].sort()]);
@@ -73,7 +85,7 @@ globalThis.__componentSplitRegistryV4??={
     if(force||splitV4RegistrySignature(previous)!==splitV4RegistrySignature(next))for(const subscriber of[...this.subscribers])try{subscriber(next)}catch{}
     return Promise.resolve(next);
   },
-  refresh(hass){return this.load(hass,true)},
+  refresh(hass){return this.load(hass)},
   ensureEvents(hass){
     if(this.eventSubscription||!hass?.connection?.subscribeEvents)return;
     this.eventSubscription=hass.connection.subscribeEvents(event=>{
@@ -81,7 +93,10 @@ globalThis.__componentSplitRegistryV4??={
     },"state_changed").catch(()=>{this.eventSubscription=null});
   },
   subscribe(hass,subscriber){
-    this.subscribers.add(subscriber),this.ensureEvents(hass),this.refresh(hass);
+    const signature=splitV4RegistrySignature(this.result);
+    this.subscribers.add(subscriber),this.ensureEvents(hass),this.load(hass).then(result=>{
+      this.subscribers.has(subscriber)&&signature===splitV4RegistrySignature(result)&&subscriber(result);
+    });
     return()=>{this.subscribers.delete(subscriber)};
   }
 };
