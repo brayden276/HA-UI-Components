@@ -15,6 +15,12 @@ customElements.whenDefined('component-room-directory-v4').then(()=>{
     });
   };
 
+  P._roomActive=function(area){
+    const items=typeof this.entries==='function'?this.entries(area.area_id):[];
+    const HD2=globalThis.__homeDashboardV2;
+    return this._roomPresence(area)||items.some(({e,s})=>HD2?.isActive?.(e,s)===true);
+  };
+
   P._roomPresenceHue=function(area){
     const key=String(area?.area_id||area?.name||'room');
     let hash=2166136261;
@@ -26,7 +32,7 @@ customElements.whenDefined('component-room-directory-v4').then(()=>{
   P.updateTile=function(button,area){
     original.call(this,button,area);
     button.style.transition='box-shadow 220ms ease';
-    if(!this._roomPresence(area)){
+    if(!this._roomActive(area)){
       button.style.removeProperty('box-shadow');
       button.removeAttribute('data-presence');
       return;
