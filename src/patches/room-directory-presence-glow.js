@@ -33,17 +33,9 @@ customElements.whenDefined('component-room-directory-v4').then(()=>{
     original.call(this,button,area);
     const severity=button.classList.contains('warning')||button.classList.contains('critical');
     const active=button.classList.contains('active')||this._roomActive(area);
-    button.style.transition='box-shadow 220ms ease, border-left-color 220ms ease';
-    if(severity){
-      button.style.removeProperty('border-left-width');
-      button.style.removeProperty('border-left-style');
-      button.style.removeProperty('border-left-color');
-    }else{
-      button.style.borderLeftWidth='1px';
-      button.style.borderLeftStyle='solid';
-      button.style.borderLeftColor='var(--dashboard-card-border-color,var(--divider-color))';
-    }
+    button.style.transition='box-shadow 220ms ease, border-color 220ms ease';
     if(!active){
+      button.style.removeProperty('border-color');
       button.style.removeProperty('box-shadow');
       button.removeAttribute('data-presence');
       return;
@@ -51,11 +43,11 @@ customElements.whenDefined('component-room-directory-v4').then(()=>{
     const hue=this._roomPresenceHue(area);
     button.setAttribute('data-presence','true');
     if(severity){
-      button.style.removeProperty('border-left-color');
+      button.style.removeProperty('border-color');
     }else{
-      button.style.borderLeftColor=`hsl(${hue} 82% 68% / .72)`;
+      button.style.borderColor=`hsl(${hue} 82% 68% / .72)`;
     }
-    button.style.boxShadow=`inset 0 0 0 1px hsl(${hue} 82% 68% / .46), 0 0 14px 2px hsl(${hue} 82% 64% / .14)`;
+    button.style.boxShadow=`0 0 14px 2px hsl(${hue} 82% 64% / .14)`;
   };
 });
 })();
