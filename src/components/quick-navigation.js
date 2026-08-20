@@ -14,12 +14,28 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
       action_2_path: null,
       ...c,
     };
+    this._hasHass = false;
+    this._leftState = undefined;
+    this._leftStateText = undefined;
     this.r();
   }
 
   set hass(h) {
     this.h = h;
-    this.r();
+    const state = this.c?.left_entity ? h?.states?.[this.c.left_entity] : null;
+    const stateText = state ? this.formatState(state) : null;
+    if (!this._hasHass || state !== this._leftState || stateText !== this._leftStateText) {
+      this._hasHass = true;
+      this._leftState = state;
+      this._leftStateText = stateText;
+      this.r();
+    } else {
+      const contextIcon = this.shadowRoot?.getElementById("context-icon");
+      if (contextIcon && state) {
+        contextIcon.hass = h;
+        contextIcon.stateObj = state;
+      }
+    }
   }
 
   getCardSize() {
@@ -34,6 +50,14 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
     navigateTo(path);
   }
 
+  formatState(state) {
+    try {
+      return this.h.formatEntityState(state);
+    } catch {
+      return String(state?.state || "");
+    }
+  }
+
   r() {
     if (!this.c) return;
     const stateObj =
@@ -41,7 +65,7 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
         ? this.h.states[this.c.left_entity]
         : null;
     const leftText = stateObj
-      ? this.h.formatEntityState(stateObj)
+      ? this.formatState(stateObj)
       : this.c.left_entity
         ? "Unavailable"
         : this.c.left_text;

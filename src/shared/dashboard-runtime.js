@@ -13,6 +13,59 @@ HD2.savePrefs=(h,key,value)=>h.callWS({type:'frontend/set_user_data',key,value})
 HD2.applyPrefs=(items,prefs)=>{const by=new Map(items.map(x=>[x.id,x])),seen=new Set,all=[];for(const id of prefs?.order||[]){const x=by.get(id);if(x){all.push(x);seen.add(id)}}for(const x of items)if(!seen.has(x.id))all.push(x);const hidden=new Set(prefs?.hidden||[]);return{all,visible:all.filter(x=>!hidden.has(x.id)),hidden}};
 HD2.REG??={connection:null,hass:null,data:null,promise:null,subs:new Set,unsubs:null,retry:null,attach(h){const c=h?.connection||null;if(this.connection===c){this.hass=h;return}this.detach();this.connection=c;this.hass=h;this.listen()},detach(){const p=this.unsubs;this.unsubs=null;p&&Promise.resolve(p).then(f=>f?.()).catch(()=>{});clearTimeout(this.retry);this.retry=null;this.connection=null;this.data=null;this.promise=null},listen(){const c=this.connection;if(!c?.subscribeEvents||this.unsubs)return;const p=Promise.all(['area_registry_updated','device_registry_updated','entity_registry_updated'].map(t=>c.subscribeEvents(()=>this.refresh(),t))).then(a=>()=>a.forEach(f=>f?.()));this.unsubs=p;p.catch(()=>{if(this.unsubs===p)this.unsubs=null;if(this.connection&&!this.retry)this.retry=setTimeout(()=>{this.retry=null;this.listen()},30000)})},async load(h,force=false){this.attach(h);if(this.data&&!force)return this.data;if(this.promise)return this.promise;const c=h?.connection;if(!c?.sendMessagePromise)return{areas:[],devices:[],entities:[],dashboards:[],deviceArea:new Map,byDevice:new Map,areaMap:new Map};this.promise=Promise.all([c.sendMessagePromise({type:'config/area_registry/list'}),c.sendMessagePromise({type:'config/device_registry/list'}),c.sendMessagePromise({type:'config/entity_registry/list'}),h.callWS({type:'lovelace/dashboards/list'}).catch(()=>[])]).then(([areas,devices,entities,dashboards])=>{areas=Array.isArray(areas)?areas:[];devices=Array.isArray(devices)?devices:[];entities=Array.isArray(entities)?entities:[];dashboards=Array.isArray(dashboards)?dashboards:[];const deviceArea=new Map(devices.map(d=>[d.id,d.area_id||null])),byDevice=new Map;for(const e of entities){if(!e?.device_id)continue;const a=byDevice.get(e.device_id)||[];a.push(e);byDevice.set(e.device_id,a)}return this.data={areas,devices,entities,dashboards,deviceArea,byDevice,areaMap:new Map(areas.map(a=>[a.area_id,a]))}}).catch(()=>this.data||{areas:[],devices:[],entities:[],dashboards:[],deviceArea:new Map,byDevice:new Map,areaMap:new Map}).finally(()=>{this.promise=null});return this.promise},refresh(){if(!this.hass)return;this.data=null;this.promise=null;this.load(this.hass,true).then(d=>{for(const f of [...this.subs])try{f(d)}catch{}})},subscribe(h,fn){this.attach(h);this.subs.add(fn);this.load(h).then(fn);return()=>this.subs.delete(fn)}};
 HD2.areaOf=(e,d)=>e?.area_id||(e?.device_id?d?.deviceArea?.get(e.device_id):null)||null;
+
+// Registry updates commonly arrive as a small burst of area, device and entity events.
+// Keep one refresh in flight, then run one final pass only when an event arrived during it.
+const dashboardRegistry = HD2.REG;
+if (dashboardRegistry && !dashboardRegistry.__refreshCoalescingV1) {
+  dashboardRegistry.__refreshCoalescingV1 = true;
+  dashboardRegistry.refreshPromise = null;
+  dashboardRegistry.refreshQueued = false;
+  const originalDetach = dashboardRegistry.detach;
+  dashboardRegistry.detach = function detachDashboardRegistry() {
+    this.refreshPromise = null;
+    this.refreshQueued = false;
+    return originalDetach.call(this);
+  };
+  dashboardRegistry.refresh = function refreshDashboardRegistry() {
+    if (!this.hass) return Promise.resolve(this.data);
+    if (this.refreshPromise) {
+      this.refreshQueued = true;
+      return this.refreshPromise;
+    }
+
+    const hass = this.hass;
+    const loadFresh = () => {
+      if (this.hass !== hass) return this.data;
+      this.data = null;
+      this.promise = null;
+      return this.load(hass, true);
+    };
+    const pending = this.promise
+      ? Promise.resolve(this.promise).catch(() => {}).then(loadFresh)
+      : loadFresh();
+    let refreshPromise;
+    refreshPromise = Promise.resolve(pending)
+      .then((data) => {
+        if (this.hass === hass) {
+          for (const subscriber of [...this.subs]) {
+            try { subscriber(data); } catch {}
+          }
+        }
+        return data;
+      })
+      .finally(() => {
+        if (this.refreshPromise !== refreshPromise) return;
+        this.refreshPromise = null;
+        if (this.refreshQueued) {
+          this.refreshQueued = false;
+          this.refresh();
+        }
+      });
+    this.refreshPromise = refreshPromise;
+    return refreshPromise;
+  };
+}
 HD2.uiEntry=e=>Boolean(e?.entity_id&&!e.disabled_by&&!e.hidden_by&&!['diagnostic','config'].includes(e.entity_category));
 HD2.card=async(h,c)=>{const helpers=await window.loadCardHelpers();const x=helpers.createCardElement(c);x.hass=h;return x};
 HD2.controlDomains=new Set(['light','fan','switch','input_boolean','media_player','climate','cover','lock','vacuum','button','select','number']);

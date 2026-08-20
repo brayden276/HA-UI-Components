@@ -8,9 +8,9 @@ const DEVICE_AWARE_V4_TYPE="custom:component-split-controller-v4",DEVICE_AWARE_I
   }
   setConfig(t){
     if(!t?.filter)throw new Error("An Auto-Entities filter is required");
-    this.t=deviceAwareClone(t);this.q();this._=!1;clearTimeout(this.h);this.h=null;this.l+=1;this.i&&this.p();
+    this.t=deviceAwareClone(t);this.q();this._=!1;clearTimeout(this.h);this.h=null;this.l+=1;this.isConnected&&this.i&&this.p();
   }
-  set hass(t){this.i=t;this.v();this.o&&(this.o.hass=t);this._||this.p()}
+  set hass(t){this.i=t;this.v();this.isConnected&&this.o&&(this.o.hass=t);this.isConnected&&!this._&&this.p()}
   connectedCallback(){this.v();!this._&&this.t&&this.i&&this.p()}
   disconnectedCallback(){clearTimeout(this.h);this.h=null;this.u?.();this.u=null;this.l+=1;this._=!1}
   q(){
@@ -25,7 +25,7 @@ const DEVICE_AWARE_V4_TYPE="custom:component-split-controller-v4",DEVICE_AWARE_I
   getCardSize(){return(this.o?.getCardSize?.()??1)+(this.g?.hidden?0:1)}
   getLayoutOptions(){return this.o?.getLayoutOptions?.()??{}}
   p(){
-    if(!this.t||!this.i)return;
+    if(!this.isConnected||!this.t||!this.i)return;
     this._=!0;const generation=++this.l,registry=globalThis.__componentSplitRegistryV4;
     registry?.load?registry.load(this.i).then(result=>{generation===this.l&&(result.error&&this.o?this.V():(this.A(this.S(result),generation),result.error&&this.V()))}):this.A(this.S(null),generation);
   }
@@ -76,4 +76,3 @@ const DEVICE_AWARE_V4_TYPE="custom:component-split-controller-v4",DEVICE_AWARE_I
   }
 }
 customElements.get("component-device-aware-auto-entities-v1")||customElements.define("component-device-aware-auto-entities-v1",ComponentDeviceAwareAutoEntitiesV1);
-

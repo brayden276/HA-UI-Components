@@ -2,8 +2,16 @@
 const { openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class EnergyHistoryCardV3 extends HTMLElement{
   constructor(){super();this.attachShadow({mode:'open'});this._series={};this._loading=false;this._lastEnd=0;this._resizeObserver=null;this._resizeTimer=null;this._selectedDay=null;this._dayListener=e=>this._onDayChange(e)}
-  setConfig(c){this.c={house_entity:'sensor.house_consumption_power',solar_entity:'sensor.total_solar_power',grid_entity:'sensor.refoss_smart_energy_monitor_em_channel_3_power',hours:24,bucket_minutes:10,calendar_day:false,day_channel:null,...(c||{})}}
-  set hass(h){this.h=h;if(!this._built)this._build();this._scheduleFetch();this._render()}
+  setConfig(c){
+    const next={house_entity:'sensor.house_consumption_power',solar_entity:'sensor.total_solar_power',grid_entity:'sensor.refoss_smart_energy_monitor_em_channel_3_power',hours:24,bucket_minutes:10,calendar_day:false,day_channel:null,...(c||{})};
+    const changed=this.c&&['house_entity','solar_entity','grid_entity','bucket_minutes','hours','calendar_day'].some(key=>this.c[key]!==next[key]);
+    this.c=next;
+    if(changed){
+      this._lastRangeKey=null;this._series={};
+      if(this._built&&this.h){this.e.status.hidden=false;this.e.status.textContent='Loading history…';this._hideTip();this._scheduleFetch()}
+    }
+  }
+  set hass(h){this.h=h;if(!this._built)this._build();this._scheduleFetch()}
   connectedCallback(){window.addEventListener('energy-day-selector-change',this._dayListener)}
   disconnectedCallback(){window.removeEventListener('energy-day-selector-change',this._dayListener);this._resizeObserver?.disconnect();clearTimeout(this._resizeTimer)}
   getCardSize(){return 7}
@@ -44,20 +52,25 @@ class EnergyHistoryCardV3 extends HTMLElement{
     if(this.c.calendar_day){const today=new Date();today.setHours(0,0,0,0);let start=this._dayStart(this._selectedDay)||today;if(start>today)start=today;const end=new Date(start);end.setDate(end.getDate()+1);return{start:start.getTime(),end:end.getTime(),isToday:start.getTime()===today.getTime()}}
     const bucket=Math.max(5,Number(this.c.bucket_minutes)||10)*60000,end=Math.floor(Date.now()/bucket)*bucket,hours=Math.max(1,Number(this.c.hours)||24);return{start:end-hours*3600000,end,isToday:false}
   }
-  _rangeKey(r){return `${r.start}:${r.end}:${r.isToday?Math.floor(Date.now()/300000):'fixed'}`}
+  _rangeKey(r){return `${r.start}:${r.end}:${r.isToday?Math.floor(Date.now()/300000):'fixed'}:${this.c.house_entity}:${this.c.solar_entity}:${this.c.grid_entity}:${this.c.bucket_minutes}`}
   _scheduleFetch(){const r=this._range(),key=this._rangeKey(r);if(this._loading||key===this._lastRangeKey)return;this._fetch(r,key)}
   async _fetch(range,key){
     if(!this.h)return;this._loading=true;this.e.status.hidden=false;this.e.status.textContent='Loading history…';
     try{
       const result=await this.h.callWS({type:'recorder/statistics_during_period',start_time:new Date(range.start).toISOString(),end_time:new Date(range.end).toISOString(),statistic_ids:[this.c.house_entity,this.c.solar_entity,this.c.grid_entity],period:'5minute',types:['mean']});
-      if(key!==this._rangeKey(this._range())){this._loading=false;this._scheduleFetch();return}
+      if(key!==this._rangeKey(this._range()))return;
       this._series={house:this._bucket(result?.[this.c.house_entity]||[]),solar:this._bucket(result?.[this.c.solar_entity]||[]),grid:this._bucket(result?.[this.c.grid_entity]||[])};
       this._start=range.start;this._end=range.end;this._lastRangeKey=key;
       const hasData=Object.values(this._series).some(series=>series.length);
       this.e.status.hidden=hasData;
       if(!hasData)this.e.status.textContent='No recorded data for this day'
-    }catch(err){this._series={};this.e.status.hidden=false;this.e.status.textContent='History unavailable'}
-    this._loading=false;this._render();this._scheduleFetch()
+    }catch(err){
+      if(key!==this._rangeKey(this._range()))return;
+      this._series={};this.e.status.hidden=false;this.e.status.textContent='History unavailable'
+    }finally{
+      const current=key===this._rangeKey(this._range());
+      this._loading=false;if(current)this._render();this._scheduleFetch()
+    }
   }
   _bucket(rows){
     const ms=Math.max(5,Number(this.c.bucket_minutes)||10)*60000,m=new Map();

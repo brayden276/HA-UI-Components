@@ -9,9 +9,13 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
+    this._loadPromise = null;
+    this._loadGeneration = 0;
+    this._accessState = null;
   }
 
   setConfig(config) {
+    const wasDemo = Boolean(this.c?.demo);
     this.c = {
       demo: false,
       refresh_seconds: 60,
@@ -19,7 +23,20 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
       ...config,
     };
 
-    if (this.c.demo) this.render(this.demoRows());
+    if (this.c.demo) {
+      this._accessState = null;
+      if (!wasDemo || this.started) {
+        clearInterval(this.timer);
+        this.timer = null;
+        this.started = false;
+        this._loadGeneration += 1;
+        this._loadPromise = null;
+      }
+      this.render(this.demoRows());
+      return;
+    }
+
+    if (wasDemo) this._start();
   }
 
   set hass(hass) {
@@ -30,18 +47,51 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
       return;
     }
 
-    if (!this.started) {
-      this.started = true;
-      this.load();
-      const seconds = Math.max(30, Number(this.c?.refresh_seconds) || 60);
-      this.timer = setInterval(() => this.load(true), seconds * 1000);
-    }
+    this._start();
+  }
+
+  connectedCallback() {
+    this._start();
   }
 
   disconnectedCallback() {
     clearInterval(this.timer);
     this.timer = null;
     this.started = false;
+    this._loadGeneration += 1;
+    this._loadPromise = null;
+  }
+
+  _start() {
+    if (!this.isConnected || !this.h || this.c?.demo) return;
+    if (!this._isAdmin()) {
+      clearInterval(this.timer);
+      this.timer = null;
+      const active = this.started || this._loadPromise;
+      this.started = false;
+      if (active) {
+        this._loadGeneration += 1;
+        this._loadPromise = null;
+      }
+      this._showAdmin();
+      return;
+    }
+    this._accessState = null;
+    if (this.started) return;
+    this.started = true;
+    this.load();
+    const seconds = Math.max(30, Number(this.c?.refresh_seconds) || 60);
+    this.timer = setInterval(() => this.load(true), seconds * 1000);
+  }
+
+  _isAdmin() {
+    return !this.h?.user || this.h.user.is_admin;
+  }
+
+  _showAdmin() {
+    if (this._accessState === "admin") return;
+    this._accessState = "admin";
+    this.renderState("admin");
   }
 
   getCardSize() {
@@ -131,19 +181,34 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
   async load(silent = false) {
     if (!this.h || this.c?.demo) return;
 
+    if (this._loadPromise) return this._loadPromise;
+
     if (!silent) this.renderState("loading");
 
-    if (this.h.user && !this.h.user.is_admin) {
-      this.renderState("admin");
+    if (!this._isAdmin()) {
+      this._showAdmin();
       return;
     }
 
-    try {
-      const flows = await this.h.callWS({ type: "config_entries/flow/progress" });
-      this.render(this.pending(flows));
-    } catch (error) {
-      this.renderState("error");
-    }
+    const generation = this._loadGeneration;
+    const hass = this.h;
+    const request = Promise.resolve()
+      .then(() => hass.callWS({ type: "config_entries/flow/progress" }))
+      .then((flows) => {
+        if (generation === this._loadGeneration && !this.c?.demo) {
+          this.render(this.pending(flows));
+        }
+      })
+      .catch(() => {
+        if (generation === this._loadGeneration && !this.c?.demo) {
+          this.renderState("error");
+        }
+      })
+      .finally(() => {
+        if (this._loadPromise === request) this._loadPromise = null;
+      });
+    this._loadPromise = request;
+    return request;
   }
 
   styles() {

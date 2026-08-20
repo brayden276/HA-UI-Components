@@ -1,8 +1,8 @@
 /** SolarDaylightCardV7 — reusable Solar dashboard daylight context card. */
 const { openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class SolarDaylightCardV7 extends HTMLElement{
-  constructor(){super();this.attachShadow({mode:'open'});this._forecast=[];this._lastFetch=0;this._pending=false}
-  setConfig(c){this.c=c||{};this.sun=this.c.sun_entity||'sun.sun';this.weather=this.c.weather_entity||'weather.forecast_home'}
+  constructor(){super();this.attachShadow({mode:'open'});this._forecast=[];this._lastFetch=0;this._pending=false;this._updateSignature=''}
+  setConfig(c){const weather=(c||{}).weather_entity||'weather.forecast_home';this.c=c||{};this.sun=this.c.sun_entity||'sun.sun';if(weather!==this.weather){this._forecast=[];this._lastFetch=0}this.weather=weather;this._updateSignature=''}
   set hass(h){this.h=h;if(!this._built)this._build();this._update();this._fetch()}
   getCardSize(){return 1}
   _build(){
@@ -27,17 +27,24 @@ button:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;
   _update(){
     if(!this.h||!this.b)return;
     const s=this.h.states[this.sun],w=this.h.states[this.weather],valid=s&&['above_horizon','below_horizon'].includes(s.state);
-    if(!valid){this.p.textContent='Sun state unavailable';this.ev.textContent=''}else if(s.state==='above_horizon'){const elevation=this._num(s.attributes?.elevation,0),sunset=this._time(s.attributes?.next_setting);this.p.textContent=`Sun ${Math.round(elevation)}°`;this.ev.textContent=sunset?`Sunset ${sunset}`:'Daylight'}else{const sunrise=this._time(s.attributes?.next_rising);this.p.textContent='Night';this.ev.textContent=sunrise?`Sunrise ${sunrise}`:'Before sunrise'}
-    const now=this._num(w?.attributes?.cloud_coverage),c4=this._at(4),c8=this._at(8);this.nowEl.textContent=this._cloud(now);this.p4.textContent=this._cloud(c4);this.p8.textContent=this._cloud(c8);
-    this.b.setAttribute('aria-label',`${this.p.textContent}, cloud coverage ${this.nowEl.textContent}, plus 4 hours ${this.p4.textContent}, plus 8 hours ${this.p8.textContent}, ${this.ev.textContent}. Open sun details.`)
+    let phase,event;
+    if(!valid){phase='Sun state unavailable';event=''}else if(s.state==='above_horizon'){const elevation=this._num(s.attributes?.elevation,0),sunset=this._time(s.attributes?.next_setting);phase=`Sun ${Math.round(elevation)}°`;event=sunset?`Sunset ${sunset}`:'Daylight'}else{const sunrise=this._time(s.attributes?.next_rising);phase='Night';event=sunrise?`Sunrise ${sunrise}`:'Before sunrise'}
+    const now=this._num(w?.attributes?.cloud_coverage),c4=this._at(4),c8=this._at(8);
+    const nowText=this._cloud(now),plus4=this._cloud(c4),plus8=this._cloud(c8),signature=JSON.stringify([phase,event,nowText,plus4,plus8]);
+    if(signature===this._updateSignature)return;this._updateSignature=signature;
+    this.p.textContent=phase;this.ev.textContent=event;this.nowEl.textContent=nowText;this.p4.textContent=plus4;this.p8.textContent=plus8;
+    this.b.setAttribute('aria-label',`${phase}, cloud coverage ${nowText}, plus 4 hours ${plus4}, plus 8 hours ${plus8}, ${event}. Open sun details.`)
   }
   async _fetch(){
     if(!this.h||this._pending)return;const now=Date.now();if(this._lastFetch&&now-this._lastFetch<30*60*1000)return;this._lastFetch=now;this._pending=true;
+    const weather=this.weather;
     try{
       const r=await this.h.callWS({type:'call_service',domain:'weather',service:'get_forecasts',service_data:{type:'hourly'},target:{entity_id:this.weather},return_response:true});
-      const x=this._forecastPayload(r);this._forecast=Array.isArray(x?.forecast)?x.forecast.slice(0,24):[]
-    }catch(_){this._forecast=[]}
-    this._pending=false;this._update()
+      const x=this._forecastPayload(r);
+      if(weather===this.weather)this._forecast=Array.isArray(x?.forecast)?x.forecast.slice(0,24):[]
+    }catch(_){if(weather===this.weather)this._forecast=[]}
+    this._pending=false;
+    if(weather===this.weather)this._update();else this._fetch()
   }
 }
 registerCard({ type: "solar-daylight-card-v7", element: SolarDaylightCardV7, name: "Solar Daylight Context", description: "Full-width sun context with centred current and forecast cloud coverage." });

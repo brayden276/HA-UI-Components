@@ -7,6 +7,7 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
     this.busy = false;
     this.error = "";
     this.messageTimer = null;
+    this._renderSignature = null;
   }
 
   setConfig(c) {
@@ -138,10 +139,23 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
   _render() {
     if (!this.c) return;
     const data = this._live() || this.c;
-    const pending = this.h
-      ? this._pending().length
-      : Number(data.count) || 0;
     const showButton = Boolean(this.c.update_all);
+    const pending = this.h
+      ? this.c.live_updates
+        ? Number(data.count)
+        : showButton
+          ? this._pending().length
+          : 0
+      : Number(data.count) || 0;
+    const signature = JSON.stringify([
+      this.c,
+      data,
+      showButton ? pending : null,
+      this.busy,
+      this.error,
+    ]);
+    if (signature === this._renderSignature) return;
+    this._renderSignature = signature;
     const message = this.error
       ? this.error
       : this.busy

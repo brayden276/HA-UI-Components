@@ -9,6 +9,7 @@ class ComponentUpdateRowV3 extends HTMLElement {
     this.error = "";
     this.startTimer = null;
     this.errorTimer = null;
+    this._renderSignature = null;
   }
 
   setConfig(c) {
@@ -221,6 +222,15 @@ class ComponentUpdateRowV3 extends HTMLElement {
   _render() {
     if (!this.c) return;
     const data = this._data();
+    const signature = JSON.stringify([
+      this.c,
+      data,
+      this.busy,
+      this.requested,
+      this.error,
+    ]);
+    if (signature === this._renderSignature) return;
+    this._renderSignature = signature;
     const active =
       data.progress.active || this.busy || this.requested;
     const disabled =

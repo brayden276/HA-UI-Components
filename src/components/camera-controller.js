@@ -19,6 +19,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.loading = false;
     this.confirmId = null;
     this.confirmTimer = null;
+    this.controlsSignature = "";
     this.shadowRoot.innerHTML = `<style>
       :host{display:block;min-width:0}*{box-sizing:border-box}button{font:inherit;color:inherit}
       ha-card{display:block;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);background:var(--dashboard-card-surface,var(--card-background-color));box-shadow:none;color:var(--primary-text-color);overflow:hidden}
@@ -49,12 +50,29 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.dialog.onclick = (event) => { if (event.target === this.dialog) this.dialog.close(); };
   }
 
-  setConfig(config) { if (!config?.entity) throw new Error("Camera controller requires entity"); this.config = { ...config }; this.data = null; this.bundleData = null; this.load(); }
-  set hass(hass) { this._hass = hass; this.unsubscribe || this.subscribe(); this.load(); if (this.bundleData) this.render(); }
+  setConfig(config) { if (!config?.entity) throw new Error("Camera controller requires entity"); this.config = { ...config }; this.data = null; this.bundleData = null; this.controlsSignature = ""; this.load(); }
+  set hass(hass) {
+    this._hass = hass;
+    this.unsubscribe || this.subscribe();
+    if (this.data) {
+      this.bundleData = this.bundle();
+      this.render();
+    } else {
+      this.load();
+    }
+  }
   connectedCallback() { this.subscribe(); this.load(); }
   disconnectedCallback() { this.unsubscribe?.(); this.unsubscribe = null; clearTimeout(this.confirmTimer); }
   getCardSize() { return 1; }
-  subscribe() { if (this.unsubscribe || !this._hass || !CAM_HD?.REG?.subscribe) return; this.unsubscribe = CAM_HD.REG.subscribe(this._hass, (data) => { this.data = data; this.load(true); }); }
+  subscribe() {
+    if (this.unsubscribe || !this._hass || !CAM_HD?.REG?.subscribe) return;
+    this.unsubscribe = CAM_HD.REG.subscribe(this._hass, (data) => {
+      this.data = data;
+      if (!this.config) return;
+      this.bundleData = this.bundle();
+      this.render();
+    });
+  }
   async load(force = false) { if (this.loading || !this._hass || !this.config || !CAM_HD?.REG?.load) return; this.loading = true; try { this.data = this.data || await CAM_HD.REG.load(this._hass, force); this.bundleData = this.bundle(); this.render(); } finally { this.loading = false; } }
   good(id) { const state = id ? this._hass?.states?.[id] : null; return Boolean(state && !CAM_BAD.has(String(state.state).toLowerCase())); }
 
@@ -104,12 +122,23 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.view.disabled = !status.online;
     const hasControls = this.bundleData.switches.length || this.bundleData.detections.length || this.bundleData.buttons.length;
     this.controls.hidden = !hasControls;
-    this.renderControls();
+    // The sheet is populated when opened. Rebuilding it while hidden creates
+    // controls and listeners for every Home Assistant state update.
+    if (this.dialog.open) this.renderControls();
+    else this.controlsSignature = "";
     if (this.dialog.open && !hasControls) this.dialog.close();
   }
 
   renderControls() {
     if (!this.bundleData) return;
+    const signature = JSON.stringify([
+      this.confirmId,
+      ...this.bundleData.detections.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
+      ...this.bundleData.switches.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
+      ...this.bundleData.buttons.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
+    ]);
+    if (signature === this.controlsSignature) return;
+    this.controlsSignature = signature;
     const detections = this.shadowRoot.querySelector(".detection-list");
     const controls = this.shadowRoot.querySelector(".control-list");
     const maintenance = this.shadowRoot.querySelector(".maintenance-list");
@@ -151,13 +180,15 @@ class ComponentCameraControllerV1 extends HTMLElement {
 
   openControls() { if (!this.dialog || !this.bundleData) return; this.confirmId = null; this.renderControls(); if (!this.dialog.open) this.dialog.showModal(); queueMicrotask(() => this.shadowRoot.querySelector(".close")?.focus()); }
   async openCamera() {
-    if (!this.bundleData) return;
-    const preference = await CAM_HD.prefs?.(this._hass, "security-dashboard.camera.viewer.v1").catch?.(() => null);
+    const hass = this._hass, bundle = this.bundleData;
+    if (!hass || !bundle) return;
+    const preference = await CAM_HD.prefs?.(hass, "security-dashboard.camera.viewer.v1").catch?.(() => null);
+    if (hass !== this._hass || bundle !== this.bundleData) return;
     const hd = Boolean(preference?.hd);
-    const entityId = hd && this.good(this.bundleData.main) ? this.bundleData.main : this.good(this.bundleData.sub) ? this.bundleData.sub : this.good(this.bundleData.main) ? this.bundleData.main : null;
+    const entityId = hd && this.good(bundle.main) ? bundle.main : this.good(bundle.sub) ? bundle.sub : this.good(bundle.main) ? bundle.main : null;
     if (entityId) openMoreInfo(this, entityId);
   }
-  press(entityId) { if (this.confirmId !== entityId) { this.confirmId = entityId; clearTimeout(this.confirmTimer); this.confirmTimer = setTimeout(() => { this.confirmId = null; this.renderControls(); }, 5000); this.renderControls(); return; } clearTimeout(this.confirmTimer); this.confirmId = null; this._hass.callService("button", "press", { entity_id: entityId }); this.renderControls(); }
+  press(entityId) { if (this.confirmId !== entityId) { this.confirmId = entityId; clearTimeout(this.confirmTimer); this.confirmTimer = setTimeout(() => { this.confirmId = null; if (this.dialog.open) this.renderControls(); }, 5000); this.renderControls(); return; } clearTimeout(this.confirmTimer); this.confirmId = null; this._hass.callService("button", "press", { entity_id: entityId }); this.renderControls(); }
 }
 
 registerCard({ type: "component-camera-controller-v1", element: ComponentCameraControllerV1, name: "Camera Controller V1", description: "One device-aware controller for each physical ONVIF camera." });
