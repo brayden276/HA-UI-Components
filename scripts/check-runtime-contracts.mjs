@@ -122,6 +122,7 @@ const configurations = {
   "component-control-row-v2": {},
   "component-split-controller-v4": { entity: "climate.smoke", profile_area_id: "smoke" },
   "component-media-row-v2": {},
+  "component-apple-tv-controller-v1": { demo: true },
   "component-section-separator-v2": {},
   "component-room-sheet-v2": {},
   "component-update-summary-v3": {},

@@ -1,6 +1,6 @@
 # Component catalogue
 
-These examples cover all 37 public custom cards in the library, including the specialised device controllers, Solar cards and composition cards used by the current Home dashboard. They use the existing configuration API and do not require inline JavaScript.
+These examples cover all 38 public custom cards in the library, including the specialised device controllers, Solar cards and composition cards used by the current Home dashboard. They use the existing configuration API and do not require inline JavaScript.
 
 Values such as entity IDs, device IDs and navigation paths are examples; replace them with IDs from the target Home Assistant instance.
 
@@ -388,6 +388,29 @@ state: Playing · Media title
 ```
 
 This preserves the current component-library media-row behaviour.
+
+### Apple TV controller
+
+```yaml
+type: custom:component-apple-tv-controller-v1
+entity: media_player.front_living_room_apple_tv_4k
+remote_entity: remote.front_living_room_apple_tv_4k
+keyboard_entity: binary_sensor.front_living_room_apple_tv_4k_keyboard_focus
+title: Apple TV 4K
+icon: mdi:apple
+show_app_selector: true
+show_power_controls: true
+show_keyboard_status: true
+```
+
+The main card shows Apple TV identity, live state/app text and only the immediate volume down/up controls. Advanced navigation, dynamic source selection, mute, wake/sleep and keyboard-focus status open in a Split System-style controls panel. Source rows come from the media-player entity's live `source_list`; applications are not hard-coded.
+
+For component-library previews without live entities:
+
+```yaml
+type: custom:component-apple-tv-controller-v1
+demo: true
+```
 
 ### WLED controller
 

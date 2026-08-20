@@ -99,6 +99,7 @@ const expected = [
   "component-control-row-v2",
   "component-split-controller-v4",
   "component-media-row-v2",
+  "component-apple-tv-controller-v1",
   "component-section-separator-v2",
   "component-room-sheet-v2",
   "component-update-summary-v3",

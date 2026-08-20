@@ -31,6 +31,7 @@ const expected = [
   ["component-control-row-v2", "ComponentControlRowV2"],
   ["component-split-controller-v4", "ComponentSplitControllerV4"],
   ["component-media-row-v2", "ComponentMediaRowV2"],
+  ["component-apple-tv-controller-v1", "ComponentAppleTvControllerV1"],
   ["component-section-separator-v2", "ComponentSectionSeparatorV2"],
   ["component-room-sheet-v2", "ComponentRoomSheetV2"],
   ["component-update-summary-v3", "ComponentUpdateSummaryV3"],
@@ -118,8 +119,8 @@ if (lastShared >= firstComponent || firstPatch <= firstComponent) {
   throw new Error("Bundle dependency order is invalid");
 }
 
-if (!bundle.includes("components: 37")) {
-  throw new Error("Bundle metadata does not declare all 37 components");
+if (!bundle.includes("components: 38")) {
+  throw new Error("Bundle metadata does not declare all 38 components");
 }
 
 console.log(`Inventory check passed: ${expected.length} components`);
