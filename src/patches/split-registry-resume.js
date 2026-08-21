@@ -13,7 +13,7 @@ customElements.whenDefined("component-split-controller-v4").then(()=>{
     this.Rt("hvac",{
       requested:mode,
       label:this.tt(mode),
-      call:()=>this.P.callService("split_state_registry","resume_room",{room_id:this.config.room_id}),
+      call:()=>this.P.callService("ha_component_backend","resume_room",{room_id:this.config.room_id}),
       matches:()=>this.X(this.config.entity)?.state===mode,
       closePanel:true,
       timeout:10000

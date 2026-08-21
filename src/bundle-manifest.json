@@ -250,9 +250,5 @@
   {
     "order": 63,
     "file": "src/patches/split-registry-resume.js"
-  },
-  {
-    "order": 64,
-    "file": "src/patches/ha-component-backend-bridge.js"
   }
 ]
