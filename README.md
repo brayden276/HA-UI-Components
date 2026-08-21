@@ -1,5 +1,7 @@
 # HA Component Library
 
+<img src="brand/icon.png" alt="HA Component Library icon" width="96">
+
 A HACS Dashboard repository containing every custom card used by the Home Assistant **Components** dashboard.
 
 The library turns the dashboard's inline JavaScript resources into one reusable module: `dist/ha-component-library.js`. Card configuration stays in normal dashboard YAML/UI configuration; the JavaScript implementation is installed and updated through HACS.
@@ -27,7 +29,7 @@ HACS reads `hacs.json`, finds `dist/ha-component-library.js`, downloads it under
 
 ## Split System backend
 
-Split System Components also require the companion **HA Component Backend** integration. Install it once from HACS as an **Integration**, restart Home Assistant when prompted, then add **HA Component Backend** in **Settings → Devices & services**. The card detects `sensor.ha_component_backend` automatically; no legacy split helpers are used after the backend migration is complete.
+Split System Components also require the companion [**HA Component Backend**](https://github.com/brayden276/HA-UI-Backend) integration. Install it once from HACS as an **Integration**, restart Home Assistant when prompted, then add **HA Component Backend** in **Settings → Devices & services**. The card detects `sensor.ha_component_backend` automatically; no legacy split helpers are used after the backend migration is complete.
 
 ## Use a component
 
@@ -41,7 +43,7 @@ support_value: 12.4 kWh
 support_label: generated today
 ```
 
-See [docs/components.md](docs/components.md) for a configured example of every card and [AUDIT.md](AUDIT.md) for the component-by-component review and validation record.
+See [docs/components.md](docs/components.md) for a configured example of every card, [docs/backend.md](docs/backend.md) for the companion backend contract, and [AUDIT.md](AUDIT.md) for the component-by-component review and validation record.
 
 ## Included cards
 
@@ -71,6 +73,8 @@ The bundle guards custom-element registration, so it can be loaded while the cur
 - `scripts/check-all.mjs` — syntax, inventory, advisory style-drift and isolated load-order validation.
 - `scripts/check-release-contract.mjs` — verifies the versioned bundle and HACS filename contract.
 - `scripts/release.mjs` — non-destructive release preparation for versioning, bundling and validation.
+
+This repository intentionally contains no `custom_components/` integration source. Backend runtime code belongs in the separate [**HA-UI-Backend**](https://github.com/brayden276/HA-UI-Backend) HACS Integration repository.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and extension rules. For maintainers, `npm run check` runs the full static suite, while `npm run bundle` regenerates the distributable from the ordered source modules. Style fingerprint drift is reported as an advisory because intentional component work can legitimately change a fingerprint; run `npm run check:style` when it must be blocking. `npm run release` bumps the patch version, assembles the bundle and runs every release check; use `npm run release -- minor` or `npm run release -- major` for a larger version change. `npm run release:dry-run` previews the target version and working-tree state without writing files. The release command never stages, commits, tags or pushes.
 

@@ -16,6 +16,8 @@ dist/
   ha-component-library.js
 ```
 
+This is a HACS Dashboard repository. It does not own Home Assistant integration source; backend resources live in the separate `HA-UI-Backend` repository under `custom_components/ha_component_backend`.
+
 ## Public component contract
 
 Every public component:
@@ -26,7 +28,7 @@ Every public component:
 4. Keeps its existing Home Assistant card type and configuration contract.
 5. Keeps its existing CSS and visual behaviour.
 
-The 37 public card registrations are asserted by `scripts/check-inventory.mjs`.
+The 38 public card registrations are asserted by `scripts/check-inventory.mjs`.
 
 ## Shared ownership
 
@@ -55,7 +57,7 @@ This migration intentionally does not restyle components. `src/provenance/style-
 `npm run check` performs the source, runtime and release-contract checks:
 
 - JavaScript syntax for the distributable.
-- Exactly one descriptively named registration for each of the 37 public card types.
+- Exactly one descriptively named registration for each of the 38 public card types.
 - Preservation of all original style fingerprints.
 - Isolated bundle loading with mocked browser/Home Assistant primitives, including dependency and patch order.
 - Bundle version, public component count, manifest coverage and HACS filename validation.

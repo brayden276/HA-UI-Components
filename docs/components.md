@@ -364,7 +364,7 @@ entity: climate.living_room_split
 title: Living Room Split
 ```
 
-Split room state is now provided by the bundled `split_state_registry` Home Assistant integration. Register each room once with `split_state_registry.configure_room`, keyed by the stable room ID:
+Split room state is provided by the companion [HA Component Backend](https://github.com/brayden276/HA-UI-Backend) integration. Register each room once with `ha_component_backend.configure_room`, keyed by the stable room ID:
 
 ```yaml
 room_id: living_room
