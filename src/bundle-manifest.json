@@ -217,42 +217,46 @@
   },
   {
     "order": 55,
-    "file": "src/patches/garage-door-device-dedup.js"
+    "file": "src/patches/garage-trigger-safety.js"
   },
   {
     "order": 56,
-    "file": "src/patches/camera-controller-integration.js"
+    "file": "src/patches/garage-door-device-dedup.js"
   },
   {
     "order": 57,
-    "file": "src/patches/camera-controller-current-behaviour.js"
+    "file": "src/patches/camera-controller-integration.js"
   },
   {
     "order": 58,
-    "file": "src/patches/runtime-reliability.js"
+    "file": "src/patches/camera-controller-current-behaviour.js"
   },
   {
     "order": 59,
-    "file": "src/patches/home-editor-portal.js"
+    "file": "src/patches/runtime-reliability.js"
   },
   {
     "order": 60,
-    "file": "src/patches/room-directory-presence-glow.js"
+    "file": "src/patches/home-editor-portal.js"
   },
   {
     "order": 61,
-    "file": "src/patches/split-registry-discovery.js"
+    "file": "src/patches/room-directory-presence-glow.js"
   },
   {
     "order": 62,
-    "file": "src/patches/room-directory-open-guard.js"
+    "file": "src/patches/split-registry-discovery.js"
   },
   {
     "order": 63,
-    "file": "src/patches/split-registry-resume.js"
+    "file": "src/patches/room-directory-open-guard.js"
   },
   {
     "order": 64,
+    "file": "src/patches/split-registry-resume.js"
+  },
+  {
+    "order": 65,
     "file": "src/patches/apple-tv-header-controls.js"
   }
 ]
