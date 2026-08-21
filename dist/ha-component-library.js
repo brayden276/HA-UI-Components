@@ -4543,16 +4543,40 @@ customElements.whenDefined("component-split-controller-v4").then(()=>{
 
 // Module: src/patches/apple-tv-header-controls.js
 {
-/** Moves Apple TV power and volume controls into the card header. */
+/** Aligns Apple TV controls with the dashboard design system. */
 customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
   const Card = customElements.get("component-apple-tv-controller-v1");
   const prototype = Card?.prototype;
-  if (!prototype || prototype.__headerControlsV2) return;
-  prototype.__headerControlsV2 = true;
+  if (!prototype || prototype.__headerControlsV3) return;
+  prototype.__headerControlsV3 = true;
 
   const oldRender = prototype.render;
   const oldRenderRemote = prototype.renderRemote;
+  const oldRenderApps = prototype.renderApps;
   const oldOpenPanel = prototype.openPanel;
+
+  const APP_BRAND_COLOURS = [
+    [/netflix/i, "#e50914"],
+    [/youtube/i, "#ff0000"],
+    [/spotify/i, "#1ed760"],
+    [/prime video|amazon/i, "#00a8e1"],
+    [/plex/i, "#e5a00d"],
+    [/twitch/i, "#9146ff"],
+    [/vlc/i, "#ff8800"],
+    [/apple tv|apple music|music/i, "var(--primary-text-color)"],
+    [/disney/i, "#0b5bd3"],
+    [/kayo|sport/i, "#00a651"],
+    [/binge/i, "#8a2be2"],
+    [/stan/i, "#00a5ff"],
+    [/paramount/i, "#0064ff"],
+  ];
+
+  prototype.appleTvAppColour = function appleTvAppColour(source) {
+    return (
+      APP_BRAND_COLOURS.find(([pattern]) => pattern.test(source))?.[1] ||
+      "var(--primary-color)"
+    );
+  };
 
   prototype.ensureHeaderControls = function ensureHeaderControls(model) {
     if (!this.shadowRoot || !this.el) return;
@@ -4561,17 +4585,78 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
       const style = document.createElement("style");
       style.setAttribute("data-apple-tv-header-controls", "");
       style.textContent = `
-        .identity{grid-template-columns:44px minmax(0,1fr) auto!important}
-        .card-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px;margin-left:4px}
-        .header-action{width:34px;height:34px;min-width:34px;padding:0;border-radius:50%;display:grid;place-items:center;color:var(--secondary-text-color);background:transparent}
-        .header-action:not(:disabled):hover{background:var(--secondary-background-color);color:var(--primary-text-color)}
-        .header-action.power:not(:disabled){color:var(--primary-color)}
+        .identity{
+          grid-template-columns:44px minmax(0,1fr) auto!important;
+          gap:12px!important;
+        }
+        .card-actions{
+          display:flex;
+          align-items:center;
+          justify-content:flex-end;
+          gap:8px;
+          margin-left:0;
+        }
+        .header-action{
+          width:44px;
+          height:44px;
+          min-width:44px;
+          padding:0;
+          border:1px solid var(--dashboard-card-border-color,var(--divider-color));
+          border-radius:var(--dashboard-radius-control,5px);
+          background:transparent;
+          color:var(--secondary-text-color);
+          display:grid;
+          place-items:center;
+        }
+        .header-action.power.on{color:var(--primary-color)}
         .header-action ha-icon{--mdc-icon-size:20px}
         .header-action span{display:none}
+
+        .panel{
+          padding:16px!important;
+          overscroll-behavior:contain;
+        }
+        .sheet{
+          width:min(430px,calc(100vw - 32px))!important;
+          max-height:calc(100dvh - 32px)!important;
+          min-height:0;
+          overflow:hidden!important;
+          display:flex!important;
+          flex-direction:column;
+          border-radius:var(--dashboard-radius-dialog,8px)!important;
+          box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))!important;
+        }
+        .head{flex:0 0 auto}
+        .body{
+          flex:1 1 auto;
+          min-height:0!important;
+          overflow-x:hidden!important;
+          overflow-y:auto!important;
+          overscroll-behavior:contain;
+          touch-action:pan-y;
+          -webkit-overflow-scrolling:touch;
+          scrollbar-gutter:stable;
+        }
+        .panel-notice{flex:0 0 auto}
+        .panel[data-mode="apps"] .body{
+          max-height:calc(100dvh - 112px);
+        }
+        .apps-grid{align-content:start}
+        .app-logo ha-icon{color:var(--apple-tv-app-colour,var(--primary-color))}
+
         @media(max-width:420px){
-          .card-actions{gap:2px;margin-left:2px}
-          .header-action{width:32px;height:32px;min-width:32px}
-          .header-action ha-icon{--mdc-icon-size:19px}
+          .panel{padding:16px!important}
+          .sheet{
+            width:calc(100vw - 32px)!important;
+            max-height:calc(100dvh - 32px)!important;
+          }
+          .card-actions{gap:8px}
+          .header-action{
+            width:44px;
+            height:44px;
+            min-width:44px;
+          }
+          .header-action ha-icon{--mdc-icon-size:20px}
         }
       `;
       this.shadowRoot.append(style);
@@ -4591,14 +4676,6 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
 
     actions.replaceChildren(
       this.button(
-        "header-action power",
-        wake ? "Turn Apple TV on" : "Turn Apple TV off",
-        "mdi:power",
-        () => this.remoteCommand(wake ? "wakeup" : "suspend", powerAction),
-        !canPower || this.busy(powerAction),
-        this.busy(powerAction),
-      ),
-      this.button(
         "header-action",
         "Volume down",
         "mdi:volume-minus",
@@ -4614,6 +4691,14 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
         !model.canVolumeUp || this.busy("volume-up"),
         this.busy("volume-up"),
       ),
+      this.button(
+        `header-action power ${model.awake ? "on" : ""}`,
+        wake ? "Turn Apple TV on" : "Turn Apple TV off",
+        "mdi:power",
+        () => this.remoteCommand(wake ? "wakeup" : "suspend", powerAction),
+        !canPower || this.busy(powerAction),
+        this.busy(powerAction),
+      ),
     );
   };
 
@@ -4624,6 +4709,7 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
     const model = this.model();
     this.el.remoteLaunch.disabled = !model.awake || !this.canRemote(model);
     this.el.appsLaunch.disabled = !model.awake || !model.canSelectSource;
+    this.el.panel.dataset.mode = this.panelMode || "";
     this.ensureHeaderControls(model);
 
     if (this.panelMode && !model.awake) {
@@ -4641,6 +4727,17 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
 
     const volume = this.el?.body?.querySelector(".volume-control");
     volume?.closest(".section")?.remove();
+  };
+
+  prototype.renderApps = function renderApps(model) {
+    oldRenderApps.call(this, model);
+
+    for (const app of this.el?.body?.querySelectorAll(".app") || []) {
+      const source = app.querySelector(".app-name")?.textContent?.trim() || "";
+      const logo = app.querySelector(".app-logo");
+      if (!logo) continue;
+      logo.style.setProperty("--apple-tv-app-colour", this.appleTvAppColour(source));
+    }
   };
 
   prototype.openPanel = function openPanel(mode, trigger) {
