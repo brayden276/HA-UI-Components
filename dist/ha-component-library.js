@@ -1,5 +1,5 @@
 /**
- * HA Component Library v7.0.0
+ * HA Component Library v8.0.0
  * Generated HACS Dashboard bundle.
  *
  * Source is organised by component under src/components. Shared logic lives
@@ -3476,4 +3476,4 @@ customElements.whenDefined("component-split-controller-v4").then(()=>{
 })();
 }
 
-globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "7.0.0", components: 38 });
+globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "8.0.0", components: 38 });
