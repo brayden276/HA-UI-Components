@@ -258,5 +258,9 @@
   {
     "order": 65,
     "file": "src/patches/apple-tv-header-controls.js"
+  },
+  {
+    "order": 66,
+    "file": "src/patches/smart-collection-live-active.js"
   }
 ]
