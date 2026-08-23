@@ -6,10 +6,17 @@ import vm from "node:vm";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bundle = await readFile(resolve(root, "dist/ha-component-library.js"), "utf8");
 
+class MockStyle {
+  constructor() { this.values = new Map(); }
+  setProperty(name, value) { this.values.set(name, String(value)); }
+  removeProperty(name) { const previous = this.values.get(name) ?? ""; this.values.delete(name); return previous; }
+  getPropertyValue(name) { return this.values.get(name) ?? ""; }
+}
+
 class MockNode {
   constructor(tagName = "div") {
     this.tagName = tagName;
-    this.style = {};
+    this.style = new MockStyle();
     this.dataset = {};
     this.attributes = new Map();
     this.children = [];
@@ -18,6 +25,7 @@ class MockNode {
       [Symbol.iterator]: () => this.classNames[Symbol.iterator](),
       add: (...names) => this.classNames.push(...names),
       remove: (...names) => { this.classNames = this.classNames.filter((name) => !names.includes(name)); },
+      contains: (name) => this.classNames.includes(name),
       toggle: (name, force) => {
         const enabled = force ?? !this.classNames.includes(name);
         if (enabled && !this.classNames.includes(name)) this.classNames.push(name);
@@ -43,9 +51,17 @@ class MockNode {
   removeEventListener() {}
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = [...nodes]; }
+  contains(node) { return node === this || this.children.includes(node); }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
-  toggleAttribute() {}
+  removeAttribute(name) { this.attributes.delete(name); }
+  hasAttribute(name) { return this.attributes.has(name); }
+  toggleAttribute(name, force) {
+    const enabled = force ?? !this.attributes.has(name);
+    if (enabled) this.attributes.set(name, "");
+    else this.attributes.delete(name);
+    return enabled;
+  }
   focus() {}
   getBoundingClientRect() { return { width: 800, height: 420, left: 0, top: 0 }; }
   showModal() { this.open = true; }
@@ -102,6 +118,8 @@ context.addEventListener = () => {};
 context.removeEventListener = () => {};
 context.dispatchEvent = () => true;
 vm.runInContext(bundle, vm.createContext(context), { filename: "dist/ha-component-library.js" });
+await Promise.resolve();
+await Promise.resolve();
 
 const configurations = {
   "component-context-strip-v3": {},
@@ -151,12 +169,16 @@ for (const [type, config] of Object.entries(configurations)) {
     if (!Card) throw new Error("not registered");
     const card = new Card();
     card.setConfig(config);
-    card.connectedCallback?.();
-    card.disconnectedCallback?.();
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      card.isConnected = true;
+      card.connectedCallback?.();
+      card.isConnected = false;
+      card.disconnectedCallback?.();
+    }
   } catch (error) {
     failures.push(`${type}: ${error.message}`);
   }
 }
 
 if (failures.length) throw new Error(`Runtime contract failures:\n${failures.join("\n")}`);
-console.log(`Runtime contract check passed: ${Object.keys(configurations).length} public components instantiated`);
+console.log(`Runtime contract check passed: ${Object.keys(configurations).length} public components instantiated across two connect/disconnect cycles`);

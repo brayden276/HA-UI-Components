@@ -1,7 +1,7 @@
 /** EnergyHistoryCardV3 — reusable Solar dashboard history card. */
-const { openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class EnergyHistoryCardV3 extends HTMLElement{
-  constructor(){super();this.attachShadow({mode:'open'});this._series={};this._loading=false;this._lastEnd=0;this._resizeObserver=null;this._resizeTimer=null;this._selectedDay=null;this._dayListener=e=>this._onDayChange(e)}
+  constructor(){super();this.attachShadow({mode:'open'});this._series={};this._loading=false;this._lastEnd=0;this._resizeObserver=null;this._resizeTimer=null;this._selectedDay=null;this._dayListener=e=>this._onDayChange(e);this._pinned=false;this._pointerState=null;this._interactionHandles=[];this._outside=e=>{if(this._pinned&&!e.composedPath?.().includes(this)){this._pinned=false;this._hideTip()}}}
   setConfig(c){
     const next={house_entity:'sensor.house_consumption_power',solar_entity:'sensor.total_solar_power',grid_entity:'sensor.refoss_smart_energy_monitor_em_channel_3_power',hours:24,bucket_minutes:10,calendar_day:false,day_channel:null,...(c||{})};
     const changed=this.c&&['house_entity','solar_entity','grid_entity','bucket_minutes','hours','calendar_day'].some(key=>this.c[key]!==next[key]);
@@ -12,8 +12,8 @@ class EnergyHistoryCardV3 extends HTMLElement{
     }
   }
   set hass(h){this.h=h;if(!this._built)this._build();this._scheduleFetch()}
-  connectedCallback(){window.addEventListener('energy-day-selector-change',this._dayListener)}
-  disconnectedCallback(){window.removeEventListener('energy-day-selector-change',this._dayListener);this._resizeObserver?.disconnect();clearTimeout(this._resizeTimer)}
+  connectedCallback(){window.addEventListener('energy-day-selector-change',this._dayListener);window.addEventListener('pointerdown',this._outside,true)}
+  disconnectedCallback(){window.removeEventListener('energy-day-selector-change',this._dayListener);window.removeEventListener('pointerdown',this._outside,true);for(const h of this._interactionHandles)h.destroy();this._interactionHandles=[];this._resizeObserver?.disconnect();clearTimeout(this._resizeTimer)}
   getCardSize(){return 7}
   _build(){
     this._built=true;
@@ -21,12 +21,16 @@ class EnergyHistoryCardV3 extends HTMLElement{
 :host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:4px 5px 5px}.top{min-height:28px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 5px;margin:0}.meta{font-size:13px;font-weight:600;color:var(--secondary-text-color);white-space:nowrap}.legend{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}.legend button{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:12px;font-weight:600;padding:3px 0;display:flex;align-items:center;gap:6px;cursor:pointer}.legend button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:5px}.swatch{width:17px;height:3px;border-radius:999px;display:inline-block}.house-swatch{background:var(--primary-color)}.solar-swatch{background:var(--warning-color,#f5b942)}.grid-swatch{background:var(--secondary-text-color)}.chart{position:relative;width:100%;height:clamp(400px,48vw,520px)}.chart svg{display:block;width:100%;height:100%;overflow:hidden;touch-action:none}.axis{fill:var(--secondary-text-color);font-size:11px;font-weight:500;font-family:inherit}.axis-small{fill:var(--secondary-text-color);font-size:10px;font-weight:600;font-family:inherit}.gridline{stroke:var(--divider-color);stroke-width:1;opacity:.58}.zero{stroke:var(--divider-color);stroke-width:1.35;opacity:.95}.house-line{fill:none;stroke:var(--primary-color);stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.solar-line{fill:none;stroke:var(--warning-color,#f5b942);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.solar-fill{fill:color-mix(in srgb,var(--warning-color,#f5b942) 12%,transparent)}.grid-line{fill:none;stroke:var(--secondary-text-color);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.cursor{stroke:var(--secondary-text-color);stroke-width:1;stroke-dasharray:3 3;opacity:0;vector-effect:non-scaling-stroke}.cursor-dot{stroke:var(--card-background-color);stroke-width:2.4;opacity:0;vector-effect:non-scaling-stroke}.cursor-dot.house{fill:var(--primary-color)}.cursor-dot.solar{fill:var(--warning-color,#f5b942)}.cursor-dot.grid{fill:var(--secondary-text-color)}.tooltip{position:absolute;z-index:2;min-width:150px;padding:10px 11px;border-radius:11px;background:var(--card-background-color);border:1px solid var(--divider-color);box-shadow:0 7px 22px rgba(0,0,0,.2);pointer-events:none;opacity:0;transform:translate(-50%,-100%);font-size:12px;line-height:1.45}.tooltip.show{opacity:1}.tooltip-time{font-size:12.5px;font-weight:650;color:var(--primary-text-color);margin-bottom:5px}.tip-row{display:flex;justify-content:space-between;gap:16px;color:var(--secondary-text-color)}.tip-row b{font-weight:650;color:var(--primary-text-color)}.status{position:absolute;inset:0;display:grid;place-items:center;color:var(--secondary-text-color);font-size:13px;pointer-events:none}.status[hidden]{display:none}@media(max-width:700px){.wrap{padding:3px}.top{padding:0 4px}.legend{gap:9px}.legend button{font-size:10.5px}.meta{font-size:13px}.chart{height:400px}.axis{font-size:10px}.axis-small{font-size:9.5px}.tooltip{font-size:11.5px;min-width:140px;padding:9px 10px}}
 </style><ha-card><div class="wrap"><div class="top"><div class="meta"></div><div class="legend"><button class="house-key" type="button"><span class="swatch house-swatch"></span>House</button><button class="solar-key" type="button"><span class="swatch solar-swatch"></span>Solar</button><button class="grid-key" type="button"><span class="swatch grid-swatch"></span>Grid</button></div></div><div class="chart"><svg role="img" aria-label="Household power history"></svg><div class="tooltip"></div><div class="status">Loading history…</div></div></div></ha-card>`;
     this.e={meta:this.shadowRoot.querySelector('.meta'),svg:this.shadowRoot.querySelector('svg'),tip:this.shadowRoot.querySelector('.tooltip'),status:this.shadowRoot.querySelector('.status'),chart:this.shadowRoot.querySelector('.chart')};
-    this.shadowRoot.querySelector('.house-key').onclick=()=>this._more(this.c.house_entity);
-    this.shadowRoot.querySelector('.solar-key').onclick=()=>this._more(this.c.solar_entity);
-    this.shadowRoot.querySelector('.grid-key').onclick=()=>this._more(this.c.grid_entity);
-    this.e.svg.addEventListener('pointermove',e=>this._pointer(e));
-    this.e.svg.addEventListener('pointerleave',()=>this._hideTip());
-    this.e.svg.addEventListener('pointerdown',e=>this._pointer(e));
+    this._interactionHandles.push(
+      interaction(this.shadowRoot.querySelector('.house-key'),{primary:()=>this._more(this.c.house_entity),feedback:true}),
+      interaction(this.shadowRoot.querySelector('.solar-key'),{primary:()=>this._more(this.c.solar_entity),feedback:true}),
+      interaction(this.shadowRoot.querySelector('.grid-key'),{primary:()=>this._more(this.c.grid_entity),feedback:true}),
+    );
+    this.e.svg.addEventListener('pointerdown',e=>this._pointerDown(e));
+    this.e.svg.addEventListener('pointermove',e=>this._pointerMove(e));
+    this.e.svg.addEventListener('pointerup',e=>this._pointerUp(e));
+    this.e.svg.addEventListener('pointercancel',()=>{this._pointerState=null});
+    this.e.svg.addEventListener('pointerleave',()=>{if(!this._pinned&&!this._pointerState)this._hideTip()});
     this._resizeObserver=new ResizeObserver(()=>{clearTimeout(this._resizeTimer);this._resizeTimer=setTimeout(()=>{this._hideTip();this._render()},40)});this._resizeObserver.observe(this.e.chart)
   }
   _more(entityId){openMoreInfo(this,entityId)}
@@ -113,6 +117,9 @@ class EnergyHistoryCardV3 extends HTMLElement{
     html+=`<line class="cursor" x1="0" y1="${T}" x2="0" y2="${gridB}"></line><circle class="cursor-dot house" r="4.5"></circle><circle class="cursor-dot solar" r="4.5"></circle><circle class="cursor-dot grid" r="4"></circle>`;
     this.e.svg.innerHTML=html;this._geometry={W,H,L,R,T,mainB,gridT,gridB,x0,x1,start,end,x,y,yg}
   }
+  _pointerDown(ev){this._pointerState={id:ev.pointerId,x:ev.clientX,y:ev.clientY,moved:false};this._pointer(ev)}
+  _pointerMove(ev){if(this._pointerState?.id===ev.pointerId){if(Math.hypot(ev.clientX-this._pointerState.x,ev.clientY-this._pointerState.y)>6)this._pointerState.moved=true;this._pointer(ev);return}if(!this._pinned&&ev.pointerType!=='touch')this._pointer(ev)}
+  _pointerUp(ev){const state=this._pointerState;if(!state||state.id!==ev.pointerId)return;this._pointerState=null;if(!state.moved){if(this._pinned){this._pinned=false;this._hideTip()}else{this._pointer(ev);this._pinned=true}}else{this._pinned=false;if(ev.pointerType==='touch')this._hideTip()}}
   _pointer(ev){
     if(!this._geometry||!this._end)return;
     const rect=this.e.svg.getBoundingClientRect(),g=this._geometry,px=(ev.clientX-rect.left)*(g.W/rect.width),clamped=Math.max(g.x0,Math.min(g.x1,px)),ratio=(clamped-g.x0)/(g.x1-g.x0),rawT=g.start+ratio*(g.end-g.start),bucket=Math.max(5,Number(this.c.bucket_minutes)||10)*60000,t=Math.round(rawT/bucket)*bucket;

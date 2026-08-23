@@ -6,10 +6,24 @@ on:
       - main
     paths:
       - "src/**"
-      - "scripts/assemble.mjs"
+      - "scripts/**"
+      - "docs/**"
+      - "package.json"
+      - ".github/workflows/build-bundle.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "docs/**"
       - "package.json"
       - ".github/workflows/build-bundle.yml"
   workflow_dispatch:
+
+concurrency:
+  group: hacs-bundle-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -29,10 +43,17 @@ jobs:
       - name: Build bundle
         run: npm run bundle
 
-      - name: Check generated JavaScript
-        run: node --check dist/ha-component-library.js
+      - name: Run repository validation
+        run: npm run check
+
+      - name: Run strict style-preservation check
+        run: npm run check:style
+
+      - name: Run release dry-run
+        run: npm run release:dry-run
 
       - name: Commit generated bundle
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           if git diff --quiet -- dist/ha-component-library.js; then

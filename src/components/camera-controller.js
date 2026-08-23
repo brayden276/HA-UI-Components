@@ -1,5 +1,5 @@
 /** ComponentCameraControllerV1 — device-aware ONVIF camera controller. */
-const { openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { interaction, openMoreInfo, registerCard, waitForEntityState } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 const CAM_HD = globalThis.__homeDashboardV2;
 const CAM_DOM = (id) => String(id || "").split(".")[0];
 const CAM_NAME = (entity) => String(entity?.name || entity?.original_name || entity?.entity_id || "");
@@ -20,6 +20,9 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.confirmId = null;
     this.confirmTimer = null;
     this.controlsSignature = "";
+    this.interactionHandles = [];
+    this.controlInteractions = [];
+    this.optimisticSwitches = new Map();
     this.shadowRoot.innerHTML = `<style>
       :host{display:block;min-width:0}*{box-sizing:border-box}button{font:inherit;color:inherit}
       ha-card{display:block;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);background:var(--dashboard-card-surface,var(--card-background-color));box-shadow:none;color:var(--primary-text-color);overflow:hidden}
@@ -42,11 +45,13 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.view = this.shadowRoot.querySelector(".view");
     this.controls = this.shadowRoot.querySelector(".controls");
     this.dialog = this.shadowRoot.querySelector("dialog");
-    this.view.onclick = () => this.openCamera();
     this.identity = this.shadowRoot.querySelector(".identity");
-    this.identity.onclick = () => this.openCamera();
-    this.controls.onclick = () => this.openControls();
-    this.shadowRoot.querySelector(".close").onclick = () => this.dialog.close();
+    this.interactionHandles.push(
+      interaction(this.view, { primary: () => this.openCamera(), feedback: true }),
+      interaction(this.identity, { primary: () => this.openCamera(), feedback: true }),
+      interaction(this.controls, { primary: () => this.openControls(), feedback: true }),
+      interaction(this.shadowRoot.querySelector(".close"), { primary: () => this.dialog.close(), feedback: true }),
+    );
     this.dialog.onclick = (event) => { if (event.target === this.dialog) this.dialog.close(); };
   }
 
@@ -62,7 +67,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
     }
   }
   connectedCallback() { this.subscribe(); this.load(); }
-  disconnectedCallback() { this.unsubscribe?.(); this.unsubscribe = null; clearTimeout(this.confirmTimer); }
+  disconnectedCallback() { for (const handle of this.interactionHandles) handle.destroy(); this.interactionHandles = []; for (const handle of this.controlInteractions) handle.destroy(); this.controlInteractions = []; this.optimisticSwitches.clear(); this.unsubscribe?.(); this.unsubscribe = null; clearTimeout(this.confirmTimer); }
   getCardSize() { return 1; }
   subscribe() {
     if (this.unsubscribe || !this._hass || !CAM_HD?.REG?.subscribe) return;
@@ -130,9 +135,12 @@ class ComponentCameraControllerV1 extends HTMLElement {
   }
 
   renderControls() {
+    for (const handle of this.controlInteractions) handle.destroy();
+    this.controlInteractions = [];
     if (!this.bundleData) return;
     const signature = JSON.stringify([
       this.confirmId,
+      [...this.optimisticSwitches],
       ...this.bundleData.detections.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
       ...this.bundleData.switches.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
       ...this.bundleData.buttons.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
@@ -152,14 +160,23 @@ class ComponentCameraControllerV1 extends HTMLElement {
       detections.append(row);
     }
     for (const entity of this.bundleData.switches) {
-      const state = this._hass.states[entity.entity_id], on = state?.state === "on", usable = Boolean(state && !CAM_BAD.has(String(state.state).toLowerCase())), row = document.createElement("div");
+      const state = this._hass.states[entity.entity_id], reportedOn = state?.state === "on", on = this.optimisticSwitches.has(entity.entity_id) ? this.optimisticSwitches.get(entity.entity_id) : reportedOn, usable = Boolean(state && !CAM_BAD.has(String(state.state).toLowerCase())), row = document.createElement("div");
       row.className = "control";
       row.innerHTML = '<span class="copy"><span class="ctl-name"></span><span class="ctl-state"></span></span><button class="switchbtn" type="button"></button>';
       row.querySelector(".ctl-name").textContent = this.clean(entity);
       row.querySelector(".ctl-state").textContent = usable ? on ? "On" : "Off" : "Unavailable";
       const button = row.querySelector("button");
-      button.textContent = on ? "On" : "Off"; button.classList.toggle("on", on); button.disabled = !usable;
-      button.onclick = () => this._hass.callService("switch", "toggle", { entity_id: entity.entity_id });
+      button.textContent = on ? "On" : "Off"; button.classList.toggle("on", on); button.disabled = !usable; button.setAttribute("aria-pressed", String(on)); button.setAttribute("aria-label", `${on ? "Turn off" : "Turn on"} ${this.clean(entity)}`);
+      this.controlInteractions.push(interaction(button, {
+        primary: () => this.toggleSwitch(entity.entity_id, reportedOn),
+        hold: () => openMoreInfo(this, entity.entity_id),
+        optimistic: {
+          capture: () => reportedOn,
+          apply: () => { const next = !reportedOn; this.optimisticSwitches.set(entity.entity_id, next); button.textContent = next ? "On" : "Off"; button.classList.toggle("on", next); button.setAttribute("aria-pressed", String(next)); row.querySelector(".ctl-state").textContent = next ? "On" : "Off"; },
+          rollback: () => { this.optimisticSwitches.delete(entity.entity_id); this.controlsSignature = ""; if (this.dialog.open) this.renderControls(); },
+        },
+        feedback: true,
+      }));
       controls.append(row);
     }
     for (const entity of this.bundleData.buttons) {
@@ -170,7 +187,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
       row.querySelector(".ctl-state").textContent = usable ? "Available" : "Unavailable";
       const button = row.querySelector("button");
       button.disabled = !usable; button.classList.toggle("confirm", this.confirmId === entity.entity_id); button.textContent = this.confirmId === entity.entity_id ? "Confirm" : "Run";
-      button.onclick = () => this.press(entity.entity_id);
+      this.controlInteractions.push(interaction(button, { primary: () => this.press(entity.entity_id), optimistic: false, repeat: false, feedback: true }));
       maintenance.append(row);
     }
     this.shadowRoot.querySelector(".detections").hidden = !this.bundleData.detections.length;
@@ -188,7 +205,15 @@ class ComponentCameraControllerV1 extends HTMLElement {
     const entityId = hd && this.good(bundle.main) ? bundle.main : this.good(bundle.sub) ? bundle.sub : this.good(bundle.main) ? bundle.main : null;
     if (entityId) openMoreInfo(this, entityId);
   }
-  press(entityId) { if (this.confirmId !== entityId) { this.confirmId = entityId; clearTimeout(this.confirmTimer); this.confirmTimer = setTimeout(() => { this.confirmId = null; if (this.dialog.open) this.renderControls(); }, 5000); this.renderControls(); return; } clearTimeout(this.confirmTimer); this.confirmId = null; this._hass.callService("button", "press", { entity_id: entityId }); this.renderControls(); }
+  async toggleSwitch(entityId, wasOn) {
+    await this._hass.callService("switch", "toggle", { entity_id: entityId });
+    await waitForEntityState(() => this._hass, entityId, (value) => value === (wasOn ? "off" : "on"), { timeout: 9000 });
+    this.optimisticSwitches.delete(entityId);
+    this.controlsSignature = "";
+    if (this.dialog.open) this.renderControls();
+  }
+
+  press(entityId) { if (this.confirmId !== entityId) { this.confirmId = entityId; clearTimeout(this.confirmTimer); this.confirmTimer = setTimeout(() => { this.confirmId = null; if (this.dialog.open) this.renderControls(); }, 5000); this.renderControls(); return; } clearTimeout(this.confirmTimer); this.confirmId = null; const request = this._hass.callService("button", "press", { entity_id: entityId }); this.renderControls(); return request; }
 }
 
 registerCard({ type: "component-camera-controller-v1", element: ComponentCameraControllerV1, name: "Camera Controller V1", description: "One device-aware controller for each physical ONVIF camera." });

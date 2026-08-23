@@ -1,16 +1,69 @@
-/** Temporary compatibility fixes for installed bundles predating the scoped-source corrections. */
+/** Runtime compatibility and lifecycle guards for retained component DOM. */
 (() => {
+  const shared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ?? {};
+  const { createRequestCoalescer, interaction } = shared;
+
   const patch = (type, apply) => customElements.whenDefined(type).then(() => {
     const Card = customElements.get(type);
     if (Card) apply(Card.prototype);
   });
+
+  const preserveLocalInteractionFields = (prototype, fields) => {
+    const original = prototype.disconnectedCallback;
+    if (typeof original !== "function" || original.__preservesRetainedInteractions) return;
+    const wrapped = function disconnectWithRetainedInteractions(...args) {
+      const saved = fields.map((field) => [field, this[field]]);
+      for (const [field, value] of saved) this[field] = Array.isArray(value) ? [] : null;
+      try {
+        return original.apply(this, args);
+      } finally {
+        for (const [field, value] of saved) this[field] = value;
+      }
+    };
+    wrapped.__preservesRetainedInteractions = true;
+    prototype.disconnectedCallback = wrapped;
+  };
+
+  const retainedLocalFields = new Map([
+    ["component-context-strip-v3", ["_interaction"]],
+    ["metric-pair-card-v3", ["_interactions"]],
+    ["component-history-graph-v2", ["interactions"]],
+    ["component-single-kpi-v2", ["_interaction"]],
+    ["component-three-stat-v2", ["_interactions"]],
+    ["component-status-row-v2", ["_interaction"]],
+    ["component-progress-v2", ["_interaction"]],
+    ["component-action-v2", ["_interaction"]],
+    ["component-list-v2", ["_interactions"]],
+    ["component-notice-v2", ["_interaction"]],
+    ["component-quick-nav-v2", ["_interactions"]],
+    ["component-favourites-v3", ["_interactionHandles"]],
+    ["component-nav-tile-v2", ["_interaction"]],
+    ["component-room-navigation-v1", ["_interaction"]],
+    ["component-control-row-v2", ["_interactions"]],
+    ["component-split-controller-v4", ["_interactionHandles"]],
+    ["component-media-row-v2", ["_interactions"]],
+    ["component-apple-tv-controller-v1", ["interactionHandles"]],
+    ["component-room-sheet-v2", ["_interactions"]],
+    ["component-update-summary-v3", ["_interaction"]],
+    ["component-update-row-v3", ["_interactions"]],
+    ["component-household-attention-v1", ["_interactionHandles"]],
+    ["component-welcome-header-v1", ["_interaction"]],
+    ["component-wled-controller-v1", ["_interactionHandles"]],
+    ["component-garage-door-controller-v1", ["interactions"]],
+    ["component-camera-controller-v1", ["interactionHandles", "controlInteractions"]],
+    ["solar-daylight-card-v7", ["_interaction"]],
+    ["energy-history-card-v3", ["_interactionHandles"]],
+  ]);
+  for (const [type, fields] of retainedLocalFields) {
+    patch(type, (prototype) => preserveLocalInteractionFields(prototype, fields));
+  }
 
   patch("component-context-strip-v3", (prototype) => {
     const original = prototype._render;
     if (typeof original !== "function" || !String(original).includes("CtxEsc")) return;
     prototype._render = function renderWithScopedEscape() {
       const previous = globalThis.CtxEsc;
-      globalThis.CtxEsc = globalThis.__HA_COMPONENT_LIBRARY_SHARED__?.escapeHtml ?? String;
+      globalThis.CtxEsc = shared.escapeHtml ?? String;
       try { return original.call(this); }
       finally {
         if (previous === undefined) delete globalThis.CtxEsc;
@@ -24,7 +77,7 @@
     if (typeof originalStyles === "function" && String(originalStyles).includes("${B}")) {
       prototype.styles = function stylesWithScopedBase() {
         const previous = globalThis.B;
-        globalThis.B = globalThis.__HA_COMPONENT_LIBRARY_SHARED__?.PRESENTATIONAL_CARD_STYLES ?? "";
+        globalThis.B = shared.PRESENTATIONAL_CARD_STYLES ?? "";
         try { return originalStyles.call(this); }
         finally {
           if (previous === undefined) delete globalThis.B;
@@ -48,6 +101,115 @@
       if (this.e?.chart) this.ro?.observe(this.e.chart);
       this.draw?.();
     };
+  });
+
+  patch("energy-history-card-v3", (prototype) => {
+    const originalConnected = prototype.connectedCallback;
+    if (originalConnected?.__restoresResizeObserver) return;
+    const wrapped = function reconnectEnergyHistory(...args) {
+      const result = originalConnected?.apply(this, args);
+      if (this.e?.chart) this._resizeObserver?.observe(this.e.chart);
+      return result;
+    };
+    wrapped.__restoresResizeObserver = true;
+    prototype.connectedCallback = wrapped;
+  });
+
+  patch("component-camera-controller-v1", (prototype) => {
+    const original = prototype.renderControls;
+    if (typeof original !== "function" || original.__preservesUnchangedControls) return;
+    const wrapped = function renderControlsWithoutDroppingHandlers(...args) {
+      if (this.bundleData) {
+        const signature = JSON.stringify([
+          this.confirmId,
+          ...this.bundleData.detections.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
+          ...this.bundleData.switches.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
+          ...this.bundleData.buttons.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
+        ]);
+        if (signature === this.controlsSignature) return;
+      }
+      return original.apply(this, args);
+    };
+    wrapped.__preservesUnchangedControls = true;
+    prototype.renderControls = wrapped;
+  });
+
+  patch("component-apple-tv-controller-v1", (prototype) => {
+    prototype.setVolumeGesture = function setVolumeGesture(pressed, model) {
+      this.volumeGestureActive = pressed;
+      if (pressed && this.optimisticVolume === null) this.optimisticVolume = model.level;
+      this.updateVolumeReadout(model);
+    };
+
+    prototype.ensureVolumeCoalescer = function ensureVolumeCoalescer() {
+      if (this.volumeCoalescer && !this.volumeCoalescer.destroyed) return this.volumeCoalescer;
+      this.volumeCoalescer = createRequestCoalescer(async (direction) => {
+        const model = this.model();
+        if (direction === "up" ? !model.canVolumeUp : !model.canVolumeDown) return;
+        if (!this.config.demo) {
+          await this._hass.callService("media_player", `volume_${direction}`, { entity_id: model.entities.media });
+        }
+      }, {
+        onError: () => this.setMessage("Apple TV did not respond", "error", 4000),
+        onIdle: () => {
+          if (this.volumeGestureActive) return;
+          this.optimisticVolume = null;
+          if (this.isConnected) this.render();
+        },
+      });
+      return this.volumeCoalescer;
+    };
+  });
+
+  patch("component-wled-controller-v1", (prototype) => {
+    const original = prototype.renderPresets;
+    if (typeof original !== "function" || original.__cleansPresetInteractions) return;
+    const wrapped = function renderPresetsWithCleanup(...args) {
+      for (const button of this.presetGrid?.querySelectorAll?.(".preset-btn") || []) {
+        button._interaction?.destroy?.();
+        button._interaction = null;
+      }
+      return original.apply(this, args);
+    };
+    wrapped.__cleansPresetInteractions = true;
+    prototype.renderPresets = wrapped;
+  });
+
+  patch("component-room-directory-v4", (prototype) => {
+    const originalHeader = prototype.renderSheetHeader;
+    if (typeof originalHeader === "function" && !originalHeader.__cleansMetricInteractions) {
+      const wrappedHeader = function renderSheetHeaderWithCleanup(...args) {
+        if (this.environment && Array.isArray(this._interactionHandles)) {
+          const retained = [];
+          for (const handle of this._interactionHandles) {
+            if (handle?.element && this.environment.contains(handle.element)) handle.destroy();
+            else retained.push(handle);
+          }
+          this._interactionHandles = retained;
+        }
+        return originalHeader.apply(this, args);
+      };
+      wrappedHeader.__cleansMetricInteractions = true;
+      prototype.renderSheetHeader = wrappedHeader;
+    }
+
+    const originalDisconnect = prototype.disconnectedCallback;
+    if (typeof originalDisconnect === "function" && !originalDisconnect.__preservesRoomTiles) {
+      const wrappedDisconnect = function disconnectRoomDirectory(...args) {
+        const saved = [];
+        for (const tile of this.tiles?.values?.() || []) {
+          saved.push([tile, tile._interaction]);
+          tile._interaction = null;
+        }
+        try {
+          return originalDisconnect.apply(this, args);
+        } finally {
+          for (const [tile, handle] of saved) tile._interaction = handle;
+        }
+      };
+      wrappedDisconnect.__preservesRoomTiles = true;
+      prototype.disconnectedCallback = wrappedDisconnect;
+    }
   });
 
   patch("component-update-summary-v3", (prototype) => {

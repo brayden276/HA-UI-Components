@@ -7,6 +7,8 @@ const checks = [
   ["--check", "dist/ha-component-library.js"],
   ["scripts/check-inventory.mjs"],
   ["scripts/check-maintainability.mjs"],
+  ["scripts/check-interactions.mjs"],
+  ["scripts/check-interaction-runtime.mjs"],
   ["scripts/check-style-preservation.mjs"],
   ["scripts/check-load-order.mjs"],
   ["scripts/check-runtime-contracts.mjs"],
