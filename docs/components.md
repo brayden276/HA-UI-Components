@@ -1,23 +1,12 @@
 # Component catalogue
 
-These examples cover all 38 public custom cards in the library, including the specialised device controllers, Solar cards and composition cards used by the current Home dashboard. They use the existing configuration API and do not require inline JavaScript.
+This catalogue covers all 38 public custom cards in the library. Configuration examples use placeholder entity IDs and paths; replace them with values from the target Home Assistant instance.
 
-Values such as entity IDs, device IDs and navigation paths are examples; replace them with IDs from the target Home Assistant instance.
-
-## Capability model
-
-The catalogue contains both live Home Assistant integrations and reusable visual primitives:
-
-- Entity- or registry-aware cards document an `entity`, helper, area, device or navigation option below and react to Home Assistant state.
-- Input-driven cards render the configured labels, values and rows exactly as supplied. They are suitable for dashboards that calculate or inject those values elsewhere.
-- `component-history-graph-v2`, `component-nav-tile-v2`, `component-control-row-v2`, `component-media-row-v2` and `component-room-sheet-v2` preserve the Components dashboard's preview behaviour. Their apparent controls are local demonstrations rather than Home Assistant service calls.
-- Options named `demo` or `demo_presence` are intended for the Components dashboard only. Omit them for normal live use.
-
-This distinction prevents a preview component from being mistaken for a live control when it is reused on another dashboard.
+The interaction rules described here are the actual source behaviour. Components that have no meaningful action render non-interactive semantics rather than inert button affordances. Shared tap/hold/repeat semantics are documented in `docs/INTERACTION_MODEL.md`.
 
 ## Context and metrics
 
-### Context strip
+### `component-context-strip-v3`
 
 ```yaml
 type: custom:component-context-strip-v3
@@ -29,9 +18,13 @@ center_2_value: 00%
 center_3_label: Tertiary metric
 center_3_value: 00%
 right_text: Right context
+# entity: sensor.example
+# navigation_path: /lovelace/details
 ```
 
-### Metric pair
+Interaction: informational by default. If `navigation_path` is configured, tap navigates. Otherwise an optional `entity` makes the strip tap into native more-info. With neither option it is not exposed as a button.
+
+### `metric-pair-card-v3`
 
 ```yaml
 type: custom:metric-pair-card-v3
@@ -41,11 +34,13 @@ right_value: Secondary value
 right_label: Secondary label
 right_primary: Supporting value
 right_secondary: Supporting label
+# left_more_info_entity: sensor.example_left
+# right_more_info_entity: sensor.example_right
 ```
 
-`day_channel` can link this card to `component-energy-day-selector-v1`. The existing live-statistics options remain available in the preserved component implementation.
+Interaction: each side is independently tappable only when its existing value configuration or explicit more-info option resolves an entity. Tap opens that entity's native details. `day_channel` can link the card to `component-energy-day-selector-v1` for selected-day statistics.
 
-### Single KPI
+### `component-single-kpi-v2`
 
 ```yaml
 type: custom:component-single-kpi-v2
@@ -53,32 +48,42 @@ value: Primary value
 label: Primary metric
 support_value: Secondary value
 support_label: Supporting context
+# entity: sensor.example
+# navigation_path: /lovelace/details
 ```
 
-### Three-stat summary
+Interaction: informational unless an entity/navigation target is configured. No target means no button semantics.
+
+### `component-three-stat-v2`
 
 ```yaml
 type: custom:component-three-stat-v2
 metric_1_value: Metric 1
 metric_1_label: First label
+metric_1_entity: sensor.metric_1
 metric_2_value: Metric 2
 metric_2_label: Second label
 metric_3_value: Metric 3
 metric_3_label: Third label
 ```
 
-### Status row
+Interaction: each metric may independently declare an entity or configured action target. Metrics without an action remain static; tapping an entity-backed metric opens more-info.
+
+### `component-status-row-v2`
 
 ```yaml
 type: custom:component-status-row-v2
 title: Status title
 description: Supporting description
-status_value: Status value
-status_label: Status label
+status_value: Active
+status_label: Current state
 icon: mdi:information-outline
+# entity: binary_sensor.example
 ```
 
-### Progress / target
+Interaction: optional entity drill-down. Without `entity`, the status row is informational.
+
+### `component-progress-v2`
 
 ```yaml
 type: custom:component-progress-v2
@@ -87,20 +92,23 @@ label: Progress metric
 progress: 68
 target_value: 100%
 target_label: Target
+# entity: sensor.example
 ```
+
+Interaction: informational by default. Optional entity/path drill-down applies to the card; the progress bar itself is never a separate control.
 
 ## Charts and date selection
 
-### Energy day selector
+### `component-energy-day-selector-v1`
 
 ```yaml
 type: custom:component-energy-day-selector-v1
 channel: energy-dashboard
 ```
 
-Cards listening on the same channel receive the selected local date through the component's existing browser event.
+Interaction: previous/next update the selected local date immediately. Holding either step button repeats after 350 ms and accelerates; movement into a scroll cancels the press. Today/date input remain directly accessible. Cards on the same channel receive `energy-day-selector-change`.
 
-### History graph
+### `component-history-graph-v2`
 
 ```yaml
 type: custom:component-history-graph-v2
@@ -112,11 +120,11 @@ positive_label: Positive
 negative_label: Negative
 ```
 
-This preserves the current component-library graph behaviour and data treatment.
+Interaction: drag/pointer movement scrubs the graph. A tap pins the tooltip; a second tap or outside interaction releases it. Legend buttons toggle their series and expose `aria-pressed` state.
 
 ## Solar dashboard
 
-### Solar daylight context
+### `solar-daylight-card-v7`
 
 ```yaml
 type: custom:solar-daylight-card-v7
@@ -124,39 +132,42 @@ sun_entity: sun.sun
 weather_entity: weather.forecast_home
 ```
 
-The card shows the current sun phase/elevation, the next sunrise or sunset, and current, four-hour and eight-hour cloud coverage. Selecting the card opens the configured sun entity's more-info panel. Forecast values are requested from Home Assistant's hourly weather forecast service and are refreshed on a guarded interval.
+The card shows sun phase/elevation, next sunrise/sunset and current/+4h/+8h cloud coverage using guarded hourly forecast requests.
 
-### Energy history
+Interaction: tap opens Sun details. Hold opens Weather details. The hold is a shortcut only; the primary Sun action remains available on tap.
+
+### `energy-history-card-v3`
 
 ```yaml
 type: custom:energy-history-card-v3
 house_entity: sensor.house_consumption_power
 solar_entity: sensor.total_solar_power
-grid_entity: sensor.refoss_smart_energy_monitor_em_channel_3_power
+grid_entity: sensor.grid_power
 hours: 24
 bucket_minutes: 10
 calendar_day: true
 day_channel: energy-usage-day
 ```
 
-The chart retrieves recorder statistics for house, solar and signed grid power, buckets them into readable averages, and provides pointer tooltips plus entity more-info actions from the legend. With `calendar_day: true`, it listens to `component-energy-day-selector-v1` on the configured `day_channel` and renders the selected local day.
+Interaction: drag scrubs recorded data; tap pins the current tooltip until another tap/outside interaction. Legend buttons open native details for House, Solar and Grid entities. With `calendar_day: true`, the chart follows the configured Energy Day Selector channel.
 
 ## Actions, lists and notices
 
-### Action card
+### `component-action-v2`
 
 ```yaml
 type: custom:component-action-v2
 title: Action title
-description: Supporting description of the action
+description: Supporting description
 action_text: Open
 icon: mdi:gesture-tap-button
 navigation_path: /lovelace/home
+# more_info_entity: sensor.example
 ```
 
-Use `navigation_path` for navigation or `more_info_entity` to open an entity's more-info dialog.
+Interaction: tap performs the configured primary action. If both navigation and `more_info_entity` are configured, tap navigates and hold opens entity details. If neither is configured, the card is static.
 
-### List / ranking
+### `component-list-v2`
 
 ```yaml
 type: custom:component-list-v2
@@ -165,13 +176,16 @@ rows:
     description: Supporting detail
     value: Value
     label: Label
+    entity: sensor.first
   - title: Second item
-    description: Supporting detail
+    description: Static row
     value: Value
     label: Label
 ```
 
-### Alert / notice
+Interaction: a row becomes a target only when it declares an entity/path/action. Static rows do not have button semantics. A row with both path and entity uses tap for its primary destination and hold for details.
+
+### `component-notice-v2`
 
 ```yaml
 type: custom:component-notice-v2
@@ -179,11 +193,12 @@ title: Notice title
 message: Important supporting information appears here.
 tone: info
 icon: mdi:information-outline
+# entity: binary_sensor.warning_source
 ```
 
-Supported existing tones are `info`, `warning`, `error` and `success`.
+Interaction: informational by default. Optional `entity` opens the warning/source details. Existing tones are `info`, `warning`, `error` and `success`.
 
-### Signature text effect
+### `component-text-effect-v1`
 
 ```yaml
 type: custom:component-text-effect-v1
@@ -194,35 +209,37 @@ icon: mdi:progress-clock
 speed: 1.9
 ```
 
-Existing effects: `stamp`, `typewave`, `overprint`, `signal`, `rainbow_stamp`.
+Interaction: none. Effects (`stamp`, `typewave`, `overprint`, `signal`, `rainbow_stamp`) run for one transient cycle after render/text change and then settle. Reduced-motion users receive a non-animated settled presentation.
 
 ## Navigation and room structure
 
-### Quick navigation
+### `component-quick-nav-v2`
 
 ```yaml
 type: custom:component-quick-nav-v2
-left_icon: mdi:weather-partly-cloudy
-left_text: Context
 left_entity: sensor.outdoor_temperature
-action_1_icon: mdi:view-dashboard-outline
+left_text: Outside
 action_1_text: Home
 action_1_path: /lovelace/home
-action_2_icon: mdi:cog-outline
 action_2_text: Settings
 action_2_path: /config/dashboard
 ```
 
-### Navigation tile
+Interaction: entity context opens more-info; configured actions navigate. Targets use shared press/scroll/keyboard semantics and unavailable targets remain disabled.
+
+### `component-nav-tile-v2`
 
 ```yaml
 type: custom:component-nav-tile-v2
 icon: mdi:door-open
 title: Destination
 context: Navigation context
+navigation_path: /lovelace/destination
 ```
 
-### Room navigation with presence glow
+Interaction: tap navigates only when `navigation_path` exists. Without a path the tile is a visual preview, not a button.
+
+### `component-room-navigation-v1`
 
 ```yaml
 type: custom:component-room-navigation-v1
@@ -233,9 +250,9 @@ navigation_path: "#kitchen"
 presence_colour_key: kitchen
 ```
 
-The component resolves the configured area through Home Assistant's registries. `demo_presence: true` keeps the component-library demonstration state.
+Interaction: tap navigates to the configured room destination using scroll-cancelling shared activation. Registry-derived room state/presence behaviour is unchanged.
 
-### Section separator
+### `component-section-separator-v2`
 
 ```yaml
 type: custom:component-section-separator-v2
@@ -243,7 +260,9 @@ icon: mdi:gesture-tap-button
 title: Section label
 ```
 
-### Room sheet
+Interaction: none. This is purely presentational.
+
+### `component-room-sheet-v2`
 
 ```yaml
 type: custom:component-room-sheet-v2
@@ -251,13 +270,11 @@ icon: mdi:bed-king-outline
 title: Room name
 ```
 
-This preserves the current room-sheet preview component exactly.
+Interaction: preview mode is deliberately non-interactive, including its close/control-looking elements. Optional `rows` may declare real `entity`, `navigation_path` or `service` actions. A configured row with both path and entity uses tap for navigation and hold for details.
 
-## Home dashboard composition
+## Home composition
 
-These registry-aware cards reproduce the current Home dashboard without storing dashboard state in the card. They require the standard HACS Bubble Card and Mushroom frontend resources, because discovered device controls use those existing card types.
-
-### Home overview
+### `component-home-overview-v4`
 
 ```yaml
 type: custom:component-home-overview-v4
@@ -271,9 +288,9 @@ favourites_helpers:
   - input_text.dashboard_favourite_4
 ```
 
-This composes the current Favourites, Active now, Rooms and Household sections. The configured helper IDs persist the favourite selections; the card does not create or alter helpers.
+Interaction: no global card action. The header weather target opens native details through the shared interaction layer; Favourites, Active Now, Rooms and Household delegate to their canonical child components. Child components are retained across ordinary Home Assistant state refreshes.
 
-### Smart control collection
+### `component-smart-collection-v3`
 
 ```yaml
 type: custom:component-smart-collection-v3
@@ -283,9 +300,11 @@ editable: true
 pref_key: home-control.controls.v2
 ```
 
-Supported modes are `all`, `active`, `area`, `media` and `sound`. It discovers eligible registry entities, selects specialised split and garage controllers where applicable, and saves ordering/visibility preferences in Home Assistant frontend user data.
+Supported modes are `all`, `active`, `area`, `media` and `sound`.
 
-### Room directory
+Interaction: delegated to generated canonical/specialised controls. Smart Collection remains the registry/composition boundary and does not add a competing gesture implementation around children.
+
+### `component-room-directory-v4`
 
 ```yaml
 type: custom:component-room-directory-v4
@@ -296,9 +315,9 @@ base_path: /home-control
 navigation_path: /home-control/rooms
 ```
 
-Room tiles are derived from Home Assistant Areas. Selecting a tile opens its responsive control sheet; the existing room preference editor and occupancy/presence glow remain available.
+Interaction: tap a room to open its sheet. Shared activation prevents a scrolling gesture from becoming an accidental room open. Per-room sheet scroll positions are retained for the dashboard session and restored when revisiting the room. Environment metrics open their source entity details.
 
-### Household directory
+### `component-household-directory-v3`
 
 ```yaml
 type: custom:component-household-directory-v3
@@ -307,9 +326,9 @@ base_path: /home-control
 current_dashboard: home-control
 ```
 
-This discovers media and control views, visible dashboards and To-do entities, with per-user ordering and visibility preferences.
+Interaction: delegated to the generated Bubble Card destinations/entity controls. Dashboard/media/control destinations navigate; To-do entities open their native details. Preference editing remains independent of destination actions.
 
-### Minimal favourites
+### `component-favourites-minimal-v1`
 
 ```yaml
 type: custom:component-favourites-minimal-v1
@@ -322,28 +341,27 @@ max: 4
 title: Favourites
 ```
 
-This is the Home presentation of `component-favourites-v3`: the same live entity actions and editable persistent slots with the exact Home typography.
+Interaction: exactly the canonical `component-favourites-v3` behaviour. The wrapper changes Home presentation only and does not implement a second action system.
 
 ## Household controls
 
-### Favourites
-
-Static configuration:
+### `component-favourites-v3`
 
 ```yaml
 type: custom:component-favourites-v3
-items:
-  - icon: mdi:lightbulb-outline
-    title: Favourite one
-    state: Supporting state
-  - icon: mdi:thermostat
-    title: Favourite two
-    state: Supporting state
+helpers:
+  - input_text.dashboard_favourite_1
+  - input_text.dashboard_favourite_2
+  - input_text.dashboard_favourite_3
+  - input_text.dashboard_favourite_4
+max: 4
 ```
 
-The existing editable mode also accepts up to four `input_text` helper entity IDs in `helpers`. It stores stable registry references, keeps the existing confirmation behaviour, and can open the bundled split-system controller.
+Interaction: tap keeps the existing smart entity action. Hold any live favourite to open native entity details. Reversible light/switch/fan/input-boolean and media actions render optimistic intent, then reconcile through shared state confirmation; errors roll back. Button/input-button, automation, script and scene actions remain non-optimistic/confirmation-aware as appropriate. Static `items` preview mode no longer exposes fake live controls.
 
-### Control row
+### `component-control-row-v2`
+
+Preview:
 
 ```yaml
 type: custom:component-control-row-v2
@@ -354,9 +372,21 @@ mode: slider
 value: 68
 ```
 
-Existing modes: `slider`, `switch`, `state`, `action`.
+Live:
 
-### Split-system controller
+```yaml
+type: custom:component-control-row-v2
+entity: light.living_room
+icon: mdi:lightbulb-outline
+title: Living room
+mode: slider
+```
+
+Modes are `slider`, `switch`, `state`, `action`.
+
+Interaction: preview switch/slider remains local-only. Live switches are optimistic, state-confirmed and hold for details. Live sliders update locally on native input and coalesce backend brightness/percentage/value requests. State mode drills into details. Action mode can use a configured service; unavailable live entities cannot be acted on.
+
+### `component-split-controller-v4`
 
 ```yaml
 type: custom:component-split-controller-v4
@@ -364,23 +394,13 @@ entity: climate.living_room_split
 title: Living Room Split
 ```
 
-Split room state is provided by the companion [HA Component Backend](https://github.com/brayden276/HA-UI-Backend) integration. Register each room once with `ha_component_backend.configure_room`, keyed by the stable room ID:
+Interaction: identity opens native details. Power/mode/fan/vane/timer retain the controller's state-confirmed request model. Holding target-temperature +/- repeats after 350 ms; the existing Split local target/300 ms queue coalesces those increments and waits for reported target settlement. Hold and repeat do not compete on the same control.
 
-```yaml
-room_id: living_room
-climate: climate.living_room_split
-controller: binary_sensor.living_room_split_controller_status
-vertical_vane: select.living_room_split_vertical_vane
-horizontal_vane: select.living_room_split_horizontal_vane
-minimum_target: 16
-maximum_target: 31
-fan_ceiling: Quiet
-last_mode: cool
-```
+Room configuration/timers remain authoritative in [HA-UI-Backend](https://github.com/brayden276/HA-UI-Backend).
 
-Profiles retain the live dashboard behaviour: create, edit, delete and apply up to five named mode, target-temperature, fan and vane combinations. They are stored in the room registry record rather than per-room `input_text` helpers.
+### `component-media-row-v2`
 
-### Media row
+Preview:
 
 ```yaml
 type: custom:component-media-row-v2
@@ -389,9 +409,18 @@ title: Media player
 state: Playing · Media title
 ```
 
-This preserves the current component-library media-row behaviour.
+Live:
 
-### Apple TV controller
+```yaml
+type: custom:component-media-row-v2
+entity: media_player.living_room
+icon: mdi:speaker
+title: Media player
+```
+
+Interaction: preview play/pause is a local demonstration and preview previous/next are non-interactive. Live identity opens details, play/pause renders optimistic intent and waits for reported playback state, and previous/next are momentary actions derived from supported features.
+
+### `component-apple-tv-controller-v1`
 
 ```yaml
 type: custom:component-apple-tv-controller-v1
@@ -400,38 +429,33 @@ title: Apple TV 4K
 icon: mdi:apple
 ```
 
-The media-player is the only required entity. The controller discovers its Apple TV remote, keyboard-focus sensor and integration entry through the shared device registry, then derives every visible control from current availability, state, supported features and live attributes. The main row shows only relevant quick actions; the modal has no empty or disabled fallback sections.
+Interaction: the identity row opens native Apple TV details. Remote/apps controls retain capability-derived availability. Holding volume +/- repeats with local volume feedback and a coalesced backend request queue; other remote commands remain momentary. App selections use immediate selection feedback and the existing pending/error model. `demo: true` remains available for the Components dashboard.
 
-For component-library previews without live entities:
-
-```yaml
-type: custom:component-apple-tv-controller-v1
-demo: true
-```
-
-### WLED controller
+### `component-wled-controller-v1`
 
 ```yaml
 type: custom:component-wled-controller-v1
-entity: light.garage_wled_gledopto_main
+entity: light.garage_wled_main
 device_id: replace_with_device_registry_id
 ```
 
-The shared registry runtime and current WLED patch are bundled, including WLED entity discovery, presets/effects and the current control behaviour.
+Interaction: tap identity opens advanced WLED controls; hold identity opens native more-info. Power is optimistic but remains pending until Home Assistant reports the requested on/off state. Brightness updates locally on input and coalesces state-confirmed backend requests. Presets/actions retain their existing registry-derived availability.
 
-### Garage-door controller
+### `component-garage-door-controller-v1`
 
 ```yaml
 type: custom:component-garage-door-controller-v1
 entity: binary_sensor.garage_door_status
 control_entity: button.garage_door_trigger
 availability_entity: binary_sensor.garage_door_controller_status
-confirmation_timeout: 30000
+confirm_timeout: 20000
 ```
 
-`entity` is the reed-switch state, while `control_entity` is the momentary button that operates the door. The card requires a second press before dispatching the command and confirms the requested state change before clearing its pending status. `availability_entity` and `confirmation_timeout` are optional.
+`entity` is the closed-position reed state and `control_entity` is the momentary operator trigger.
 
-### Camera controller
+Interaction: a single tap sends the operator command. The card **does not** optimistically display Open/Closed and does not require a second press. It stays pending after `button.press` until the reed sensor confirms the expected physical state or the confirmation timeout expires. The identity opens native state details. The action is deliberately non-repeatable.
+
+### `component-camera-controller-v1`
 
 ```yaml
 type: custom:component-camera-controller-v1
@@ -439,36 +463,34 @@ entity: camera.garage_main_stream
 device_id: replace_with_camera_device_registry_id
 ```
 
-The card discovers the other available ONVIF entities on the configured device. It opens the preferred main or sub stream, shows motion/person detection, toggles device switches, and asks for confirmation before running maintenance buttons. The smart-collection integration automatically supplies this configuration for each physical ONVIF camera.
+Interaction: camera/view/control launchers use shared activation. Discovered switch controls render optimistic on/off state, hold for native details and wait for reported state confirmation; failures roll back. Maintenance buttons keep the existing two-step confirmation and never claim optimistic completion. Preferred main/sub stream selection continues to use the existing stored camera viewer preference.
 
 ## System and household state
 
-### Update summary
+### `component-update-summary-v3`
 
 ```yaml
 type: custom:component-update-summary-v3
 live_updates: true
-title: updates available
-message: Review the items below before installing.
+update_all: true
 confirm: true
 ```
 
-Use `entities` to limit the update entities considered. `update_all: true` enables the existing update-all action.
+Interaction: Update All uses shared press/keyboard feedback but remains deliberately non-optimistic. Existing confirmation/progress/error behaviour is retained.
 
-### Update row
+### `component-update-row-v3`
 
 ```yaml
 type: custom:component-update-row-v3
 entity: update.example_device
 icon: mdi:update
 title: Update name
-action: Update
 confirm: true
 ```
 
-Without an entity, the configured `current` and `available` display values are used.
+Interaction: details opens native more-info. Install remains non-optimistic: service request completion is separate from the update actually starting, and the existing 12-second start watchdog reports failure if Home Assistant never enters progress/clears pending state.
 
-### Empty state
+### `component-empty-state-v3`
 
 ```yaml
 type: custom:component-empty-state-v3
@@ -477,7 +499,9 @@ title: Nothing requires attention
 message: Supporting empty-state message.
 ```
 
-### Device discovery
+Interaction: none.
+
+### `component-device-discovery-v2`
 
 ```yaml
 type: custom:component-device-discovery-v2
@@ -485,9 +509,9 @@ refresh_seconds: 60
 max_rows: 6
 ```
 
-Set `demo: true` to render the component-library demonstration instead of live discovery state.
+Interaction: in live/admin mode the entire discovered-device row opens Integrations; Refresh and Retry are separate shared actions. `demo: true` renders the visual demonstration without fake navigation/refresh controls.
 
-### Household attention
+### `component-household-attention-v1`
 
 ```yaml
 type: custom:component-household-attention-v1
@@ -496,13 +520,13 @@ icon: mdi:alert-circle-outline
 max_items: 6
 ```
 
-Set `demo: true` for the dashboard's demonstration data. Live mode reads the Home Assistant registries and current states through the existing card logic.
+Interaction: tapping a live issue opens the source entity details. The card deliberately does not add direct garage/lock actions to the attention surface. `demo: true` is display-only.
 
-### Welcome header
+### `component-welcome-header-v1`
 
 ```yaml
 type: custom:component-welcome-header-v1
 weather_entity: weather.forecast_home
 ```
 
-The greeting, clock and weather presentation remain unchanged.
+Interaction: weather opens native details using standard shared press/scroll/keyboard feedback. Time/weather presentation and minute scheduling are unchanged.
