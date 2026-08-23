@@ -92,6 +92,7 @@ const interaction = (element, options = {}) => {
   const moveTolerance = Math.max(4, Number(options.moveTolerance) || INTERACTION_DEFAULTS.moveTolerance);
   const optimistic = optimisticAdapter(options.optimistic, element);
   const signal = options.signal;
+  const onPressChange = typeof options.onPressChange === "function" ? options.onPressChange : null;
   let pointer = null;
   let holdTimer = null;
   let repeatTimer = null;
@@ -101,6 +102,7 @@ const interaction = (element, options = {}) => {
   let pending = 0;
   let errorTimer = null;
   let destroyed = false;
+  let pressedState = false;
 
   const disabled = () =>
     destroyed ||
@@ -108,8 +110,10 @@ const interaction = (element, options = {}) => {
     element.getAttribute?.("aria-disabled") === "true";
 
   const setPressed = (pressed) => {
-    if (!feedback) return;
-    element.toggleAttribute?.("data-interaction-pressed", pressed);
+    if (pressedState === pressed) return;
+    pressedState = pressed;
+    if (feedback) element.toggleAttribute?.("data-interaction-pressed", pressed);
+    onPressChange?.(pressed, element);
   };
 
   const setPending = (value) => {
