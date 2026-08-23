@@ -50,7 +50,7 @@
     ["component-welcome-header-v1", ["_interaction"]],
     ["component-wled-controller-v1", ["_interactionHandles"]],
     ["component-garage-door-controller-v1", ["interactions"]],
-    ["component-camera-controller-v1", ["interactionHandles"]],
+    ["component-camera-controller-v1", ["interactionHandles", "controlInteractions"]],
     ["solar-daylight-card-v7", ["_interaction"]],
     ["energy-history-card-v3", ["_interactionHandles"]],
   ]);
