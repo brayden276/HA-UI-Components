@@ -11,6 +11,15 @@ on:
       - "docs/**"
       - "package.json"
       - ".github/workflows/build-bundle.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "docs/**"
+      - "package.json"
+      - ".github/workflows/build-bundle.yml"
   workflow_dispatch:
 
 permissions:
@@ -41,6 +50,7 @@ jobs:
         run: npm run release:dry-run
 
       - name: Commit generated bundle
+        if: github.event_name == 'push'
         shell: bash
         run: |
           if git diff --quiet -- dist/ha-component-library.js; then
@@ -49,7 +59,7 @@ jobs:
           fi
 
           git config user.name "github-actions[bot]"
-          git config user.email "4189824+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add dist/ha-component-library.js
           git commit -m "Build HACS bundle"
           git push
