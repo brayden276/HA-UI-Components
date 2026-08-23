@@ -43,12 +43,10 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
 
   set hass(hass) {
     this.h = hass;
-
     if (this.c?.demo) {
       this.render(this.demoRows());
       return;
     }
-
     this._start();
   }
 
@@ -153,7 +151,6 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
       "usb",
       "zeroconf",
     ]);
-
     return (flows || [])
       .filter((flow) => sources.has(flow?.context?.source))
       .sort((a, b) => this.name(a).localeCompare(this.name(b)));
@@ -184,11 +181,8 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
 
   async load(silent = false) {
     if (!this.h || this.c?.demo) return;
-
     if (this._loadPromise) return this._loadPromise;
-
     if (!silent) this.renderState("loading");
-
     if (!this._isAdmin()) {
       this._showAdmin();
       return;
@@ -360,7 +354,24 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
       </ha-card>`;
 
     const retry = this.shadowRoot.querySelector(".retry");
-    if (retry) this._interactions.push(interaction(retry, { primary: () => this.load(), feedback: true }));
+    if (retry) {
+      this._interactions.push(
+        interaction(retry, { primary: () => this.load(), feedback: true }),
+      );
+    }
+  }
+
+  row(flow) {
+    const name = this.escape(this.name(flow));
+    const description = this.escape(
+      `${this.source(flow.context?.source)} · ${flow.handler}`,
+    );
+    const body = `<span class="icon"><ha-icon icon="mdi:plus-circle-outline"></ha-icon></span>
+      <span><div class="title">${name}</div><div class="description">${description}</div></span>
+      <span class="review" aria-hidden="true">Review</span>`;
+    return this.c?.demo
+      ? `<div class="row">${body}</div>`
+      : `<button class="row" type="button" aria-label="Review ${name}">${body}</button>`;
   }
 
   render(flows) {
@@ -376,49 +387,42 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
     const description = empty
       ? "Home Assistant has no new setup suggestions."
       : "Home Assistant has setup suggestions ready to review.";
-
-    const rows = shown
-      .map(
-        (flow) => `${this.c?.demo ? `<div class="row">` : `<button class="row" type="button" aria-label="Review ${this.escape(this.name(flow))}">`}`
-          <span class="icon"><ha-icon icon="mdi:plus-circle-outline"></ha-icon></span>
-          <span>
-            <div class="title">${this.escape(this.name(flow))}</div>
-            <div class="description">${this.escape(
-              `${this.source(flow.context?.source)} · ${flow.handler}`,
-            )}</div>
-          </span>
-          <span class="review" aria-hidden="true">Review</span>
-        ${this.c?.demo ? `</div>` : `</button>`}` ,
-      )
-      .join("");
+    const rows = shown.map((flow) => this.row(flow)).join("");
+    const refresh = this.c?.demo
+      ? '<span class="refresh" aria-hidden="true"><ha-icon icon="mdi:refresh"></ha-icon></span>'
+      : '<button class="refresh" type="button" aria-label="Refresh discovery"><ha-icon icon="mdi:refresh"></ha-icon></button>';
 
     this.shadowRoot.innerHTML = `<style>${this.styles()}</style>
       <ha-card>
         <div class="card">
           <div class="summary ${empty ? "success" : ""}">
-            <span class="icon"><ha-icon icon="${
-              empty ? "mdi:check-circle-outline" : "mdi:radar"
-            }"></ha-icon></span>
+            <span class="icon"><ha-icon icon="${empty ? "mdi:check-circle-outline" : "mdi:radar"}"></ha-icon></span>
             <span>
               <div class="title">${title}</div>
               <div class="description">${description}</div>
             </span>
-            ${this.c?.demo ? `<span class="refresh" aria-hidden="true"><ha-icon icon="mdi:refresh"></ha-icon></span>` : `<button class="refresh" type="button" aria-label="Refresh discovery"><ha-icon icon="mdi:refresh"></ha-icon></button>`}
+            ${refresh}
           </div>
           ${rows}
           ${
             remaining
-              ? `<div class="more">${remaining} more ${
-                  remaining === 1 ? "suggestion" : "suggestions"
-                } available in Integrations</div>`
+              ? `<div class="more">${remaining} more ${remaining === 1 ? "suggestion" : "suggestions"} available in Integrations</div>`
               : ""
           }
         </div>
       </ha-card>`;
 
-    const refresh = this.shadowRoot.querySelector("button.refresh");
-    if (refresh) this._interactions.push(interaction(refresh, { primary: () => this.load(), feedback: true }));
-    for (const row of this.shadowRoot.querySelectorAll("button.row")) this._interactions.push(interaction(row, { primary: () => this.navigate(), feedback: true }));
+    const refreshButton = this.shadowRoot.querySelector("button.refresh");
+    if (refreshButton) {
+      this._interactions.push(
+        interaction(refreshButton, { primary: () => this.load(), feedback: true }),
+      );
+    }
+    for (const row of this.shadowRoot.querySelectorAll("button.row")) {
+      this._interactions.push(
+        interaction(row, { primary: () => this.navigate(), feedback: true }),
+      );
+    }
   }
 }
 registerCard({ type: "component-device-discovery-v2", element: ComponentDeviceDiscoveryV2, name: "Device Discovery", description: "Reusable device-discovery status component." });
