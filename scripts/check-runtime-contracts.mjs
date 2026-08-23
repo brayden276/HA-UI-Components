@@ -6,10 +6,17 @@ import vm from "node:vm";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bundle = await readFile(resolve(root, "dist/ha-component-library.js"), "utf8");
 
+class MockStyle {
+  constructor() { this.values = new Map(); }
+  setProperty(name, value) { this.values.set(name, String(value)); }
+  removeProperty(name) { const previous = this.values.get(name) ?? ""; this.values.delete(name); return previous; }
+  getPropertyValue(name) { return this.values.get(name) ?? ""; }
+}
+
 class MockNode {
   constructor(tagName = "div") {
     this.tagName = tagName;
-    this.style = {};
+    this.style = new MockStyle();
     this.dataset = {};
     this.attributes = new Map();
     this.children = [];
@@ -18,6 +25,7 @@ class MockNode {
       [Symbol.iterator]: () => this.classNames[Symbol.iterator](),
       add: (...names) => this.classNames.push(...names),
       remove: (...names) => { this.classNames = this.classNames.filter((name) => !names.includes(name)); },
+      contains: (name) => this.classNames.includes(name),
       toggle: (name, force) => {
         const enabled = force ?? !this.classNames.includes(name);
         if (enabled && !this.classNames.includes(name)) this.classNames.push(name);
@@ -43,6 +51,7 @@ class MockNode {
   removeEventListener() {}
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = [...nodes]; }
+  contains(node) { return node === this || this.children.includes(node); }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   removeAttribute(name) { this.attributes.delete(name); }
