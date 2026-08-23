@@ -1,5 +1,5 @@
 /** ComponentUpdateSummaryV3 — reusable Home Assistant dashboard card. */
-const { UPDATE_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { UPDATE_CARD_STYLES, escapeHtml, interaction, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentUpdateSummaryV3 extends HTMLElement {
   constructor() {
     super();
@@ -8,6 +8,7 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
     this.error = "";
     this.messageTimer = null;
     this._renderSignature = null;
+    this._interaction = null;
   }
 
   setConfig(c) {
@@ -35,6 +36,8 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
   disconnectedCallback() {
     window.clearTimeout(this.messageTimer);
     this.messageTimer = null;
+    this._interaction?.destroy();
+    this._interaction = null;
   }
 
   _all() {
@@ -156,6 +159,8 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
     ]);
     if (signature === this._renderSignature) return;
     this._renderSignature = signature;
+    this._interaction?.destroy();
+    this._interaction = null;
     const message = this.error
       ? this.error
       : this.busy
@@ -167,9 +172,15 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
 
     this.shadowRoot.innerHTML = `<style>${UPDATE_CARD_STYLES}ha-card{position:relative}.wrap{padding:12px 14px;min-height:72px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px}.count{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em}.headline{font-size:13px;font-weight:600}.desc{margin-top:3px;font-size:13px;line-height:1.3;color:var(--secondary-text-color)}.desc.error{color:var(--error-color)}.all{appearance:none;border:0;min-height:44px;padding:0 14px;border-radius:11px;background:var(--primary-color);color:var(--text-primary-color);font-size:13px;font-weight:650;cursor:pointer;white-space:nowrap}.all:active{transform:scale(.98)}.all:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.all:disabled{cursor:default;background:var(--secondary-background-color);color:var(--secondary-text-color)}.progress{position:absolute;left:0;bottom:0;height:3px;border-radius:0 999px 999px 0;background:var(--primary-color);pointer-events:none}.progress.indeterminate{width:34%;animation:update-slide 1.15s ease-in-out infinite}@keyframes update-slide{0%{transform:translateX(-105%)}50%{transform:translateX(150%)}100%{transform:translateX(305%)}}@media(prefers-reduced-motion:reduce){.progress.indeterminate{animation:none;width:100%;opacity:.55}}@media(max-width:700px){.wrap{padding:12px;gap:10px}.count{font-size:25px}.all{padding:0 12px}}</style><ha-card><div class="wrap"><span class="count">${escapeHtml(data.count)}</span><span><div class="headline">${escapeHtml(data.title)}</div><div class="desc ${this.error ? "error" : ""}" role="status" aria-live="polite">${escapeHtml(message)}</div></span>${showButton ? `<button class="all" type="button" ${this.busy || pending === 0 ? "disabled" : ""}>${escapeHtml(this.busy ? "Starting…" : "Update all")}</button>` : "<span></span>"}</div>${progress}</ha-card>`;
 
-    this.shadowRoot
-      .querySelector(".all")
-      ?.addEventListener("click", () => this._installAll());
+    const button = this.shadowRoot.querySelector(".all");
+    if (button) {
+      this._interaction = interaction(button, {
+        primary: () => this._installAll(),
+        optimistic: false,
+        repeat: false,
+        feedback: true,
+      });
+    }
   }
 }
 registerCard({ type: "component-update-summary-v3", element: ComponentUpdateSummaryV3, name: "Update Summary", description: "Reusable update summary with live update support." });
