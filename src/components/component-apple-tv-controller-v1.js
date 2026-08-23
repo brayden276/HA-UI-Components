@@ -1,5 +1,5 @@
 /** Live, registry-aware Apple TV controller. */
-const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { createRequestCoalescer, interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 const INVALID = new Set(["unknown", "unavailable", "none", ""]);
 const F = {
   PAUSE: 1,
@@ -52,6 +52,11 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.messageType = "info";
     this.messageTimer = null;
     this.scrollLocks = [];
+    this.interactionHandles = [];
+    this.dynamicInteractions = [];
+    this.volumeCoalescer = null;
+    this.volumeGestureActive = false;
+    this.optimisticVolume = null;
     this.focusGuard = (event) => {
       if (!this.panelMode || event.composedPath().includes(this)) return;
       queueMicrotask(() => this.el?.close?.focus());
@@ -82,6 +87,12 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   disconnectedCallback() {
+    for (const handle of this.interactionHandles) handle.destroy();
+    this.interactionHandles = [];
+    for (const handle of this.dynamicInteractions) handle.destroy();
+    this.dynamicInteractions = [];
+    this.volumeCoalescer?.destroy();
+    this.volumeCoalescer = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
     clearTimeout(this.messageTimer);
@@ -442,7 +453,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       </style>
       <ha-card>
         <div class="wrap">
-          <div class="identity">
+          <div class="identity" role="button" tabindex="0">
             <span class="ico"><ha-icon></ha-icon></span>
             <span>
               <span class="name"></span>
@@ -481,6 +492,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
 
     const q = (selector) => this.shadowRoot.querySelector(selector);
     this.el = {
+      identity: q(".identity"),
       icon: q(".identity ha-icon"),
       iconWrap: q(".ico"),
       name: q(".name"),
@@ -497,11 +509,12 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       panelNotice: q(".panel-notice"),
     };
 
-    this.el.remoteLaunch.onclick = () =>
-      this.openPanel("remote", this.el.remoteLaunch);
-    this.el.appsLaunch.onclick = () =>
-      this.openPanel("apps", this.el.appsLaunch);
-    this.el.close.onclick = () => this.closePanel(true);
+    this.interactionHandles.push(
+      interaction(this.el.identity, { primary: () => openMoreInfo(this, this.config.entity), feedback: true }),
+      interaction(this.el.remoteLaunch, { primary: () => this.openPanel("remote", this.el.remoteLaunch), feedback: true }),
+      interaction(this.el.appsLaunch, { primary: () => this.openPanel("apps", this.el.appsLaunch), feedback: true }),
+      interaction(this.el.close, { primary: () => this.closePanel(true), feedback: true }),
+    );
     this.el.panel.onclick = (event) => {
       if (event.target === this.el.panel) this.closePanel(true);
     };
@@ -536,6 +549,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     click,
     disabled = false,
     pending = false,
+    interactionOptions = {},
   ) {
     const button = document.createElement("button");
     const text = document.createElement("span");
@@ -546,7 +560,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     button.disabled = disabled;
     text.textContent = label;
     button.append(this.icon(icon), text);
-    button.onclick = click;
+    this.dynamicInteractions.push(interaction(button, { primary: click, feedback: true, ...interactionOptions }));
     return button;
   }
 
@@ -566,6 +580,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     const model = this.model();
     this.el.name.textContent = this.name(model);
     this.el.status.textContent = model.status;
+    this.el.identity.setAttribute("aria-label", `Open details for ${this.name(model)}`);
     this.el.icon.setAttribute("icon", this.config.icon);
     this.el.iconWrap.classList.toggle("on", model.awake);
     this.el.remoteLaunch.disabled = !this.canRemote(model);
@@ -583,10 +598,15 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       : "No installed apps";
     this.el.notice.textContent = this.message;
     this.el.notice.classList.toggle("error", this.messageType === "error");
-    if (this.panelMode) this.renderPanel(model);
+    if (this.panelMode) {
+      if (this.volumeGestureActive) this.updateVolumeReadout(model);
+      else this.renderPanel(model);
+    }
   }
 
   renderPanel(model) {
+    for (const handle of this.dynamicInteractions) handle.destroy();
+    this.dynamicInteractions = [];
     const scrollTop = this.el.body.scrollTop;
     this.el.body.replaceChildren();
     this.el.sheetName.textContent =
@@ -783,7 +803,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     value.className = "volume-value";
     status.className = "volume-status";
     value.textContent =
-      model.level === null ? "—" : `${Math.round(model.level * 100)}%`;
+      (this.optimisticVolume ?? model.level) === null ? "—" : `${Math.round((this.optimisticVolume ?? model.level) * 100)}%`;
     status.textContent = model.muted
       ? "Muted"
       : this.busy("volume-down") || this.busy("volume-up")
@@ -795,18 +815,20 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         "volume-button",
         "Volume down",
         "mdi:volume-minus",
-        () => this.adjustVolume("down"),
-        !model.canVolumeDown || this.busy("volume-down"),
-        this.busy("volume-down"),
+        () => this.queueVolume("down"),
+        !model.canVolumeDown,
+        false,
+        { repeat: { delay: 350, interval: 120, coalesce: true }, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
       ),
       readout,
       this.button(
         "volume-button",
         "Volume up",
         "mdi:volume-plus",
-        () => this.adjustVolume("up"),
-        !model.canVolumeUp || this.busy("volume-up"),
-        this.busy("volume-up"),
+        () => this.queueVolume("up"),
+        !model.canVolumeUp,
+        false,
+        { repeat: { delay: 350, interval: 120, coalesce: true }, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
       ),
     );
     return control;
@@ -878,7 +900,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       name.className = "app-name";
       name.textContent = source;
       button.append(logo, name);
-      button.onclick = () => this.selectSource(source);
+      this.dynamicInteractions.push(interaction(button, { primary: () => this.selectSource(source), optimistic: "selection", feedback: true }));
       grid.append(button);
     }
     this.el.body.append(grid);
@@ -942,6 +964,42 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         }),
       "Command sent",
     );
+  }
+
+  ensureVolumeCoalescer() {
+    if (this.volumeCoalescer) return this.volumeCoalescer;
+    this.volumeCoalescer = createRequestCoalescer(async (direction) => {
+      const model = this.model();
+      if (direction === "up" ? !model.canVolumeUp : !model.canVolumeDown) return;
+      if (!this.config.demo) await this._hass.callService("media_player", `volume_${direction}`, { entity_id: model.entities.media });
+    }, { onError: () => this.setMessage("Apple TV did not respond", "error", 4000) });
+    return this.volumeCoalescer;
+  }
+
+  updateVolumeReadout(model = this.model()) {
+    const value = this.shadowRoot.querySelector(".volume-value");
+    const status = this.shadowRoot.querySelector(".volume-status");
+    const level = this.optimisticVolume ?? model.level;
+    if (value) value.textContent = level === null ? "—" : `${Math.round(level * 100)}%`;
+    if (status) status.textContent = model.muted ? "Muted" : this.volumeGestureActive ? "Adjusting" : "Volume";
+  }
+
+  setVolumeGesture(pressed, model) {
+    this.volumeGestureActive = pressed;
+    if (pressed && this.optimisticVolume === null) this.optimisticVolume = model.level;
+    if (!pressed) { this.optimisticVolume = null; this.render(); }
+  }
+
+  queueVolume(direction) {
+    const model = this.model();
+    if (direction === "up" ? !model.canVolumeUp : !model.canVolumeDown) return;
+    const base = this.optimisticVolume ?? model.level;
+    if (base !== null) {
+      const step = Math.max(0.01, Math.min(0.25, Number(this.config?.volume_step) || 0.05));
+      this.optimisticVolume = Math.max(0, Math.min(1, base + (direction === "up" ? step : -step)));
+      this.updateVolumeReadout(model);
+    }
+    this.ensureVolumeCoalescer().request(direction);
   }
 
   adjustVolume(direction) {
@@ -1028,6 +1086,8 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   closePanel(restore) {
+    this.volumeGestureActive = false;
+    this.optimisticVolume = null;
     this.panelMode = null;
     this.el.panel.hidden = true;
     this.unlockBackground();
