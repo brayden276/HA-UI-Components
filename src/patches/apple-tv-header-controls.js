@@ -9,6 +9,7 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
   const oldRenderRemote = prototype.renderRemote;
   const oldRenderApps = prototype.renderApps;
   const oldOpenPanel = prototype.openPanel;
+  const oldDisconnectedCallback = prototype.disconnectedCallback;
 
   const APP_BRAND_COLOURS = [
     [/netflix/i, "#e50914"], [/youtube/i, "#ff0000"], [/spotify/i, "#1ed760"], [/prime video|amazon/i, "#00a8e1"], [/plex/i, "#e5a00d"], [/twitch/i, "#9146ff"], [/vlc/i, "#ff8800"], [/apple tv|apple music|music/i, "var(--primary-text-color)"], [/disney/i, "#0b5bd3"], [/kayo|sport/i, "#00a651"], [/binge/i, "#8a2be2"], [/stan/i, "#00a5ff"], [/paramount/i, "#0064ff"],
@@ -82,5 +83,11 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
   prototype.openPanel = function openPanel(mode, trigger) {
     if (!this.model().awake) return;
     return oldOpenPanel.call(this, mode, trigger);
+  };
+
+  prototype.disconnectedCallback = function disconnectAppleTvHeaderInteractions(...args) {
+    for (const handle of this._headerInteractions || []) handle.destroy();
+    this._headerInteractions = [];
+    return oldDisconnectedCallback?.apply(this, args);
   };
 });
