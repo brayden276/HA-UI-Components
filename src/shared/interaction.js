@@ -293,7 +293,13 @@ const interaction = (element, options = {}) => {
     errorTimer = null;
     signal?.removeEventListener?.("abort", destroy);
     pressedState = false;
-    if (feedback) element.removeAttribute?.("data-interaction-pressed");
+    pending = 0;
+    if (feedback) {
+      element.removeAttribute?.("data-interaction-pressed");
+      element.removeAttribute?.("data-interaction-pending");
+      element.removeAttribute?.("data-interaction-error");
+      element.setAttribute?.("aria-busy", "false");
+    }
     element.removeEventListener("pointerdown", onPointerDown);
     element.removeEventListener("pointermove", onPointerMove);
     element.removeEventListener("pointerup", onPointerUp);
