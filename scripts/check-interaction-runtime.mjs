@@ -215,7 +215,7 @@ const { interaction, createRequestCoalescer, waitForEntityState } = context.__HA
 }
 
 {
-  const hass = { states: { "light.test": { state: "off" } };
+  const hass = { states: { "light.test": { state: "off" } } };
   await assert.rejects(
     waitForEntityState(hass, "light.test", (value) => value === "on", { timeout: 250, interval: 40 }),
     /timed out/,
