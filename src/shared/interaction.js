@@ -341,6 +341,46 @@ const createRequestCoalescer = (request, options = {}) => {
   });
 };
 
+const waitForEntityState = (hassOrProvider, entityId, predicate, options = {}) => {
+  if (!entityId || typeof predicate !== "function") {
+    return Promise.reject(new TypeError("waitForEntityState requires an entity and predicate"));
+  }
+  const provider = typeof hassOrProvider === "function" ? hassOrProvider : () => hassOrProvider;
+  const timeout = Math.max(250, Number(options.timeout) || 9000);
+  const interval = Math.max(40, Number(options.interval) || 160);
+  const signal = options.signal;
+  return new Promise((resolve, reject) => {
+    let intervalId = null;
+    let timeoutId = null;
+    let settled = false;
+    const cleanup = () => {
+      clearInterval(intervalId);
+      clearTimeout(timeoutId);
+      signal?.removeEventListener?.("abort", abort);
+    };
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+    const abort = () => finish(reject, signal?.reason || new Error("State confirmation aborted"));
+    const check = () => {
+      const state = provider()?.states?.[entityId] ?? null;
+      try {
+        if (predicate(state?.state, state)) finish(resolve, state);
+      } catch (error) {
+        finish(reject, error);
+      }
+    };
+    if (signal?.aborted) return abort();
+    signal?.addEventListener?.("abort", abort, { once: true });
+    intervalId = setInterval(check, interval);
+    timeoutId = setTimeout(() => finish(reject, new Error("State confirmation timed out")), timeout);
+    check();
+  });
+};
+
 const interactionStyles = `
 @media (prefers-reduced-motion: reduce) {
   [data-interaction-pressed="true"] { transition-duration: 0s !important; }
@@ -353,4 +393,5 @@ Object.assign(interactionShared, {
   interaction,
   interactionStyles,
   prefersReducedMotion: reducedMotion,
+  waitForEntityState,
 });
