@@ -4,15 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const strict = process.argv.includes("--strict");
-const manifest = JSON.parse(
-  await readFile(resolve(root, "src/bundle-manifest.json"), "utf8"),
-);
-const baseline = JSON.parse(
-  await readFile(
-    resolve(root, "src/provenance/style-fingerprints.json"),
-    "utf8",
-  ),
-);
+const manifest = JSON.parse(await readFile(resolve(root, "src/bundle-manifest.json"), "utf8"));
+const baseline = JSON.parse(await readFile(resolve(root, "src/provenance/style-fingerprints.json"), "utf8"));
 
 const sources = await Promise.all(
   manifest.map(async (entry) => ({
@@ -34,52 +27,27 @@ const normalise = (value) =>
 const fragments = [];
 for (const { file, source } of sources) {
   for (const match of source.matchAll(/<style>([\s\S]*?)<\/style>/g)) {
-    fragments.push({
-      kind: "style-tag",
-      source: file,
-      value: normalise(match[1]),
-    });
+    fragments.push({ kind: "style-tag", source: file, value: normalise(match[1]) });
   }
   for (const match of source.matchAll(/style\.textContent\s*=\s*`([\s\S]*?)`;/g)) {
-    fragments.push({
-      kind: "runtime-style",
-      source: file,
-      value: normalise(match[1]),
-    });
+    fragments.push({ kind: "runtime-style", source: file, value: normalise(match[1]) });
   }
   for (const match of source.matchAll(/s\.textContent='([\s\S]*?)';r\.append\(s\)/g)) {
-    fragments.push({
-      kind: "runtime-style",
-      source: file,
-      value: normalise(match[1]),
-    });
+    fragments.push({ kind: "runtime-style", source: file, value: normalise(match[1]) });
   }
 }
 
 const namedPatterns = [
-  [
-    "presentational-card-styles",
-    /const PRESENTATIONAL_CARD_STYLES\s*=\s*(`[\s\S]*?`);/,
-  ],
-  [
-    "dashboard-base-card-styles",
-    /cardStyles\(\)\s*\{\s*return\s*(`[\s\S]*?`);\s*\}/,
-  ],
+  ["presentational-card-styles", /const PRESENTATIONAL_CARD_STYLES\s*=\s*(`[\s\S]*?`);/],
+  ["dashboard-base-card-styles", /cardStyles\(\)\s*\{\s*return\s*(`[\s\S]*?`);\s*\}/],
   ["update-card-styles", /const UPDATE_CARD_STYLES\s*=\s*("[\s\S]*?");/],
-  [
-    "dashboard-style-tokens",
-    /dashboardSharedStyle\.textContent\s*=\s*("[\s\S]*?");/,
-  ],
+  ["dashboard-style-tokens", /dashboardSharedStyle\.textContent\s*=\s*("[\s\S]*?");/],
 ];
 
 for (const [name, pattern] of namedPatterns) {
   const value = combined.match(pattern)?.[1];
   if (!value) throw new Error(`Missing shared style primitive: ${name}`);
-  fragments.push({
-    kind: "shared-style",
-    source: name,
-    value: normalise(value.slice(1, -1)),
-  });
+  fragments.push({ kind: "shared-style", source: name, value: normalise(value.slice(1, -1)) });
 }
 
 const fnv1a64 = (value) => {
@@ -101,19 +69,21 @@ const drift = [];
 for (const expected of baseline.fingerprints) {
   const key = `${expected.kind}:${expected.hash}`;
   const actualCount = current.get(key) ?? 0;
-  if (actualCount < expected.count) {
-    drift.push(
-      `${expected.example_source} (${actualCount}/${expected.count})`,
-    );
-  }
+  if (actualCount < expected.count) drift.push(`${expected.example_source} (${actualCount}/${expected.count})`);
 }
 
 if (drift.length) {
+  const diagnosticSources = new Set([
+    "src/support/split-settings.js",
+    "src/components/garage-door-controller.js",
+  ]);
+  const diagnostics = fragments
+    .filter((fragment) => diagnosticSources.has(fragment.source))
+    .map((fragment) => `${fragment.source} => ${fragment.kind}:${fnv1a64(fragment.value)}`);
+  if (diagnostics.length) console.error(`Current provenance candidates: ${diagnostics.join(", ")}`);
   const message = `Style fingerprint drift: ${drift.join(", ")}`;
   if (strict) throw new Error(message);
   console.warn(`${message}. Advisory only; run with --strict to make it blocking.`);
 } else {
-  console.log(
-    `Style preservation check passed: ${baseline.fragment_count} original fragments`,
-  );
+  console.log(`Style preservation check passed: ${baseline.fragment_count} original fragments`);
 }
