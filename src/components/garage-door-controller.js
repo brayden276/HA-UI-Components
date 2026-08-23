@@ -16,6 +16,7 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
     this.messageTimer = null;
     this.confirmation = null;
     this.interactions = [];
+    this.requestGeneration = 0;
   }
 
   setConfig(config) {
@@ -23,12 +24,17 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
     if (!config?.control_entity) throw new Error("A garage-door control entity is required");
     clearTimeout(this.messageTimer);
     this.messageTimer = null;
+    this.requestGeneration += 1;
     this.cancelConfirmation(new Error("Garage configuration changed"));
     this.busy = false;
     this.pendingLabel = "";
     this.message = "";
     this.messageType = "info";
-    this.config = { confirm_timeout: 20000, ...config };
+    const configuredTimeout = config.confirmation_timeout ?? config.confirm_timeout;
+    this.config = {
+      ...config,
+      confirmation_timeout: Math.max(3000, Number(configuredTimeout) || 20000),
+    };
     this.signature = "";
   }
 
@@ -46,6 +52,7 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
   disconnectedCallback() {
     clearTimeout(this.messageTimer);
     this.messageTimer = null;
+    this.requestGeneration += 1;
     this.cancelConfirmation(new Error("Garage controller disconnected"));
     for (const handle of this.interactions) handle.destroy();
     this.interactions = [];
@@ -72,18 +79,8 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
       feedback: this.shadowRoot.querySelector(".feedback"),
     };
     this.interactions.push(
-      interaction(this.elements.identity, {
-        primary: () => this.openDetails(),
-        optimistic: false,
-        repeat: false,
-        feedback: true,
-      }),
-      interaction(this.elements.action, {
-        primary: () => this.requestAction(),
-        optimistic: false,
-        repeat: false,
-        feedback: true,
-      }),
+      interaction(this.elements.identity, { primary: () => this.openDetails(), optimistic: false, repeat: false, feedback: true }),
+      interaction(this.elements.action, { primary: () => this.requestAction(), optimistic: false, repeat: false, feedback: true }),
     );
   }
 
@@ -106,8 +103,7 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
     const availability = this.entityState(this.config.availability_entity);
     const controllerUnavailable =
       (this.config.availability_entity && (!availability || availability.state !== "on")) ||
-      !control ||
-      String(control.state).toLowerCase() === "unavailable";
+      !control || String(control.state).toLowerCase() === "unavailable";
     const reed = String(state?.state || "unknown").toLowerCase();
     const known = reed === "on" || reed === "off";
     const closed = known && reed === "off";
@@ -119,48 +115,20 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
   render() {
     const status = this.status();
     const name = this.config.title || status.state?.attributes?.friendly_name?.replace(/ Garage Door Status$/, "") || "Garage door";
-    const displayState = status.controllerUnavailable
-      ? "Controller unavailable"
-      : status.closed
-        ? "Closed"
-        : status.notClosed
-          ? "Not closed"
-          : status.stateUnavailable
-            ? "Door state unavailable"
-            : "Door state unknown";
+    const displayState = status.controllerUnavailable ? "Controller unavailable" : status.closed ? "Closed" : status.notClosed ? "Not closed" : status.stateUnavailable ? "Door state unavailable" : "Door state unknown";
     const action = status.closed ? "Open" : "Trigger";
     const disabled = status.controllerUnavailable || this.busy;
-
     this.elements.name.textContent = name;
     this.elements.identity.setAttribute("aria-label", `Open details for ${name}`);
     this.elements.well.classList.toggle("not-closed", status.notClosed);
-    this.elements.doorIcon.setAttribute(
-      "icon",
-      status.controllerUnavailable || !status.known
-        ? "mdi:garage-alert"
-        : status.notClosed
-          ? "mdi:garage-open"
-          : "mdi:garage",
-    );
+    this.elements.doorIcon.setAttribute("icon", status.controllerUnavailable || !status.known ? "mdi:garage-alert" : status.notClosed ? "mdi:garage-open" : "mdi:garage");
     this.elements.state.textContent = displayState;
     this.elements.action.disabled = disabled;
     this.elements.action.setAttribute("aria-disabled", String(disabled));
     this.elements.action.classList.toggle("pending", this.busy);
-    this.elements.actionIcon.setAttribute(
-      "icon",
-      this.busy ? "mdi:progress-clock" : status.closed ? "mdi:garage-open" : "mdi:gesture-tap-button",
-    );
+    this.elements.actionIcon.setAttribute("icon", this.busy ? "mdi:progress-clock" : status.closed ? "mdi:garage-open" : "mdi:gesture-tap-button");
     this.elements.actionLabel.textContent = this.busy ? this.pendingLabel || "Waiting" : action;
-    this.elements.action.setAttribute(
-      "aria-label",
-      status.controllerUnavailable
-        ? "Garage door controller unavailable"
-        : this.busy
-          ? `${this.pendingLabel || "Waiting for"} garage door state confirmation`
-          : status.closed
-            ? "Open garage door"
-            : "Trigger garage door operator",
-    );
+    this.elements.action.setAttribute("aria-label", status.controllerUnavailable ? "Garage door controller unavailable" : this.busy ? `${this.pendingLabel || "Waiting for"} garage door state confirmation` : status.closed ? "Open garage door" : "Trigger garage door operator");
     this.elements.feedback.textContent = this.message;
     this.elements.feedback.classList.toggle("error", this.messageType === "error");
   }
@@ -175,13 +143,13 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
       this.messageTimer = null;
       this.message = "";
       this.messageType = "info";
-      this.render();
+      if (this.isConnected) this.render();
     }, timeout);
   }
 
   waitForConfirmation(expected) {
     this.cancelConfirmation(new Error("Garage confirmation superseded"));
-    const timeout = Math.max(3000, Number(this.config.confirm_timeout) || 20000);
+    const timeout = this.config.confirmation_timeout;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.confirmation?.timer !== timer) return;
@@ -216,6 +184,7 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
     const status = this.status();
     if (status.controllerUnavailable || this.busy) return;
     const expected = status.closed ? "on" : status.notClosed ? "off" : null;
+    const generation = this.requestGeneration;
     this.busy = true;
     this.pendingLabel = "Sending";
     this.message = "";
@@ -225,27 +194,25 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
     let confirmation;
     try {
       confirmation = this.waitForConfirmation(expected);
+      void confirmation.catch(() => {});
       await this._hass.callService("button", "press", { entity_id: this.config.control_entity });
+      if (generation !== this.requestGeneration) return;
       this.pendingLabel = expected === "on" ? "Opening" : expected === "off" ? "Closing" : "Waiting";
       this.render();
       const confirmed = await confirmation;
-      this.setMessage(
-        confirmed === "off" ? "Closed confirmed." : confirmed === "on" ? "Door movement confirmed." : "Garage state confirmed.",
-      );
+      if (generation !== this.requestGeneration) return;
+      this.setMessage(confirmed === "off" ? "Closed confirmed." : confirmed === "on" ? "Door movement confirmed." : "Garage state confirmed.");
     } catch (error) {
+      if (generation !== this.requestGeneration) return;
       this.cancelConfirmation(error instanceof Error ? error : new Error("Garage command failed"));
       const message = String(error?.message || "");
-      this.setMessage(
-        message.includes("timed out")
-          ? "The command was sent, but the door state was not confirmed."
-          : "The garage-door command failed.",
-        "error",
-        5000,
-      );
+      if (this.isConnected) this.setMessage(message.includes("timed out") ? "The command was sent, but the door state was not confirmed." : "The garage-door command failed.", "error", 5000);
     } finally {
-      this.busy = false;
-      this.pendingLabel = "";
-      this.render();
+      if (generation === this.requestGeneration) {
+        this.busy = false;
+        this.pendingLabel = "";
+        if (this.isConnected) this.render();
+      }
     }
   }
 

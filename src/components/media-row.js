@@ -7,12 +7,14 @@ class ComponentMediaRowV2 extends DashboardBaseCard {
     this._hass = null;
     this.playing = true;
     this._optimisticPlaying = null;
+    this._busy = false;
     this._interactions = [];
   }
   setConfig(c) {
     this.c = { icon: 'mdi:speaker', title: 'Media player', state: 'Playing · Media title', entity: null, ...c };
     this.playing = true;
     this._optimisticPlaying = null;
+    this._busy = false;
     this.r();
   }
   set hass(hass) {
@@ -22,13 +24,14 @@ class ComponentMediaRowV2 extends DashboardBaseCard {
   disconnectedCallback() {
     for (const handle of this._interactions) handle.destroy();
     this._interactions = [];
+    this._busy = false;
   }
   getCardSize() { return 1; }
   _liveState() { return this.c?.entity ? this._hass?.states?.[this.c.entity] ?? null : null; }
   _available(state) { return Boolean(state && !['unknown', 'unavailable'].includes(String(state.state).toLowerCase())); }
   _supported(state, feature) {
     const value = Number(state?.attributes?.supported_features);
-    return !Number.isFinite(value) || value === 0 || Boolean(value & feature);
+    return !Number.isFinite(value) || Boolean(value & feature);
   }
   _description(state) {
     if (!this.c.entity) return this.c.state;
@@ -37,16 +40,26 @@ class ComponentMediaRowV2 extends DashboardBaseCard {
     return [status, state.attributes?.media_title].filter(Boolean).join(' · ');
   }
   async _playPause(wasPlaying) {
-    const service = wasPlaying ? 'media_pause' : 'media_play';
-    await this._hass.callService('media_player', service, { entity_id: this.c.entity });
-    await waitForEntityState(
-      () => this._hass,
-      this.c.entity,
-      (value) => wasPlaying ? value !== 'playing' : value === 'playing',
-      { timeout: 9000 },
-    );
-    this._optimisticPlaying = null;
-    this.r();
+    if (this._busy) return;
+    this._busy = true;
+    try {
+      const service = wasPlaying ? 'media_pause' : 'media_play';
+      await this._hass.callService('media_player', service, { entity_id: this.c.entity });
+      await waitForEntityState(
+        () => this._hass,
+        this.c.entity,
+        (value) => wasPlaying
+          ? value !== 'playing' && !['unknown', 'unavailable'].includes(String(value).toLowerCase())
+          : value === 'playing',
+        { timeout: 9000 },
+      );
+      this._optimisticPlaying = null;
+      this._busy = false;
+      this.r();
+    } catch (error) {
+      this._busy = false;
+      throw error;
+    }
   }
   _momentary(service) {
     return this._hass.callService('media_player', service, { entity_id: this.c.entity });
@@ -62,7 +75,7 @@ class ComponentMediaRowV2 extends DashboardBaseCard {
     const playing = this._optimisticPlaying ?? reportedPlaying;
     const previousEnabled = available && this._supported(state, MEDIA_ROW_FEATURES.previous);
     const nextEnabled = available && this._supported(state, MEDIA_ROW_FEATURES.next);
-    const mainEnabled = !live || (available && this._supported(state, playing ? MEDIA_ROW_FEATURES.pause : MEDIA_ROW_FEATURES.play));
+    const mainEnabled = !this._busy && (!live || (available && this._supported(state, playing ? MEDIA_ROW_FEATURES.pause : MEDIA_ROW_FEATURES.play)));
     const identityAttrs = live ? ' class="identity" role="button" tabindex="0"' : '';
     const previous = live
       ? `<button class="i btn previous" type="button" aria-label="Previous" ${previousEnabled ? '' : 'disabled'}><ha-icon icon="mdi:skip-previous"></ha-icon></button>`

@@ -32,8 +32,8 @@ const hasLiteralHoldAndRepeat = (source) => {
   const calls = source.match(/interaction\([\s\S]{0,900}?\}\s*\)/g) ?? [];
   return calls.some(
     (call) =>
-      /\bhold\s*:\s*(?!null\b|false\b)/.test(call) &&
-      /\brepeat\s*:\s*(?!false\b|null\b)/.test(call),
+      /\bhold\s*:\s*(?!null\b|false\b|!1\b)/.test(call) &&
+      /\brepeat\s*:\s*(?!false\b|null\b|!1\b)/.test(call),
   );
 };
 
@@ -42,11 +42,8 @@ const checkIconOnlyButtons = (file, source) => {
     const attrs = match[1];
     const body = match[2];
     if (!/<ha-icon\b/i.test(body)) continue;
-    const withoutTags = body
-      .replace(/<[^>]+>/g, "")
-      .replace(/\$\{[^}]+\}/g, "")
-      .trim();
-    if (withoutTags) continue;
+    const literalIconOnly = /^(?:\s*<ha-icon\b[^>]*>(?:\s*<\/ha-icon>)?\s*)+$/i.test(body);
+    if (!literalIconOnly) continue;
     if (/\b(?:aria-label|aria-labelledby|title)\s*=/.test(attrs)) continue;
     const className = /\bclass=["']([^"']+)/.exec(attrs)?.[1]?.split(/\s+/)[0];
     if (

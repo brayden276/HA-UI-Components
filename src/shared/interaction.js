@@ -25,11 +25,7 @@ const normaliseRepeat = (repeat) => {
 const optimisticAdapter = (optimistic, element) => {
   if (!optimistic) return null;
   if (typeof optimistic === "function") {
-    return {
-      capture: () => undefined,
-      apply: optimistic,
-      rollback: null,
-    };
+    return { capture: () => undefined, apply: optimistic, rollback: null };
   }
   if (typeof optimistic === "object") {
     return {
@@ -80,9 +76,7 @@ const interaction = (element, options = {}) => {
   const primary = typeof options.primary === "function" ? options.primary : null;
   const hold = typeof options.hold === "function" ? options.hold : null;
   const repeat = normaliseRepeat(options.repeat);
-  if (hold && repeat) {
-    throw new TypeError("interaction hold and repeat are mutually exclusive");
-  }
+  if (hold && repeat) throw new TypeError("interaction hold and repeat are mutually exclusive");
   if (!primary && (hold || repeat)) {
     throw new TypeError("interaction hold/repeat requires a primary action");
   }
@@ -113,24 +107,35 @@ const interaction = (element, options = {}) => {
     if (pressedState === pressed) return;
     pressedState = pressed;
     if (feedback) element.toggleAttribute?.("data-interaction-pressed", pressed);
-    onPressChange?.(pressed, element);
+    if (!destroyed) onPressChange?.(pressed, element);
   };
 
   const setPending = (value) => {
     pending = Math.max(0, pending + value);
-    if (!feedback) return;
+    if (!feedback || destroyed) return;
     element.toggleAttribute?.("data-interaction-pending", pending > 0);
     element.setAttribute?.("aria-busy", String(pending > 0));
   };
 
   const setError = () => {
-    if (!feedback) return;
+    if (!feedback || destroyed) return;
     clearTimeout(errorTimer);
     element.setAttribute?.("data-interaction-error", "true");
     errorTimer = setTimeout(() => {
       errorTimer = null;
-      element.removeAttribute?.("data-interaction-error");
+      if (!destroyed) element.removeAttribute?.("data-interaction-error");
     }, Math.max(250, Number(options.errorDuration) || INTERACTION_DEFAULTS.errorDuration));
+  };
+
+  const dispatchError = (error) => {
+    if (destroyed) return;
+    element.dispatchEvent?.(
+      new CustomEvent("ha-interaction-error", {
+        bubbles: true,
+        composed: true,
+        detail: { error },
+      }),
+    );
   };
 
   const invoke = (kind, event) => {
@@ -148,9 +153,11 @@ const interaction = (element, options = {}) => {
     try {
       result = action(event);
     } catch (error) {
-      if (kind === "primary" && optimistic?.rollback) optimistic.rollback(previous, error, element, event);
+      if (!destroyed && kind === "primary" && optimistic?.rollback) {
+        optimistic.rollback(previous, error, element, event);
+      }
       setError();
-      element.dispatchEvent?.(new CustomEvent("ha-interaction-error", { bubbles: true, composed: true, detail: { error } }));
+      dispatchError(error);
       return Promise.reject(error);
     }
 
@@ -158,21 +165,22 @@ const interaction = (element, options = {}) => {
     setPending(1);
     return Promise.resolve(result)
       .catch((error) => {
-        if (kind === "primary" && optimistic?.rollback) optimistic.rollback(previous, error, element, event);
+        if (!destroyed && kind === "primary" && optimistic?.rollback) {
+          optimistic.rollback(previous, error, element, event);
+        }
         setError();
-        element.dispatchEvent?.(new CustomEvent("ha-interaction-error", { bubbles: true, composed: true, detail: { error } }));
+        dispatchError(error);
         throw error;
       })
-      .finally(() => setPending(-1));
+      .finally(() => {
+        if (!destroyed) setPending(-1);
+      });
   };
 
   const clearGestureTimers = () => {
-    clearTimeout(holdTimer);
-    holdTimer = null;
-    clearTimeout(repeatTimer);
-    repeatTimer = null;
-    clearInterval(repeatInterval);
-    repeatInterval = null;
+    clearTimeout(holdTimer); holdTimer = null;
+    clearTimeout(repeatTimer); repeatTimer = null;
+    clearInterval(repeatInterval); repeatInterval = null;
   };
 
   const cancelPointer = () => {
@@ -282,7 +290,10 @@ const interaction = (element, options = {}) => {
     destroyed = true;
     clearGestureTimers();
     clearTimeout(errorTimer);
-    setPressed(false);
+    errorTimer = null;
+    signal?.removeEventListener?.("abort", destroy);
+    pressedState = false;
+    if (feedback) element.removeAttribute?.("data-interaction-pressed");
     element.removeEventListener("pointerdown", onPointerDown);
     element.removeEventListener("pointermove", onPointerMove);
     element.removeEventListener("pointerup", onPointerUp);
@@ -294,7 +305,12 @@ const interaction = (element, options = {}) => {
   };
   signal?.addEventListener?.("abort", destroy, { once: true });
 
-  return Object.freeze({ destroy, invoke: (event) => invoke("primary", event) });
+  return Object.freeze({
+    element,
+    destroy,
+    get destroyed() { return destroyed; },
+    invoke: (event) => invoke("primary", event),
+  });
 };
 
 const createRequestCoalescer = (request, options = {}) => {
@@ -314,14 +330,14 @@ const createRequestCoalescer = (request, options = {}) => {
       const current = ++sequence;
       try {
         await request(value, current);
-        options.onSuccess?.(value, current);
+        if (!destroyed) options.onSuccess?.(value, current);
       } catch (error) {
-        options.onError?.(error, value, current);
+        if (!destroyed) options.onError?.(error, value, current);
         if (options.stopOnError) queued = false;
       }
     }
     running = false;
-    options.onIdle?.();
+    if (!destroyed) options.onIdle?.();
   };
 
   return Object.freeze({
@@ -331,9 +347,8 @@ const createRequestCoalescer = (request, options = {}) => {
       queued = true;
       void drain();
     },
-    get pending() {
-      return running || queued;
-    },
+    get pending() { return !destroyed && (running || queued); },
+    get destroyed() { return destroyed; },
     destroy() {
       destroyed = true;
       queued = false;
