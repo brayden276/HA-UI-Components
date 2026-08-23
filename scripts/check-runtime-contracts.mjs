@@ -45,7 +45,14 @@ class MockNode {
   replaceChildren(...nodes) { this.children = [...nodes]; }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
-  toggleAttribute() {}
+  removeAttribute(name) { this.attributes.delete(name); }
+  hasAttribute(name) { return this.attributes.has(name); }
+  toggleAttribute(name, force) {
+    const enabled = force ?? !this.attributes.has(name);
+    if (enabled) this.attributes.set(name, "");
+    else this.attributes.delete(name);
+    return enabled;
+  }
   focus() {}
   getBoundingClientRect() { return { width: 800, height: 420, left: 0, top: 0 }; }
   showModal() { this.open = true; }
@@ -102,6 +109,8 @@ context.addEventListener = () => {};
 context.removeEventListener = () => {};
 context.dispatchEvent = () => true;
 vm.runInContext(bundle, vm.createContext(context), { filename: "dist/ha-component-library.js" });
+await Promise.resolve();
+await Promise.resolve();
 
 const configurations = {
   "component-context-strip-v3": {},
@@ -151,12 +160,16 @@ for (const [type, config] of Object.entries(configurations)) {
     if (!Card) throw new Error("not registered");
     const card = new Card();
     card.setConfig(config);
-    card.connectedCallback?.();
-    card.disconnectedCallback?.();
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      card.isConnected = true;
+      card.connectedCallback?.();
+      card.isConnected = false;
+      card.disconnectedCallback?.();
+    }
   } catch (error) {
     failures.push(`${type}: ${error.message}`);
   }
 }
 
 if (failures.length) throw new Error(`Runtime contract failures:\n${failures.join("\n")}`);
-console.log(`Runtime contract check passed: ${Object.keys(configurations).length} public components instantiated`);
+console.log(`Runtime contract check passed: ${Object.keys(configurations).length} public components instantiated across two connect/disconnect cycles`);
