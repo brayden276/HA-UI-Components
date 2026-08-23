@@ -1,11 +1,12 @@
 /** ComponentEnergyDaySelectorV1 — reusable Home Assistant dashboard card. */
-const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { interaction, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentEnergyDaySelectorV1 extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
     this._selected = this._todayKey();
     this._connectedOnce = false;
+    this._interactions = [];
   }
 
   setConfig(config) {
@@ -29,8 +30,17 @@ class ComponentEnergyDaySelectorV1 extends HTMLElement {
     queueMicrotask(() => this._emit());
   }
 
+  disconnectedCallback() {
+    this._clearInteractions();
+  }
+
   getCardSize() {
     return 1;
+  }
+
+  _clearInteractions() {
+    for (const handle of this._interactions) handle.destroy();
+    this._interactions = [];
   }
 
   _pad(value) {
@@ -108,6 +118,7 @@ class ComponentEnergyDaySelectorV1 extends HTMLElement {
 
   _render() {
     if (!this.config) return;
+    this._clearInteractions();
     const today = this._isToday();
     this.shadowRoot.innerHTML = `<style>
       :host {
@@ -253,13 +264,29 @@ class ComponentEnergyDaySelectorV1 extends HTMLElement {
       </div>
     </ha-card>`;
 
-    this.shadowRoot.querySelector(".previous").onclick = () => this._shift(-1);
-    this.shadowRoot.querySelector(".next").onclick = () => this._shift(1);
-    this.shadowRoot.querySelector(".today").onclick = () =>
-      this._setDay(this._todayKey());
+    const repeat = { delay: 350, interval: 110, accelerate: true };
+    this._interactions.push(
+      interaction(this.shadowRoot.querySelector(".previous"), {
+        primary: () => this._shift(-1),
+        optimistic: "selection",
+        repeat,
+        feedback: true,
+      }),
+      interaction(this.shadowRoot.querySelector(".next"), {
+        primary: () => this._shift(1),
+        optimistic: "selection",
+        repeat,
+        feedback: true,
+      }),
+      interaction(this.shadowRoot.querySelector(".today"), {
+        primary: () => this._setDay(this._todayKey()),
+        optimistic: "selection",
+        repeat: false,
+        feedback: true,
+      }),
+    );
     this.shadowRoot.querySelector("input").onchange = (event) =>
       this._setDay(event.target.value);
   }
 }
 registerCard({ type: "component-energy-day-selector-v1", element: ComponentEnergyDaySelectorV1, name: "Energy Day Selector", description: "Reusable day selector that broadcasts historical energy-day state." });
-
