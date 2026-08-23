@@ -125,7 +125,7 @@
     },
     {
       "kind": "style-tag",
-      "hash": "9187e7189826cf8f",
+      "hash": "c1c20682b0902410",
       "count": 1,
       "example_source": "09-split-settings.js"
     },
@@ -221,7 +221,7 @@
     },
     {
       "kind": "style-tag",
-      "hash": "ac6e48639cfe4dd2",
+      "hash": "158b2a33bd38c297",
       "count": 1,
       "example_source": "component-garage-door-controller-v1"
     },
