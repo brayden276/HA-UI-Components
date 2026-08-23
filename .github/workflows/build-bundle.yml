@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - dev/interaction-system
     paths:
       - "src/**"
       - "scripts/**"
@@ -21,6 +20,10 @@ on:
       - "package.json"
       - ".github/workflows/build-bundle.yml"
   workflow_dispatch:
+
+concurrency:
+  group: hacs-bundle-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -50,7 +53,7 @@ jobs:
         run: npm run release:dry-run
 
       - name: Commit generated bundle
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           if git diff --quiet -- dist/ha-component-library.js; then
