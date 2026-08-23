@@ -1,10 +1,120 @@
 /** ComponentHistoryGraphV2 — reusable Home Assistant dashboard card. */
-const { escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentHistoryGraphV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this.ro=null;this.timer=null} setConfig(c){this.c={meta_text:'Aggregation label',series_1_label:'Primary series',series_2_label:'Secondary series',series_3_label:'Supporting series',positive_label:'Positive',negative_label:'Negative',...c};if(!this.b)this.build();this.draw()} set hass(h){} connectedCallback(){this.e?.chart&&this.ro?.observe(this.e.chart);this.draw()} disconnectedCallback(){this.ro?.disconnect();clearTimeout(this.timer);this.timer=null} getCardSize(){return 7}
- build(){this.b=1;this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:4px 5px 5px}.top{min-height:28px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 5px}.meta{font-size:11.5px;font-weight:600;color:var(--secondary-text-color);white-space:nowrap}.legend{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}.legend button{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:12px;font-weight:600;padding:3px 0;display:flex;align-items:center;gap:6px;cursor:pointer}.legend button:active{transform:scale(.97)}.legend button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:5px}.sw{width:17px;height:3px;border-radius:999px}.s1{background:var(--primary-color)}.s2{background:var(--warning-color,#f5b942)}.s3{background:var(--secondary-text-color)}.chart{position:relative;width:100%;height:clamp(400px,48vw,520px)}svg{display:block;width:100%;height:100%;overflow:hidden;touch-action:none}.axis{fill:var(--secondary-text-color);font-size:11px;font-weight:500;font-family:inherit}.small{fill:var(--secondary-text-color);font-size:10px;font-weight:600;font-family:inherit}.grid{stroke:var(--divider-color);stroke-width:1;opacity:.58}.zero{stroke:var(--divider-color);stroke-width:1.35;opacity:.95}.l1{fill:none;stroke:var(--primary-color);stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.l2{fill:none;stroke:var(--warning-color,#f5b942);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.f2{fill:color-mix(in srgb,var(--warning-color,#f5b942) 12%,transparent)}.l3{fill:none;stroke:var(--secondary-text-color);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.cursor{stroke:var(--secondary-text-color);stroke-width:1;stroke-dasharray:3 3;opacity:0}.tip{position:absolute;min-width:145px;padding:9px 10px;border-radius:11px;background:var(--card-background-color);border:1px solid var(--divider-color);box-shadow:0 7px 22px rgba(0,0,0,.2);pointer-events:none;opacity:0;transform:translate(-50%,-100%);font-size:11.5px;line-height:1.45}.tip.show{opacity:1}.tip b{color:var(--primary-text-color);font-weight:650}.tr{display:flex;justify-content:space-between;gap:14px;color:var(--secondary-text-color)}@media(max-width:700px){.wrap{padding:3px}.legend{gap:9px}.legend button,.meta{font-size:10.5px}.chart{height:400px}.axis{font-size:10px}.small{font-size:9.5px}}</style><ha-card><div class="wrap"><div class="top"><div class="meta"></div><div class="legend">${[1,2,3].map(i=>`<button type="button"><span class="sw s${i}"></span><span class="k${i}"></span></button>`).join('')}</div></div><div class="chart"><svg role="img" aria-label="Interactive reusable graph example"></svg><div class="tip"></div></div></div></ha-card>`;this.e={m:this.shadowRoot.querySelector('.meta'),svg:this.shadowRoot.querySelector('svg'),tip:this.shadowRoot.querySelector('.tip'),chart:this.shadowRoot.querySelector('.chart'),ks:[1,2,3].map(i=>this.shadowRoot.querySelector(`.k${i}`))};this.e.svg.onpointermove=e=>this.pointer(e);this.e.svg.onpointerdown=e=>this.pointer(e);this.e.svg.onpointerleave=()=>this.hide();this.ro=new ResizeObserver(()=>{clearTimeout(this.timer);this.timer=setTimeout(()=>this.draw(),40)});this.ro.observe(this.e.chart)}
- draw(){if(!this.e||!this.c)return;this.e.m.textContent=this.c.meta_text;this.e.ks.forEach((x,i)=>x.textContent=this.c[`series_${i+1}_label`]);let r=this.e.chart.getBoundingClientRect(),W=Math.max(320,Math.round(r.width||800)),H=Math.max(340,Math.round(r.height||420));this.e.svg.setAttribute('viewBox',`0 0 ${W} ${H}`);let L=W<520?48:58,R=8,T=6,B=Math.round(H*.70),AY=B+20,GT=AY+18,GB=H-18,x0=L,x1=W-R,w=x1-x0,h=B-T,z=(GT+GB)/2;let p=(rx,ry)=>`${(x0+w*rx).toFixed(1)},${(T+h*ry).toFixed(1)}`,g=(rx,ry)=>`${(x0+w*rx).toFixed(1)},${(z+(GB-GT)*.32*ry).toFixed(1)}`;let d1=`M${p(0,.68)} L${p(.08,.61)} L${p(.17,.70)} L${p(.26,.38)} L${p(.35,.52)} L${p(.44,.24)} L${p(.53,.43)} L${p(.62,.35)} L${p(.72,.63)} L${p(.82,.48)} L${p(.91,.59)} L${p(1,.44)}`,d2=`M${p(0,.86)} L${p(.12,.75)} L${p(.24,.52)} L${p(.36,.42)} L${p(.48,.55)} L${p(.60,.72)} L${p(.72,.82)} L${p(.84,.91)} L${p(1,.94)}`,d3=`M${g(0,.08)} L${g(.1,-.10)} L${g(.2,.12)} L${g(.3,-.20)} L${g(.4,.02)} L${g(.5,-.35)} L${g(.6,.16)} L${g(.7,.28)} L${g(.8,-.12)} L${g(.9,.05)} L${g(1,-.08)}`,fill=`${d2} L${x1},${B} L${x0},${B} Z`;let q='';['Max','75%','50%','25%','0'].forEach((t,i)=>{let y=T+h*i/4;q+=`<line class="grid" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"></line><text class="axis" x="${x0-8}" y="${y+4}" text-anchor="end">${t}</text>`});['Start','¼','½','¾','End'].forEach((t,i)=>{let x=x0+w*i/4;q+=`<text class="axis" x="${x}" y="${AY}" text-anchor="${i===0?'start':i===4?'end':'middle'}">${t}</text>`});q+=`<line class="zero" x1="${x0}" y1="${z}" x2="${x1}" y2="${z}"></line><text class="small" x="${x1-2}" y="${GT+10}" text-anchor="end">${escapeHtml(this.c.positive_label)}</text><text class="small" x="${x1-2}" y="${GB-3}" text-anchor="end">${escapeHtml(this.c.negative_label)}</text><path class="f2" d="${fill}"></path><path class="l2" d="${d2}"></path><path class="l1" d="${d1}"></path><path class="l3" d="${d3}"></path><line class="cursor" x1="0" y1="${T}" x2="0" y2="${GB}"></line>`;this.e.svg.innerHTML=q;this.geo={W,H,x0,x1,T,GB}}
- pointer(ev){let g=this.geo;if(!g)return;let r=this.e.svg.getBoundingClientRect(),px=(ev.clientX-r.left)*(g.W/r.width),x=Math.max(g.x0,Math.min(g.x1,px)),ratio=(x-g.x0)/(g.x1-g.x0),pct=Math.round(ratio*100),c=this.e.svg.querySelector('.cursor');c.setAttribute('x1',x);c.setAttribute('x2',x);c.style.opacity='1';this.e.tip.innerHTML=`<div style="font-weight:650;margin-bottom:4px">${pct}% through range</div><div class="tr"><span>${escapeHtml(this.c.series_1_label)}</span><b>${Math.round(20+ratio*80)}</b></div><div class="tr"><span>${escapeHtml(this.c.series_2_label)}</span><b>${Math.round(75-ratio*45)}</b></div><div class="tr"><span>${escapeHtml(this.c.series_3_label)}</span><b>${Math.round((ratio-.5)*40)}</b></div>`;this.e.tip.style.left=`${(x/g.W)*r.width}px`;this.e.tip.style.top=`${Math.max(70,r.height*.42)}px`;this.e.tip.classList.add('show')}
- hide(){this.e.tip.classList.remove('show');let c=this.e.svg.querySelector('.cursor');if(c)c.style.opacity='0'}
+const { escapeHtml, interaction, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentHistoryGraphV2 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    this.ro = null;
+    this.timer = null;
+    this.hiddenSeries = new Set();
+    this.pinned = false;
+    this.pointerState = null;
+    this.interactions = [];
+    this.outside = (event) => {
+      if (!this.pinned || event.composedPath?.().includes(this)) return;
+      this.pinned = false;
+      this.hide();
+    };
+  }
+  setConfig(c) {
+    this.c = { meta_text: 'Aggregation label', series_1_label: 'Primary series', series_2_label: 'Secondary series', series_3_label: 'Supporting series', positive_label: 'Positive', negative_label: 'Negative', ...c };
+    if (!this.b) this.build();
+    this.draw();
+  }
+  set hass(h) {}
+  connectedCallback() {
+    this.e?.chart && this.ro?.observe(this.e.chart);
+    window.addEventListener('pointerdown', this.outside, true);
+    this.draw();
+  }
+  disconnectedCallback() {
+    this.ro?.disconnect();
+    clearTimeout(this.timer);
+    this.timer = null;
+    window.removeEventListener('pointerdown', this.outside, true);
+    for (const handle of this.interactions) handle.destroy();
+    this.interactions = [];
+  }
+  getCardSize() { return 7; }
+  build() {
+    this.b = 1;
+    this.shadowRoot.innerHTML = `<style>:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:4px 5px 5px}.top{min-height:28px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 5px}.meta{font-size:11.5px;font-weight:600;color:var(--secondary-text-color);white-space:nowrap}.legend{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}.legend button{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:12px;font-weight:600;padding:3px 0;display:flex;align-items:center;gap:6px;cursor:pointer}.legend button:active{transform:scale(.97)}.legend button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:5px}.sw{width:17px;height:3px;border-radius:999px}.s1{background:var(--primary-color)}.s2{background:var(--warning-color,#f5b942)}.s3{background:var(--secondary-text-color)}.chart{position:relative;width:100%;height:clamp(400px,48vw,520px)}svg{display:block;width:100%;height:100%;overflow:hidden;touch-action:none}.axis{fill:var(--secondary-text-color);font-size:11px;font-weight:500;font-family:inherit}.small{fill:var(--secondary-text-color);font-size:10px;font-weight:600;font-family:inherit}.grid{stroke:var(--divider-color);stroke-width:1;opacity:.58}.zero{stroke:var(--divider-color);stroke-width:1.35;opacity:.95}.l1{fill:none;stroke:var(--primary-color);stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.l2{fill:none;stroke:var(--warning-color,#f5b942);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.f2{fill:color-mix(in srgb,var(--warning-color,#f5b942) 12%,transparent)}.l3{fill:none;stroke:var(--secondary-text-color);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.cursor{stroke:var(--secondary-text-color);stroke-width:1;stroke-dasharray:3 3;opacity:0}.tip{position:absolute;min-width:145px;padding:9px 10px;border-radius:11px;background:var(--card-background-color);border:1px solid var(--divider-color);box-shadow:0 7px 22px rgba(0,0,0,.2);pointer-events:none;opacity:0;transform:translate(-50%,-100%);font-size:11.5px;line-height:1.45}.tip.show{opacity:1}.tip b{color:var(--primary-text-color);font-weight:650}.tr{display:flex;justify-content:space-between;gap:14px;color:var(--secondary-text-color)}@media(max-width:700px){.wrap{padding:3px}.legend{gap:9px}.legend button,.meta{font-size:10.5px}.chart{height:400px}.axis{font-size:10px}.small{font-size:9.5px}}</style><ha-card><div class="wrap"><div class="top"><div class="meta"></div><div class="legend">${[1, 2, 3].map((i) => `<button type="button" data-series="${i}" aria-pressed="true"><span class="sw s${i}"></span><span class="k${i}"></span></button>`).join('')}</div></div><div class="chart"><svg role="img" aria-label="Interactive reusable graph example"></svg><div class="tip"></div></div></div></ha-card>`;
+    this.e = { m: this.shadowRoot.querySelector('.meta'), svg: this.shadowRoot.querySelector('svg'), tip: this.shadowRoot.querySelector('.tip'), chart: this.shadowRoot.querySelector('.chart'), ks: [1, 2, 3].map((i) => this.shadowRoot.querySelector(`.k${i}`)) };
+    this.e.svg.addEventListener('pointerdown', (event) => this.pointerDown(event));
+    this.e.svg.addEventListener('pointermove', (event) => this.pointerMove(event));
+    this.e.svg.addEventListener('pointerup', (event) => this.pointerUp(event));
+    this.e.svg.addEventListener('pointercancel', () => { this.pointerState = null; });
+    this.e.svg.addEventListener('pointerleave', () => { if (!this.pinned && !this.pointerState) this.hide(); });
+    for (const button of this.shadowRoot.querySelectorAll('.legend button')) {
+      const index = Number(button.dataset.series);
+      this.interactions.push(interaction(button, { primary: () => this.toggleSeries(index, button), optimistic: 'selection', feedback: true }));
+    }
+    this.ro = new ResizeObserver(() => { clearTimeout(this.timer); this.timer = setTimeout(() => this.draw(), 40); });
+    this.ro.observe(this.e.chart);
+  }
+  toggleSeries(index, button) {
+    if (this.hiddenSeries.has(index)) this.hiddenSeries.delete(index);
+    else this.hiddenSeries.add(index);
+    button.setAttribute('aria-pressed', String(!this.hiddenSeries.has(index)));
+    this.draw();
+  }
+  draw() {
+    if (!this.e || !this.c) return;
+    this.e.m.textContent = this.c.meta_text;
+    this.e.ks.forEach((x, i) => x.textContent = this.c[`series_${i + 1}_label`]);
+    const r = this.e.chart.getBoundingClientRect(), W = Math.max(320, Math.round(r.width || 800)), H = Math.max(340, Math.round(r.height || 420));
+    this.e.svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const L = W < 520 ? 48 : 58, R = 8, T = 6, B = Math.round(H * .70), AY = B + 20, GT = AY + 18, GB = H - 18, x0 = L, x1 = W - R, w = x1 - x0, h = B - T, z = (GT + GB) / 2;
+    const p = (rx, ry) => `${(x0 + w * rx).toFixed(1)},${(T + h * ry).toFixed(1)}`, g = (rx, ry) => `${(x0 + w * rx).toFixed(1)},${(z + (GB - GT) * .32 * ry).toFixed(1)}`;
+    const d1 = `M${p(0, .68)} L${p(.08, .61)} L${p(.17, .70)} L${p(.26, .38)} L${p(.35, .52)} L${p(.44, .24)} L${p(.53, .43)} L${p(.62, .35)} L${p(.72, .63)} L${p(.82, .48)} L${p(.91, .59)} L${p(1, .44)}`;
+    const d2 = `M${p(0, .86)} L${p(.12, .75)} L${p(.24, .52)} L${p(.36, .42)} L${p(.48, .55)} L${p(.60, .72)} L${p(.72, .82)} L${p(.84, .91)} L${p(1, .94)}`;
+    const d3 = `M${g(0, .08)} L${g(.1, -.10)} L${g(.2, .12)} L${g(.3, -.20)} L${g(.4, .02)} L${g(.5, -.35)} L${g(.6, .16)} L${g(.7, .28)} L${g(.8, -.12)} L${g(.9, .05)} L${g(1, -.08)}`;
+    const fill = `${d2} L${x1},${B} L${x0},${B} Z`;
+    let q = '';
+    ['Max', '75%', '50%', '25%', '0'].forEach((t, i) => { const y = T + h * i / 4; q += `<line class="grid" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"></line><text class="axis" x="${x0 - 8}" y="${y + 4}" text-anchor="end">${t}</text>`; });
+    ['Start', '¼', '½', '¾', 'End'].forEach((t, i) => { const x = x0 + w * i / 4; q += `<text class="axis" x="${x}" y="${AY}" text-anchor="${i === 0 ? 'start' : i === 4 ? 'end' : 'middle'}">${t}</text>`; });
+    q += `<line class="zero" x1="${x0}" y1="${z}" x2="${x1}" y2="${z}"></line><text class="small" x="${x1 - 2}" y="${GT + 10}" text-anchor="end">${escapeHtml(this.c.positive_label)}</text><text class="small" x="${x1 - 2}" y="${GB - 3}" text-anchor="end">${escapeHtml(this.c.negative_label)}</text>${this.hiddenSeries.has(2) ? '' : `<path class="f2" d="${fill}"></path><path class="l2" d="${d2}"></path>`}${this.hiddenSeries.has(1) ? '' : `<path class="l1" d="${d1}"></path>`}${this.hiddenSeries.has(3) ? '' : `<path class="l3" d="${d3}"></path>`}<line class="cursor" x1="0" y1="${T}" x2="0" y2="${GB}"></line>`;
+    this.e.svg.innerHTML = q;
+    this.geo = { W, H, x0, x1, T, GB };
+    if (!this.pinned) this.hide();
+  }
+  pointerDown(event) {
+    this.pointerState = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+    this.pointer(event);
+  }
+  pointerMove(event) {
+    if (this.pointerState?.id === event.pointerId) {
+      if (Math.hypot(event.clientX - this.pointerState.x, event.clientY - this.pointerState.y) > 6) this.pointerState.moved = true;
+      this.pointer(event);
+      return;
+    }
+    if (!this.pinned && event.pointerType !== 'touch') this.pointer(event);
+  }
+  pointerUp(event) {
+    const state = this.pointerState;
+    if (!state || state.id !== event.pointerId) return;
+    this.pointerState = null;
+    if (!state.moved) {
+      if (this.pinned) { this.pinned = false; this.hide(); }
+      else { this.pointer(event); this.pinned = true; }
+    } else {
+      this.pinned = false;
+      if (event.pointerType === 'touch') this.hide();
+    }
+  }
+  pointer(ev) {
+    const g = this.geo;
+    if (!g) return;
+    const r = this.e.svg.getBoundingClientRect(), px = (ev.clientX - r.left) * (g.W / r.width), x = Math.max(g.x0, Math.min(g.x1, px)), ratio = (x - g.x0) / (g.x1 - g.x0), pct = Math.round(ratio * 100), c = this.e.svg.querySelector('.cursor');
+    c.setAttribute('x1', x); c.setAttribute('x2', x); c.style.opacity = '1';
+    const rows = [
+      [1, this.c.series_1_label, Math.round(20 + ratio * 80)],
+      [2, this.c.series_2_label, Math.round(75 - ratio * 45)],
+      [3, this.c.series_3_label, Math.round((ratio - .5) * 40)],
+    ].filter(([index]) => !this.hiddenSeries.has(index));
+    this.e.tip.innerHTML = `<div style="font-weight:650;margin-bottom:4px">${pct}% through range</div>${rows.map(([, label, value]) => `<div class="tr"><span>${escapeHtml(label)}</span><b>${value}</b></div>`).join('')}`;
+    this.e.tip.style.left = `${(x / g.W) * r.width}px`; this.e.tip.style.top = `${Math.max(70, r.height * .42)}px`; this.e.tip.classList.add('show');
+  }
+  hide() { this.e.tip.classList.remove('show'); const c = this.e.svg.querySelector('.cursor'); if (c) c.style.opacity = '0'; }
 }
 registerCard({ type: "component-history-graph-v2", element: ComponentHistoryGraphV2, name: "History Graph", description: "Reusable interactive history graph component." });
