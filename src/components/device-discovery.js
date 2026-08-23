@@ -2,6 +2,7 @@
 const {
   PRESENTATIONAL_CARD_STYLES,
   escapeHtml,
+  interaction,
   navigateTo,
   registerCard,
 } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
@@ -12,6 +13,7 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
     this._loadPromise = null;
     this._loadGeneration = 0;
     this._accessState = null;
+    this._interactions = [];
   }
 
   setConfig(config) {
@@ -55,6 +57,8 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
   }
 
   disconnectedCallback() {
+    for (const handle of this._interactions) handle.destroy();
+    this._interactions = [];
     clearInterval(this.timer);
     this.timer = null;
     this.started = false;
@@ -291,6 +295,8 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
         border-top: 1px solid var(--divider-color);
       }
       .row .icon { background: var(--secondary-background-color); }
+      button.row{appearance:none;width:100%;border-right:0;border-bottom:0;border-left:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+      button.row:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:8px}
       .more {
         min-height: 48px;
         display: flex;
@@ -312,6 +318,8 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
   }
 
   renderState(kind) {
+    for (const handle of this._interactions) handle.destroy();
+    this._interactions = [];
     const content = {
       loading: {
         className: "",
@@ -351,12 +359,13 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
         </div>
       </ha-card>`;
 
-    this.shadowRoot.querySelector(".retry")?.addEventListener("click", () =>
-      this.load(),
-    );
+    const retry = this.shadowRoot.querySelector(".retry");
+    if (retry) this._interactions.push(interaction(retry, { primary: () => this.load(), feedback: true }));
   }
 
   render(flows) {
+    for (const handle of this._interactions) handle.destroy();
+    this._interactions = [];
     const limit = Math.max(1, Number(this.c?.max_rows) || 6);
     const shown = flows.slice(0, limit);
     const remaining = Math.max(0, flows.length - shown.length);
@@ -370,7 +379,7 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
 
     const rows = shown
       .map(
-        (flow) => `<div class="row">
+        (flow) => `${this.c?.demo ? `<div class="row">` : `<button class="row" type="button" aria-label="Review ${this.escape(this.name(flow))}">`}`
           <span class="icon"><ha-icon icon="mdi:plus-circle-outline"></ha-icon></span>
           <span>
             <div class="title">${this.escape(this.name(flow))}</div>
@@ -378,8 +387,8 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
               `${this.source(flow.context?.source)} · ${flow.handler}`,
             )}</div>
           </span>
-          <button class="review" type="button">Review</button>
-        </div>`,
+          <span class="review" aria-hidden="true">Review</span>
+        ${this.c?.demo ? `</div>` : `</button>`}` ,
       )
       .join("");
 
@@ -394,9 +403,7 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
               <div class="title">${title}</div>
               <div class="description">${description}</div>
             </span>
-            <button class="refresh" type="button" aria-label="Refresh discovery">
-              <ha-icon icon="mdi:refresh"></ha-icon>
-            </button>
+            ${this.c?.demo ? `<span class="refresh" aria-hidden="true"><ha-icon icon="mdi:refresh"></ha-icon></span>` : `<button class="refresh" type="button" aria-label="Refresh discovery"><ha-icon icon="mdi:refresh"></ha-icon></button>`}
           </div>
           ${rows}
           ${
@@ -409,12 +416,9 @@ class ComponentDeviceDiscoveryV2 extends HTMLElement {
         </div>
       </ha-card>`;
 
-    this.shadowRoot.querySelector(".refresh")?.addEventListener("click", () =>
-      this.load(),
-    );
-    this.shadowRoot.querySelectorAll(".review").forEach((button) =>
-      button.addEventListener("click", () => this.navigate()),
-    );
+    const refresh = this.shadowRoot.querySelector("button.refresh");
+    if (refresh) this._interactions.push(interaction(refresh, { primary: () => this.load(), feedback: true }));
+    for (const row of this.shadowRoot.querySelectorAll("button.row")) this._interactions.push(interaction(row, { primary: () => this.navigate(), feedback: true }));
   }
 }
 registerCard({ type: "component-device-discovery-v2", element: ComponentDeviceDiscoveryV2, name: "Device Discovery", description: "Reusable device-discovery status component." });
