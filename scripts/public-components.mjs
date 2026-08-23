@@ -39,6 +39,58 @@ export const publicComponents = Object.freeze([
   ["src/components/energy-history-card.js", "energy-history-card-v3", "EnergyHistoryCardV3"],
 ]);
 
+const contract = (category, interaction) => Object.freeze({ category, interaction });
+
+export const publicComponentContracts = Object.freeze({
+  "src/components/context-strip.js": contract("presentational", "shared-optional"),
+  "src/components/energy-day-selector.js": contract("direct-controller", "shared"),
+  "src/components/metric-pair.js": contract("async-visualisation", "shared"),
+  "src/components/history-graph.js": contract("async-visualisation", "native-continuous"),
+  "src/components/single-kpi.js": contract("presentational", "shared-optional"),
+  "src/components/three-stat-summary.js": contract("presentational", "shared-optional"),
+  "src/components/status-row.js": contract("entity-aware", "shared-optional"),
+  "src/components/progress-target.js": contract("presentational", "shared-optional"),
+  "src/components/action-card.js": contract("entity-aware", "shared"),
+  "src/components/list-ranking.js": contract("presentational", "shared-optional"),
+  "src/components/notice.js": contract("presentational", "shared-optional"),
+  "src/components/quick-navigation.js": contract("entity-aware", "shared"),
+  "src/components/favourites.js": contract("registry-driven", "shared"),
+  "src/components/navigation-tile.js": contract("presentational", "shared-optional"),
+  "src/components/room-navigation.js": contract("registry-driven", "shared"),
+  "src/components/control-row.js": contract("direct-controller", "native-continuous"),
+  "src/components/split-system-controller.js": contract("direct-controller", "shared"),
+  "src/components/media-row.js": contract("direct-controller", "shared"),
+  "src/components/component-apple-tv-controller-v1.js": contract("direct-controller", "shared"),
+  "src/components/section-separator.js": contract("presentational", "none"),
+  "src/components/room-sheet.js": contract("composition-wrapper", "shared-optional"),
+  "src/components/update-summary.js": contract("direct-controller", "shared-optional"),
+  "src/components/update-row.js": contract("direct-controller", "shared"),
+  "src/components/empty-state.js": contract("presentational", "none"),
+  "src/components/device-discovery.js": contract("async-visualisation", "shared"),
+  "src/components/text-effect.js": contract("presentational", "none"),
+  "src/components/household-attention.js": contract("registry-driven", "shared"),
+  "src/components/welcome-header.js": contract("entity-aware", "shared"),
+  "src/components/wled-controller.js": contract("direct-controller", "native-continuous"),
+  "src/components/garage-door-controller.js": contract("direct-controller", "shared"),
+  "src/components/camera-controller.js": contract("direct-controller", "shared"),
+  "src/components/smart-collection.js": contract("registry-driven", "delegated"),
+  "src/components/household-directory.js": contract("registry-driven", "delegated"),
+  "src/components/favourites-minimal.js": contract("composition-wrapper", "delegated"),
+  "src/components/room-directory.js": contract("registry-driven", "shared"),
+  "src/components/home-overview.js": contract("composition-wrapper", "shared"),
+  "src/components/solar-daylight-card.js": contract("async-visualisation", "shared"),
+  "src/components/energy-history-card.js": contract("async-visualisation", "native-continuous"),
+});
+
+export const supportedComponentCategories = Object.freeze([
+  "presentational",
+  "entity-aware",
+  "direct-controller",
+  "registry-driven",
+  "async-visualisation",
+  "composition-wrapper",
+]);
+
 export const publicComponentCount = publicComponents.length;
 export const publicComponentFiles = publicComponents.map(([file]) => file);
 export const publicComponentTypes = publicComponents.map(([, type]) => type);
