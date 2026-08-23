@@ -1,6 +1,11 @@
 /** ComponentQuickNavigationV2 — reusable Home Assistant dashboard card. */
-const { DashboardBaseCard, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { DashboardBaseCard, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentQuickNavigationV2 extends DashboardBaseCard {
+  constructor() {
+    super();
+    this._interactions = [];
+  }
+
   setConfig(c) {
     this.c = {
       left_icon: "mdi:weather-partly-cloudy",
@@ -38,6 +43,15 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
     }
   }
 
+  disconnectedCallback() {
+    this._clearInteractions();
+  }
+
+  _clearInteractions() {
+    for (const handle of this._interactions) handle.destroy();
+    this._interactions = [];
+  }
+
   getCardSize() {
     return 1;
   }
@@ -60,6 +74,7 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
 
   r() {
     if (!this.c) return;
+    this._clearInteractions();
     const stateObj =
       this.c.left_entity && this.h
         ? this.h.states[this.c.left_entity]
@@ -82,11 +97,20 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
     }
     const context = this.shadowRoot.getElementById("context");
     context.disabled = !this.c.left_entity;
-    context.onclick = () => this.moreInfo(this.c.left_entity);
-    this.shadowRoot.getElementById("action-1").onclick = () =>
-      this.navigate(this.c.action_1_path);
-    this.shadowRoot.getElementById("action-2").onclick = () =>
-      this.navigate(this.c.action_2_path);
+    this._interactions.push(
+      interaction(context, {
+        primary: () => this.moreInfo(this.c.left_entity),
+        feedback: true,
+      }),
+      interaction(this.shadowRoot.getElementById("action-1"), {
+        primary: () => this.navigate(this.c.action_1_path),
+        feedback: true,
+      }),
+      interaction(this.shadowRoot.getElementById("action-2"), {
+        primary: () => this.navigate(this.c.action_2_path),
+        feedback: true,
+      }),
+    );
   }
 }
 registerCard({ type: "component-quick-nav-v2", element: ComponentQuickNavigationV2, name: "Quick Navigation", description: "Reusable quick navigation component." });
