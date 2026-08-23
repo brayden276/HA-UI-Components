@@ -39,7 +39,9 @@ jobs:
 
       - name: Apply one-shot interaction migrations
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev/interaction-system'
-        run: node scripts/dev-apply-interaction-migrations.mjs
+        run: |
+          node scripts/dev-apply-interaction-migrations.mjs
+          node scripts/dev-apply-interaction-migrations-2.mjs
 
       - name: Commit canonical source migrations
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev/interaction-system'
