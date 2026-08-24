@@ -169,6 +169,25 @@ const ensureInteractionFeedback = (element) => {
   return status;
 };
 
+const NESTED_INTERACTIVE_SELECTOR = [
+  "button",
+  "a[href]",
+  "input",
+  "select",
+  "textarea",
+  "summary",
+  "[contenteditable='true']",
+  "[role='button']",
+  "[role='link']",
+  "[role='checkbox']",
+  "[role='menuitem']",
+  "[role='option']",
+  "[role='radio']",
+  "[role='slider']",
+  "[role='switch']",
+  "[tabindex]",
+].join(",");
+
 const interaction = (element, options = {}) => {
   if (!element?.addEventListener) {
     throw new TypeError("interaction requires an EventTarget element");
@@ -202,6 +221,20 @@ const interaction = (element, options = {}) => {
   let errorTimer = null;
   let destroyed = false;
   let pressedState = false;
+
+  const fromNestedInteractive = (event) => {
+    const path = event?.composedPath?.();
+    if (Array.isArray(path) && path.length) {
+      for (const node of path) {
+        if (node === element) return false;
+        if (node?.matches?.(NESTED_INTERACTIVE_SELECTOR)) return true;
+      }
+    }
+    const target = event?.target;
+    if (!target || target === element) return false;
+    const nested = target.closest?.(NESTED_INTERACTIVE_SELECTOR);
+    return Boolean(nested && nested !== element && element.contains?.(nested));
+  };
 
   const disabled = () =>
     destroyed ||
@@ -346,7 +379,7 @@ const interaction = (element, options = {}) => {
   };
 
   const onPointerDown = (event) => {
-    if (!primary || disabled() || event.button > 0) return;
+    if (!primary || disabled() || event.button > 0 || fromNestedInteractive(event)) return;
     pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
     gestureConsumed = false;
     clearClickSuppression();
@@ -376,6 +409,12 @@ const interaction = (element, options = {}) => {
 
   const onPointerUp = (event) => {
     if (!pointer || event.pointerId !== pointer.id) return;
+    if (fromNestedInteractive(event)) {
+      gestureConsumed = true;
+      suppressNextClick();
+      cancelPointer();
+      return;
+    }
     const wasConsumed = gestureConsumed;
     const wasRepeating = repeat && (repeatTimer === null || repeatInterval !== null);
     clearGestureTimers();
@@ -393,6 +432,7 @@ const interaction = (element, options = {}) => {
   };
 
   const onClick = (event) => {
+    if (fromNestedInteractive(event)) return;
     if (suppressClick) {
       event.preventDefault();
       event.stopImmediatePropagation?.();
@@ -407,14 +447,14 @@ const interaction = (element, options = {}) => {
   };
 
   const onKeyDown = (event) => {
-    if (!primary || disabled() || event.repeat) return;
+    if (!primary || disabled() || event.repeat || fromNestedInteractive(event)) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     setPressed(true);
   };
 
   const onKeyUp = (event) => {
-    if (!primary || disabled()) return;
+    if (!primary || disabled() || fromNestedInteractive(event)) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     setPressed(false);
@@ -7782,8 +7822,17 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
     if (!this.shadowRoot.querySelector("style[data-apple-tv-header-controls]")) {
       const style = document.createElement("style");
       style.setAttribute("data-apple-tv-header-controls", "");
-      style.textContent = `.identity{grid-template-columns:44px minmax(0,1fr) auto!important;gap:12px!important}.card-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-left:0}.header-action{width:44px;height:44px;min-width:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.header-action.power.on{color:var(--primary-color)}.header-action ha-icon{--mdc-icon-size:20px}.header-action span{display:none}.panel{padding:16px!important;overscroll-behavior:contain}.sheet{width:min(430px,calc(100vw - 32px))!important;max-height:calc(100dvh - 32px)!important;min-height:0;overflow:hidden!important;display:flex!important;flex-direction:column;border-radius:var(--dashboard-radius-dialog,8px)!important;box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))!important}.head{flex:0 0 auto}.body{flex:1 1 auto;min-height:0!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}.panel-notice{flex:0 0 auto}.panel[data-mode="apps"] .body{max-height:calc(100dvh - 112px)}.apps-grid{align-content:start}.app-logo ha-icon{color:var(--apple-tv-app-colour,var(--primary-color))}@media(max-width:420px){.panel{padding:16px!important}.sheet{width:calc(100vw - 32px)!important;max-height:calc(100dvh - 32px)!important}.card-actions{gap:8px}.header-action{width:44px;height:44px;min-width:44px}.header-action ha-icon{--mdc-icon-size:20px}}`;
+      style.textContent = `.card-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px}.identity{grid-template-columns:44px minmax(0,1fr)!important;gap:12px!important}.card-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-left:0}.header-action{width:44px;height:44px;min-width:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.header-action.power.on{color:var(--primary-color)}.header-action ha-icon{--mdc-icon-size:20px}.header-action span{display:none}.panel{padding:16px!important;overscroll-behavior:contain}.sheet{width:min(430px,calc(100vw - 32px))!important;max-height:calc(100dvh - 32px)!important;min-height:0;overflow:hidden!important;display:flex!important;flex-direction:column;border-radius:var(--dashboard-radius-dialog,8px)!important;box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))!important}.head{flex:0 0 auto}.body{flex:1 1 auto;min-height:0!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}.panel-notice{flex:0 0 auto}.panel[data-mode="apps"] .body{max-height:calc(100dvh - 112px)}.apps-grid{align-content:start}.app-logo ha-icon{color:var(--apple-tv-app-colour,var(--primary-color))}@media(max-width:420px){.panel{padding:16px!important}.sheet{width:calc(100vw - 32px)!important;max-height:calc(100dvh - 32px)!important}.card-head{gap:8px}.card-actions{gap:8px}.header-action{width:44px;height:44px;min-width:44px}.header-action ha-icon{--mdc-icon-size:20px}}`;
       this.shadowRoot.append(style);
+    }
+
+    let cardHead = this.shadowRoot.querySelector(".card-head");
+    if (!cardHead) {
+      const identity = this.shadowRoot.querySelector(".identity");
+      cardHead = document.createElement("div");
+      cardHead.className = "card-head";
+      identity?.before(cardHead);
+      if (identity) cardHead.append(identity);
     }
 
     let actions = this.shadowRoot.querySelector(".card-actions");
@@ -7791,7 +7840,7 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
       actions = document.createElement("div");
       actions.className = "card-actions";
       actions.setAttribute("aria-label", "Apple TV quick controls");
-      this.shadowRoot.querySelector(".identity")?.append(actions);
+      cardHead.append(actions);
     }
     for (const handle of this._headerInteractions || []) handle.destroy();
     this._headerInteractions = [];
