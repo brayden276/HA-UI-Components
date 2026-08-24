@@ -1,6 +1,8 @@
 # HA Component Backend
 
-The dashboard bundle is frontend JavaScript only. Durable split-system state lives in the companion **HA Component Backend** Home Assistant integration.
+The dashboard bundle is frontend JavaScript only. Durable split-system state and
+shared dashboard preferences live in the companion **HA Component Backend** Home
+Assistant integration.
 
 ## HACS repositories
 
@@ -30,6 +32,30 @@ ha_component_backend.remove_room
 ```
 
 The split-system components should not read or write retired `input_text`, `input_number`, `input_select`, `input_boolean`, timer-script, or room-specific helper state.
+
+Shared room/directory preferences use the backend WebSocket contract:
+
+```text
+ha_component_backend/preferences/get
+ha_component_backend/preferences/update
+ha_component_backend/preferences/remove
+```
+
+The bundle automatically migrates an existing `frontend/get_user_data` value on
+first read. It falls back to that frontend API only when the backend commands are
+not installed or the integration has not been configured. Other backend errors
+remain visible; they must not silently create a second source of truth.
+
+Preference writes include the last acknowledged per-key revision. A conflict
+keeps the editor open and asks the user to reopen it, while other save failures
+keep the unsaved ordering/visibility choices in place for retry.
+
+Home Favourites use `home-control.favourites.v1`. On the first backend-backed
+load, `component-favourites-v3` converts the existing helper slots into its
+stable registry-reference array and saves that array as one atomic preference.
+After that acknowledgement, the component no longer reads or writes those four
+`input_text` helpers. Keep them during rollout for rollback, then remove them
+only after the backend preference has been verified on the target instance.
 
 ## Release dependency
 

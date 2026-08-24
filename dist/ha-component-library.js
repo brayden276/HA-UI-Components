@@ -166,6 +166,7 @@ const interaction = (element, options = {}) => {
   }
 
   const feedback = options.feedback !== false;
+  const singleFlight = options.singleFlight === true;
   const holdDelay = Math.max(250, Number(options.holdDelay) || INTERACTION_DEFAULTS.holdDelay);
   const moveTolerance = Math.max(4, Number(options.moveTolerance) || INTERACTION_DEFAULTS.moveTolerance);
   const optimistic = optimisticAdapter(options.optimistic, element);
@@ -177,6 +178,8 @@ const interaction = (element, options = {}) => {
   let repeatInterval = null;
   let repeatCount = 0;
   let suppressClick = false;
+  let suppressClickTimer = null;
+  let gestureConsumed = false;
   let pending = 0;
   let errorTimer = null;
   let destroyed = false;
@@ -184,8 +187,23 @@ const interaction = (element, options = {}) => {
 
   const disabled = () =>
     destroyed ||
+    (singleFlight && pending > 0) ||
     element.disabled === true ||
     element.getAttribute?.("aria-disabled") === "true";
+
+  const clearClickSuppression = () => {
+    clearTimeout(suppressClickTimer);
+    suppressClickTimer = null;
+    suppressClick = false;
+  };
+
+  const suppressNextClick = () => {
+    suppressClick = true;
+    clearTimeout(suppressClickTimer);
+    // Native click follows pointerup/keyup in the same task. Avoid leaving a
+    // stale suppression flag that could swallow a later programmatic click.
+    suppressClickTimer = setTimeout(clearClickSuppression, 0);
+  };
 
   const setPressed = (pressed) => {
     if (pressedState === pressed) return;
@@ -280,10 +298,18 @@ const interaction = (element, options = {}) => {
     repeatCount = 0;
     repeatTimer = setTimeout(() => {
       repeatTimer = null;
-      suppressClick = true;
+      if (destroyed || !pointer) return;
+      gestureConsumed = true;
+      suppressNextClick();
       const tick = () => {
+        if (destroyed || !pointer) {
+          clearInterval(repeatInterval);
+          repeatInterval = null;
+          return;
+        }
         repeatCount += 1;
         void invoke("primary", event).catch(() => {});
+        if (destroyed || !pointer) return;
         if (!repeat.accelerate) return;
         const next = Math.max(
           Number(repeat.minimumInterval) || INTERACTION_DEFAULTS.repeatMinimumInterval,
@@ -293,20 +319,25 @@ const interaction = (element, options = {}) => {
         repeatInterval = setInterval(tick, next);
       };
       void invoke("primary", event).catch(() => {});
-      repeatInterval = setInterval(tick, baseInterval);
+      // A synchronous primary action may destroy the interaction. Do not
+      // create an orphaned interval after that teardown.
+      if (!destroyed && pointer) repeatInterval = setInterval(tick, baseInterval);
     }, delay);
   };
 
   const onPointerDown = (event) => {
     if (!primary || disabled() || event.button > 0) return;
     pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
-    suppressClick = false;
+    gestureConsumed = false;
+    clearClickSuppression();
+    try { element.setPointerCapture?.(event.pointerId); } catch {}
     setPressed(true);
     if (hold) {
       holdTimer = setTimeout(() => {
         holdTimer = null;
         if (!pointer) return;
-        suppressClick = true;
+        gestureConsumed = true;
+        suppressNextClick();
         setPressed(false);
         void invoke("hold", event).catch(() => {});
       }, holdDelay);
@@ -318,31 +349,41 @@ const interaction = (element, options = {}) => {
   const onPointerMove = (event) => {
     if (!pointer || event.pointerId !== pointer.id) return;
     if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) <= moveTolerance) return;
-    suppressClick = true;
+    gestureConsumed = true;
+    suppressNextClick();
     cancelPointer();
   };
 
   const onPointerUp = (event) => {
     if (!pointer || event.pointerId !== pointer.id) return;
-    const wasSuppressed = suppressClick;
+    const wasConsumed = gestureConsumed;
     const wasRepeating = repeat && (repeatTimer === null || repeatInterval !== null);
     clearGestureTimers();
     pointer = null;
+    gestureConsumed = false;
     setPressed(false);
-    suppressClick = true;
-    if (!wasSuppressed && !wasRepeating) void invoke("primary", event).catch(() => {});
+    suppressNextClick();
+    if (!wasConsumed && !wasRepeating) void invoke("primary", event).catch(() => {});
   };
 
   const onPointerCancel = () => {
-    suppressClick = true;
+    gestureConsumed = false;
+    suppressNextClick();
     cancelPointer();
   };
 
   const onClick = (event) => {
-    if (!suppressClick || event.detail === 0) return;
-    event.preventDefault();
-    event.stopImmediatePropagation?.();
-    suppressClick = false;
+    if (suppressClick) {
+      event.preventDefault();
+      event.stopImmediatePropagation?.();
+      clearClickSuppression();
+      return;
+    }
+    // Screen readers, voice control and element.click() dispatch click without
+    // a preceding pointer or keyboard sequence. Treat click as a first-class
+    // activation path instead of silently ignoring it.
+    if (!primary || disabled()) return;
+    void invoke("primary", event).catch(() => {});
   };
 
   const onKeyDown = (event) => {
@@ -357,6 +398,7 @@ const interaction = (element, options = {}) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     setPressed(false);
+    suppressNextClick();
     void invoke("primary", event).catch(() => {});
   };
 
@@ -374,7 +416,9 @@ const interaction = (element, options = {}) => {
     destroyed = true;
     clearGestureTimers();
     clearTimeout(errorTimer);
+    clearTimeout(suppressClickTimer);
     errorTimer = null;
+    suppressClickTimer = null;
     signal?.removeEventListener?.("abort", destroy);
     pressedState = false;
     pending = 0;
@@ -877,6 +921,171 @@ registerCard({ type: "component-empty-state-v2", element: ComponentEmptyStateV2,
 // Module: src/support/dashboard-preference-editor.js
 {
 class DashboardPreferenceEditorV3 extends HTMLElement{constructor(){super();this.attachShadow({mode:'open'});this.built=false;this.hiddenIds=new Set}open(o){this.o=o;this.items=o.items.map(x=>({...x}));const ids=new Set(this.items.map(x=>x.id));this.hiddenIds=new Set((o.hidden||[]).filter(id=>ids.has(id)));this.build();this.render();this.d.showModal();queueMicrotask(()=>this.shadowRoot.querySelector('.x')?.focus())}build(){if(this.built)return;this.built=true;this.shadowRoot.innerHTML=`<style>*{box-sizing:border-box}dialog{width:min(560px,calc(100vw - 24px));max-height:min(760px,calc(100dvh - 24px));border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,8px);padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.hd{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--divider-color);background:var(--card-background-color)}h2{font-size:16px;line-height:1.2;font-weight:500;margin:0}.x,.move,.vis{width:44px;height:44px;border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center;color:var(--secondary-text-color)}.x ha-icon,.move ha-icon,.vis ha-icon{--mdc-icon-size:17px}.body{padding:12px 14px 88px}.copy{font-size:12px;color:var(--secondary-text-color);line-height:1.45;margin:0 2px 10px}.rows{display:grid;gap:7px}.row{min-height:56px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px}.row.off{opacity:.52}.ico{width:32px;height:32px;display:grid;place-items:center;color:var(--secondary-text-color)}.ico ha-icon{--mdc-icon-size:18px}.name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{font-size:12px;color:var(--secondary-text-color);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.acts{display:flex}.move[disabled]{opacity:.22}.vis.off{color:var(--error-color)}.ft{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-top:1px solid var(--divider-color);background:var(--card-background-color)}.count{font-size:12px;color:var(--secondary-text-color)}.buttons{display:flex;gap:8px}.cancel,.save{min-height:42px;padding:0 13px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,6px);background:transparent;font-size:13px;font-weight:500}.save{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}:is(button):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}</style><dialog><div class="hd"><h2></h2><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"><div class="copy"></div><div class="rows"></div></div><div class="ft"><span class="count"></span><span class="buttons"><button class="cancel" type="button">Cancel</button><button class="save" type="button">Save</button></span></div></dialog>`;this.d=this.shadowRoot.querySelector('dialog');this.d.addEventListener('click',e=>{if(e.target===this.d)this.d.close()});this.shadowRoot.querySelector('.x').onclick=()=>this.d.close();this.shadowRoot.querySelector('.cancel').onclick=()=>this.d.close();this.shadowRoot.querySelector('.save').onclick=()=>this.save()}render(){this.shadowRoot.querySelector('h2').textContent=this.o.title||'Edit';this.shadowRoot.querySelector('.copy').textContent=this.o.description||'Reorder or hide items.';const rows=this.shadowRoot.querySelector('.rows');rows.replaceChildren();this.items.forEach((x,i)=>{const r=document.createElement('div'),off=this.hiddenIds.has(x.id);r.className=`row ${off?'off':''}`;r.innerHTML=`<span class="ico"><ha-icon icon="${x.icon||'mdi:circle-outline'}"></ha-icon></span><span><div class="name"></div><div class="meta"></div></span><span class="acts"><button class="move up" type="button" aria-label="Move earlier" ${i===0?'disabled':''}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="move down" type="button" aria-label="Move later" ${i===this.items.length-1?'disabled':''}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="vis ${off?'off':''}" type="button" aria-label="${off?'Show':'Hide'}"><ha-icon icon="mdi:${off?'eye-outline':'eye-off-outline'}"></ha-icon></button></span>`;r.querySelector('.name').textContent=x.name;r.querySelector('.meta').textContent=x.meta||'';r.querySelector('.up').onclick=()=>this.move(i,-1);r.querySelector('.down').onclick=()=>this.move(i,1);r.querySelector('.vis').onclick=()=>{off?this.hiddenIds.delete(x.id):this.hiddenIds.add(x.id);this.render()};rows.append(r)});this.shadowRoot.querySelector('.count').textContent=`${this.items.length-this.hiddenIds.size} of ${this.items.length} shown`}move(i,d){const n=i+d;if(n<0||n>=this.items.length)return;[this.items[i],this.items[n]]=[this.items[n],this.items[i]];this.render()}async save(){const b=this.shadowRoot.querySelector('.save');b.disabled=true;b.textContent='Saving…';try{await this.o.onSave?.({order:this.items.map(x=>x.id),hidden:[...this.hiddenIds]});this.d.close()}finally{b.disabled=false;b.textContent='Save'}}}if(!customElements.get('dashboard-preference-editor-v3'))customElements.define('dashboard-preference-editor-v3',DashboardPreferenceEditorV3);
+}
+
+// Module: src/support/backend-preferences.js
+{
+/** Backend-first dashboard preferences with a legacy frontend fallback. */
+const preferenceRuntime = globalThis.__homeDashboardV2 ??= {};
+const legacyGetPreference = preferenceRuntime.prefs?.bind(preferenceRuntime);
+const legacySavePreference = preferenceRuntime.savePrefs?.bind(preferenceRuntime);
+const preferenceRevisions = new Map();
+const backendAvailability = new WeakMap();
+
+const preferenceErrorCode = (error) =>
+  String(error?.code || error?.error?.code || error?.message || error || "").toLowerCase();
+
+const backendIsUnavailable = (error) => {
+  const code = preferenceErrorCode(error);
+  return (
+    code.includes("unknown_command") ||
+    code.includes("unknown command") ||
+    code.includes("preference_unavailable") ||
+    code.includes("not configured")
+  );
+};
+
+const callPreferenceBackend = (hass, message) => {
+  if (typeof hass?.callWS === "function") return hass.callWS(message);
+  if (typeof hass?.connection?.sendMessagePromise === "function") {
+    return hass.connection.sendMessagePromise(message);
+  }
+  return Promise.reject(new Error("Home Assistant WebSocket connection is unavailable"));
+};
+
+const rememberPreference = (key, response) => {
+  preferenceRevisions.set(key, Number(response?.revision) || 0);
+  return response?.value;
+};
+
+preferenceRuntime.prefs = async (hass, key) => {
+  if (!hass || !key) return { order: [], hidden: [] };
+  const connection = hass.connection;
+  if (connection && backendAvailability.get(connection) === false) {
+    return legacyGetPreference?.(hass, key) ?? { order: [], hidden: [] };
+  }
+  try {
+    const response = await callPreferenceBackend(hass, {
+      type: "ha_component_backend/preferences/get",
+      key,
+    });
+    if (connection) backendAvailability.set(connection, true);
+    if (response?.found) return rememberPreference(key, response);
+
+    // Migrate the existing frontend preference once. This keeps upgrades
+    // lossless while making the backend the canonical shared store afterwards.
+    const legacy = await (legacyGetPreference?.(hass, key) ?? { order: [], hidden: [] });
+    try {
+      const migrated = await callPreferenceBackend(hass, {
+        type: "ha_component_backend/preferences/update",
+        key,
+        value: legacy,
+        expected_revision: Number(response?.revision) || 0,
+      });
+      rememberPreference(key, migrated);
+      return legacy;
+    } catch (error) {
+      if (preferenceErrorCode(error).includes("preference_conflict")) {
+        const latest = await callPreferenceBackend(hass, {
+          type: "ha_component_backend/preferences/get",
+          key,
+        });
+        return latest?.found ? rememberPreference(key, latest) : legacy;
+      }
+      throw error;
+    }
+  } catch (error) {
+    if (!backendIsUnavailable(error)) throw error;
+    if (connection) backendAvailability.set(connection, false);
+    return legacyGetPreference?.(hass, key) ?? { order: [], hidden: [] };
+  }
+};
+
+preferenceRuntime.savePrefs = async (hass, key, value) => {
+  if (!hass || !key) throw new Error("A preference key is required");
+  const connection = hass.connection;
+  if (connection && backendAvailability.get(connection) === false) {
+    return legacySavePreference?.(hass, key, value);
+  }
+  const message = {
+    type: "ha_component_backend/preferences/update",
+    key,
+    value,
+  };
+  if (preferenceRevisions.has(key)) {
+    message.expected_revision = preferenceRevisions.get(key);
+  }
+  try {
+    const response = await callPreferenceBackend(hass, message);
+    if (connection) backendAvailability.set(connection, true);
+    rememberPreference(key, response);
+    return response;
+  } catch (error) {
+    if (backendIsUnavailable(error)) {
+      if (connection) backendAvailability.set(connection, false);
+      return legacySavePreference?.(hass, key, value);
+    }
+    if (preferenceErrorCode(error).includes("preference_conflict")) {
+      throw new Error(
+        "These preferences changed on another screen. Close and reopen the editor, then try again.",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+};
+
+// Give the existing editor explicit failure feedback without duplicating the
+// editor component. The patch is intentionally behavioural; its visual system
+// remains owned by dashboard-preference-editor-v3.
+const PreferenceEditor = customElements.get("dashboard-preference-editor-v3");
+if (PreferenceEditor && !PreferenceEditor.prototype.__backendFeedbackV1) {
+  PreferenceEditor.prototype.__backendFeedbackV1 = true;
+  const originalOpen = PreferenceEditor.prototype.open;
+  PreferenceEditor.prototype.open = function openWithBackendFeedback(options) {
+    originalOpen.call(this, options);
+    const save = this.shadowRoot.querySelector(".save");
+    if (save) save.style.minWidth = "84px";
+    let error = this.shadowRoot.querySelector(".save-error");
+    if (!error) {
+      error = document.createElement("p");
+      error.className = "save-error";
+      error.hidden = true;
+      error.setAttribute("role", "alert");
+      error.style.cssText =
+        "margin:0;padding:10px 14px 0;color:var(--error-color);font-size:13px;line-height:1.4";
+      this.shadowRoot.querySelector(".ft")?.before(error);
+    }
+    error.hidden = true;
+    error.textContent = "";
+  };
+  PreferenceEditor.prototype.save = async function saveWithBackendFeedback() {
+    const button = this.shadowRoot.querySelector(".save");
+    const error = this.shadowRoot.querySelector(".save-error");
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.textContent = "Saving…";
+    if (error) error.hidden = true;
+    try {
+      await this.o.onSave?.({
+        order: this.items.map((item) => item.id),
+        hidden: [...this.hiddenIds],
+      });
+      this.d.close();
+    } catch (saveError) {
+      if (error) {
+        error.textContent =
+          saveError?.message ||
+          "Couldn’t save these changes. Your current choices are still open; try again.";
+        error.hidden = false;
+      }
+    } finally {
+      button.disabled = false;
+      button.setAttribute("aria-busy", "false");
+      button.textContent = "Save";
+    }
+  };
+}
 }
 
 // Module: src/components/single-kpi.js
@@ -2273,7 +2482,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         .app-name{width:100%;font-size:11px;font-weight:650;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .panel-notice{padding:0 18px max(16px,env(safe-area-inset-bottom));margin:0;font-size:12px;color:var(--secondary-text-color)}
         .panel-notice:not(:empty){padding-top:10px;border-top:1px solid var(--divider-color)}
-        :is(button,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+        :is(button,input,.identity):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
         @media(max-width:420px){.panel{padding:8px}.sheet{width:calc(100vw - 16px);max-height:calc(100dvh - 16px);border-radius:20px}.wrap{padding:12px}.body{padding:14px}.dpad{width:min(270px,78vw)}.apps-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.app{border-radius:16px}.app-logo{width:44px;height:44px}}
       </style>
       <ha-card>
@@ -2430,6 +2639,15 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   renderPanel(model) {
+    const active = this.shadowRoot.activeElement;
+    const keyboardState = active?.classList?.contains("keyboard-input")
+      ? {
+          value: active.value,
+          start: active.selectionStart,
+          end: active.selectionEnd,
+          direction: active.selectionDirection,
+        }
+      : null;
     for (const handle of this.dynamicInteractions) handle.destroy();
     this.dynamicInteractions = [];
     const scrollTop = this.el.body.scrollTop;
@@ -2450,6 +2668,20 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       this.messageType === "error",
     );
     this.el.body.scrollTop = scrollTop;
+    if (keyboardState) {
+      const input = this.el.body.querySelector(".keyboard-input");
+      if (input) {
+        input.value = keyboardState.value;
+        const setButton = input.parentElement?.querySelector(".utility");
+        if (setButton) setButton.disabled = !input.value;
+        input.focus({ preventScroll: true });
+        input.setSelectionRange?.(
+          keyboardState.start,
+          keyboardState.end,
+          keyboardState.direction,
+        );
+      }
+    }
   }
 
   renderRemote(model) {
@@ -4765,9 +4997,12 @@ class ComponentCameraControllerV1 extends HTMLElement {
   }
 
   renderControls() {
-    for (const handle of this.controlInteractions) handle.destroy();
-    this.controlInteractions = [];
-    if (!this.bundleData) return;
+    if (!this.bundleData) {
+      for (const handle of this.controlInteractions) handle.destroy();
+      this.controlInteractions = [];
+      this.controlsSignature = "";
+      return;
+    }
     const signature = JSON.stringify([
       this.confirmId,
       [...this.optimisticSwitches],
@@ -4776,6 +5011,8 @@ class ComponentCameraControllerV1 extends HTMLElement {
       ...this.bundleData.buttons.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
     ]);
     if (signature === this.controlsSignature) return;
+    for (const handle of this.controlInteractions) handle.destroy();
+    this.controlInteractions = [];
     this.controlsSignature = signature;
     const detections = this.shadowRoot.querySelector(".detection-list");
     const controls = this.shadowRoot.querySelector(".control-list");
@@ -4805,6 +5042,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
           apply: () => { const next = !reportedOn; this.optimisticSwitches.set(entity.entity_id, next); button.textContent = next ? "On" : "Off"; button.classList.toggle("on", next); button.setAttribute("aria-pressed", String(next)); row.querySelector(".ctl-state").textContent = next ? "On" : "Off"; },
           rollback: () => { this.optimisticSwitches.delete(entity.entity_id); this.controlsSignature = ""; if (this.dialog.open) this.renderControls(); },
         },
+        singleFlight: true,
         feedback: true,
       }));
       controls.append(row);
@@ -4817,7 +5055,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
       row.querySelector(".ctl-state").textContent = usable ? "Available" : "Unavailable";
       const button = row.querySelector("button");
       button.disabled = !usable; button.classList.toggle("confirm", this.confirmId === entity.entity_id); button.textContent = this.confirmId === entity.entity_id ? "Confirm" : "Run";
-      this.controlInteractions.push(interaction(button, { primary: () => this.press(entity.entity_id), optimistic: false, repeat: false, feedback: true }));
+      this.controlInteractions.push(interaction(button, { primary: () => this.press(entity.entity_id), optimistic: false, repeat: false, singleFlight: true, feedback: true }));
       maintenance.append(row);
     }
     this.shadowRoot.querySelector(".detections").hidden = !this.bundleData.detections.length;
@@ -4866,6 +5104,222 @@ globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2;class C
 // Module: src/components/favourites-minimal.js
 {
 class ComponentFavouritesMinimalV1 extends HTMLElement{static getGridOptions(){return{columns:12,rows:'auto'}}constructor(){super();this.attachShadow({mode:'open'});this.c=null;this.h=null;this.child=null;this.ready=false}setConfig(c){this.c=c;this.ensure()}set hass(h){this.h=h;if(this.child)this.child.hass=h;else this.ensure()}connectedCallback(){this.ensure()}getCardSize(){return 2}async ensure(){if(this.ready||!this.c)return;this.ready=true;await customElements.whenDefined('component-favourites-v3');const x=document.createElement('component-favourites-v3');x.setConfig(this.c);if(this.h)x.hass=this.h;this.child=x;this.shadowRoot.replaceChildren(x);queueMicrotask(()=>this.tune())}tune(){const r=this.child?.shadowRoot;if(!r)return;r.querySelector('.edit ha-icon')?.setAttribute('icon','mdi:dots-horizontal');if(r.querySelector('style[data-home-minimal]'))return;const s=document.createElement('style');s.dataset.homeMinimal='';s.textContent='.heading h2{font-size:15px!important;font-weight:500!important}.heading ha-icon{color:var(--secondary-text-color)!important;--mdc-icon-size:17px!important}.edit{min-width:44px!important;min-height:44px!important;padding:0!important;color:var(--secondary-text-color)!important;font-weight:400!important}.edit ha-icon{--mdc-icon-size:16px!important}.edit span{display:none!important}.icon{color:var(--secondary-text-color)!important}.name{font-weight:500!important}.state{font-size:12px!important}.dialog-title,.confirm-title{font-size:16px!important;font-weight:500!important}.subheading,.group-title,.choice-name,.dialog-button{font-weight:500!important}.selected-meta,.choice-meta,.editor-copy{font-size:12px!important}';r.append(s)}}if(!customElements.get('component-favourites-minimal-v1'))customElements.define('component-favourites-minimal-v1',ComponentFavouritesMinimalV1);window.customCards=window.customCards||[];if(!window.customCards.some(x=>x.type==='component-favourites-minimal-v1'))window.customCards.push({type:'component-favourites-minimal-v1',name:'Favourites Minimal',description:'Existing favourites behaviour with restrained Home typography.'});
+}
+
+// Module: src/support/backend-favourites.js
+{
+/** Backend preference storage adapter for the existing Favourites component. */
+const backendFavouritesRuntime = globalThis.__homeDashboardV2;
+const BackendFavourites = customElements.get("component-favourites-v3");
+
+if (backendFavouritesRuntime && BackendFavourites && !BackendFavourites.prototype.__backendStorageV1) {
+  const prototype = BackendFavourites.prototype;
+  prototype.__backendStorageV1 = true;
+  const originalSetConfig = prototype.setConfig;
+  const originalSyncStored = prototype._syncStored;
+  const originalStorageSignature = prototype._storageSignature;
+  const originalRenderGrid = prototype._renderGrid;
+  const originalSave = prototype._save;
+  const originalSubscribe = prototype._subscribeRegistryEvents;
+  const originalUnsubscribe = prototype._unsubscribeRegistryEvents;
+
+  prototype.setConfig = function setBackendFavouritesConfig(config) {
+    const preferenceKey = String(config?.preference_key || "").trim();
+    const demoItems = Array.isArray(config?.items) ? config.items : [];
+    if (!preferenceKey || demoItems.length) {
+      originalSetConfig.call(this, config);
+      return;
+    }
+    const legacyHelpers = Array.isArray(config?.helpers)
+      ? config.helpers.filter((entityId) => typeof entityId === "string")
+      : [];
+    this._backendPreferenceInitialising = true;
+    originalSetConfig.call(this, {
+      ...config,
+      helpers: legacyHelpers.length ? legacyHelpers : ["__backend_preference__"],
+    });
+    this._legacyFavouriteHelpers = legacyHelpers.slice(0, 4);
+    this.config.helpers = [];
+    this.config.preference_key = preferenceKey;
+    this._preferenceLoaded = false;
+    this._preferenceError = null;
+    this._backendPreferenceInitialising = false;
+    if (this.$?.edit) {
+      this.$.edit.hidden = false;
+      this.$.edit.disabled = true;
+      this.$.edit.setAttribute("aria-busy", "true");
+    }
+    this._syncStored();
+    this._renderGrid();
+  };
+
+  prototype._syncStored = function syncBackendFavourites() {
+    if (!this.config?.preference_key) {
+      originalSyncStored.call(this);
+      return;
+    }
+    if (this._backendPreferenceInitialising || !this._hass) return;
+    void this._loadBackendFavourites();
+  };
+
+  prototype._loadBackendFavourites = async function loadBackendFavourites(force = false) {
+    if (!this._hass || !this.config?.preference_key) return;
+    if (this._preferencePromise) return this._preferencePromise;
+    if (this._preferenceLoaded && !force) return;
+    const hass = this._hass;
+    const key = this.config.preference_key;
+    this._preferencePromise = backendFavouritesRuntime
+      .prefs(hass, key)
+      .then(async (stored) => {
+        if (hass !== this._hass || key !== this.config?.preference_key) return;
+        let selected = Array.isArray(stored)
+          ? stored.map((item) => this._normaliseRef(item)).filter(Boolean).slice(0, this.config.max)
+          : [];
+        if (!Array.isArray(stored) && this._legacyFavouriteHelpers?.length) {
+          selected = this._legacyFavouriteHelpers
+            .map((entityId) => this._parseSlot(hass.states?.[entityId]?.state))
+            .filter(Boolean)
+            .slice(0, this.config.max);
+          if (selected.length) {
+            await backendFavouritesRuntime.savePrefs(hass, key, selected);
+          }
+        }
+        this._selected = selected;
+        this._preferenceLoaded = true;
+        this._preferenceError = null;
+        if (this.$?.edit) {
+          this.$.edit.disabled = false;
+          this.$.edit.removeAttribute("aria-busy");
+        }
+        this._lastStorageSignature = this._storageSignature();
+        this._renderSignature = "";
+        this._renderGrid();
+        if (this.$?.editor?.open) this._updateEditorState();
+      })
+      .catch((error) => {
+        if (hass !== this._hass) return;
+        this._preferenceError = error;
+        this._renderGrid();
+      })
+      .finally(() => {
+        this._preferencePromise = null;
+      });
+    return this._preferencePromise;
+  };
+
+  prototype._storageSignature = function backendFavouriteSignature() {
+    if (!this.config?.preference_key) return originalStorageSignature.call(this);
+    return JSON.stringify(this._selected);
+  };
+
+  prototype._renderGrid = function renderBackendFavourites() {
+    originalRenderGrid.call(this);
+    if (!this.config?.preference_key || !this.$?.grid) return;
+    if (this._preferenceError) {
+      this.$.edit.disabled = true;
+      this.$.edit.removeAttribute("aria-busy");
+      this.$.grid.innerHTML =
+        '<div class="load-error">Favourites storage could not be loaded. Try again shortly.</div>';
+    } else if (!this._preferenceLoaded) {
+      this.$.edit.disabled = true;
+      this.$.edit.setAttribute("aria-busy", "true");
+      this.$.grid.innerHTML = '<div class="empty">Loading favourites…</div>';
+    } else {
+      this.$.edit.disabled = false;
+      this.$.edit.removeAttribute("aria-busy");
+    }
+  };
+
+  prototype._save = async function saveBackendFavourites() {
+    if (!this.config?.preference_key) {
+      return originalSave.call(this);
+    }
+    if (this.$.save.disabled) return;
+    if (this._editorStorageSignature !== this._storageSignature()) {
+      this._updateEditorState();
+      return;
+    }
+    const selected = this._draft
+      .map((item) => this._normaliseRef(item))
+      .filter(Boolean)
+      .slice(0, this.config.max);
+    this.$.save.disabled = true;
+    this.$.save.setAttribute("aria-busy", "true");
+    this.$.save.style.minWidth = "84px";
+    this.$.save.textContent = "Saving…";
+    this.$.editorError.textContent = "";
+    try {
+      await backendFavouritesRuntime.savePrefs(
+        this._hass,
+        this.config.preference_key,
+        selected,
+      );
+      this._selected = selected.map((item) => ({ ...item }));
+      this._preferenceLoaded = true;
+      this._preferenceError = null;
+      this._lastStorageSignature = this._storageSignature();
+      this._renderSignature = "";
+      this._editorStorageSignature = this._storageSignature();
+      this.$.editor.close();
+      this._renderGrid();
+      this._notice("Favourites saved.");
+    } catch (error) {
+      this.$.editorError.textContent =
+        error?.message ||
+        "Favourites could not be saved. Your current choices are still open; try again.";
+    } finally {
+      const error = this.$.editorError.textContent;
+      this.$.save.removeAttribute("aria-busy");
+      this.$.save.textContent = "Save";
+      this._updateEditorState();
+      if (error) this.$.editorError.textContent = error;
+    }
+  };
+
+  prototype._subscribeRegistryEvents = function subscribeBackendFavourites() {
+    originalSubscribe.call(this);
+    if (
+      !this.isConnected ||
+      this._preferenceSubscription ||
+      !this.config?.preference_key ||
+      !this._connection?.subscribeEvents
+    ) {
+      return;
+    }
+    const subscription = this._connection
+      .subscribeEvents((event) => {
+        if (event?.data?.key === this.config?.preference_key) {
+          void this._loadBackendFavourites(true);
+        }
+      }, "ha_component_backend_preferences_updated")
+      .then((unsubscribe) => unsubscribe);
+    this._preferenceSubscription = subscription;
+    subscription.catch(() => {
+      if (this._preferenceSubscription === subscription) {
+        this._preferenceSubscription = null;
+      }
+    });
+  };
+
+  prototype._unsubscribeRegistryEvents = function unsubscribeBackendFavourites() {
+    originalUnsubscribe.call(this);
+    const subscription = this._preferenceSubscription;
+    this._preferenceSubscription = null;
+    if (subscription) Promise.resolve(subscription).then((unsubscribe) => unsubscribe?.()).catch(() => {});
+  };
+}
+
+const MinimalFavourites = customElements.get("component-favourites-minimal-v1");
+if (MinimalFavourites && !MinimalFavourites.prototype.__backendStorageV1) {
+  MinimalFavourites.prototype.__backendStorageV1 = true;
+  const originalMinimalSetConfig = MinimalFavourites.prototype.setConfig;
+  MinimalFavourites.prototype.setConfig = function setMinimalBackendFavourites(config) {
+    originalMinimalSetConfig.call(this, {
+      preference_key: "home-control.favourites.v1",
+      ...config,
+    });
+  };
+}
 }
 
 // Module: src/components/room-directory.js

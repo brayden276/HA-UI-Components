@@ -48,6 +48,10 @@
     "file": "src/support/dashboard-preference-editor.js"
   },
   {
+    "order": 12.5,
+    "file": "src/support/backend-preferences.js"
+  },
+  {
     "order": 13,
     "file": "src/components/single-kpi.js"
   },
@@ -182,6 +186,10 @@
   {
     "order": 46,
     "file": "src/components/favourites-minimal.js"
+  },
+  {
+    "order": 46.5,
+    "file": "src/support/backend-favourites.js"
   },
   {
     "order": 47,

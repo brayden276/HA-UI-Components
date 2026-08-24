@@ -135,9 +135,12 @@ class ComponentCameraControllerV1 extends HTMLElement {
   }
 
   renderControls() {
-    for (const handle of this.controlInteractions) handle.destroy();
-    this.controlInteractions = [];
-    if (!this.bundleData) return;
+    if (!this.bundleData) {
+      for (const handle of this.controlInteractions) handle.destroy();
+      this.controlInteractions = [];
+      this.controlsSignature = "";
+      return;
+    }
     const signature = JSON.stringify([
       this.confirmId,
       [...this.optimisticSwitches],
@@ -146,6 +149,8 @@ class ComponentCameraControllerV1 extends HTMLElement {
       ...this.bundleData.buttons.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
     ]);
     if (signature === this.controlsSignature) return;
+    for (const handle of this.controlInteractions) handle.destroy();
+    this.controlInteractions = [];
     this.controlsSignature = signature;
     const detections = this.shadowRoot.querySelector(".detection-list");
     const controls = this.shadowRoot.querySelector(".control-list");
@@ -175,6 +180,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
           apply: () => { const next = !reportedOn; this.optimisticSwitches.set(entity.entity_id, next); button.textContent = next ? "On" : "Off"; button.classList.toggle("on", next); button.setAttribute("aria-pressed", String(next)); row.querySelector(".ctl-state").textContent = next ? "On" : "Off"; },
           rollback: () => { this.optimisticSwitches.delete(entity.entity_id); this.controlsSignature = ""; if (this.dialog.open) this.renderControls(); },
         },
+        singleFlight: true,
         feedback: true,
       }));
       controls.append(row);
@@ -187,7 +193,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
       row.querySelector(".ctl-state").textContent = usable ? "Available" : "Unavailable";
       const button = row.querySelector("button");
       button.disabled = !usable; button.classList.toggle("confirm", this.confirmId === entity.entity_id); button.textContent = this.confirmId === entity.entity_id ? "Confirm" : "Run";
-      this.controlInteractions.push(interaction(button, { primary: () => this.press(entity.entity_id), optimistic: false, repeat: false, feedback: true }));
+      this.controlInteractions.push(interaction(button, { primary: () => this.press(entity.entity_id), optimistic: false, repeat: false, singleFlight: true, feedback: true }));
       maintenance.append(row);
     }
     this.shadowRoot.querySelector(".detections").hidden = !this.bundleData.detections.length;

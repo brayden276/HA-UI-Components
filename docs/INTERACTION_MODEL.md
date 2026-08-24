@@ -14,6 +14,7 @@ const handle = interaction(element, {
   hold: () => moreInfo(),
   optimistic: false,
   repeat: false,
+  singleFlight: false,
   feedback: true,
 });
 ```
@@ -106,6 +107,22 @@ The helper exposes semantic state without defining a second visual system:
 
 Components may use existing styles for those states where useful. The shared runtime itself does not change card colours, geometry, spacing or typography.
 
+### `singleFlight`
+
+Defaults to `false`. Set it to `true` for submit-like or slow actions that must
+not run twice while the returned promise is pending:
+
+```js
+interaction(runButton, {
+  primary: () => runMaintenanceAction(),
+  singleFlight: true,
+});
+```
+
+Do not enable it on repeat or continuously adjustable controls. The option is
+an interaction guard, not a replacement for idempotency in the Home Assistant
+service or backend handler.
+
 ### `onPressChange`
 
 Optional press lifecycle callback for continuous controls that must preserve a live DOM control while held:
@@ -134,7 +151,11 @@ Do not add component-specific long-press timers or pointer-distance calculations
 
 ## Keyboard activation
 
-Enter and Space activate `primary`. Icon-only controls must have an accessible name. Native range/select/input controls retain their native keyboard behaviour and are not wrapped in `interaction()` for value movement.
+Enter and Space activate `primary`. A synthetic click from assistive technology,
+voice control or `element.click()` uses the same action path and is de-duplicated
+from native pointer/keyboard clicks. Icon-only controls must have an accessible
+name. Native range/select/input controls retain their native keyboard behaviour
+and are not wrapped in `interaction()` for value movement.
 
 ## Reduced motion
 

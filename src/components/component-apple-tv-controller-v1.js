@@ -448,7 +448,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         .app-name{width:100%;font-size:11px;font-weight:650;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .panel-notice{padding:0 18px max(16px,env(safe-area-inset-bottom));margin:0;font-size:12px;color:var(--secondary-text-color)}
         .panel-notice:not(:empty){padding-top:10px;border-top:1px solid var(--divider-color)}
-        :is(button,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+        :is(button,input,.identity):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
         @media(max-width:420px){.panel{padding:8px}.sheet{width:calc(100vw - 16px);max-height:calc(100dvh - 16px);border-radius:20px}.wrap{padding:12px}.body{padding:14px}.dpad{width:min(270px,78vw)}.apps-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.app{border-radius:16px}.app-logo{width:44px;height:44px}}
       </style>
       <ha-card>
@@ -605,6 +605,15 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   renderPanel(model) {
+    const active = this.shadowRoot.activeElement;
+    const keyboardState = active?.classList?.contains("keyboard-input")
+      ? {
+          value: active.value,
+          start: active.selectionStart,
+          end: active.selectionEnd,
+          direction: active.selectionDirection,
+        }
+      : null;
     for (const handle of this.dynamicInteractions) handle.destroy();
     this.dynamicInteractions = [];
     const scrollTop = this.el.body.scrollTop;
@@ -625,6 +634,20 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       this.messageType === "error",
     );
     this.el.body.scrollTop = scrollTop;
+    if (keyboardState) {
+      const input = this.el.body.querySelector(".keyboard-input");
+      if (input) {
+        input.value = keyboardState.value;
+        const setButton = input.parentElement?.querySelector(".utility");
+        if (setButton) setButton.disabled = !input.value;
+        input.focus({ preventScroll: true });
+        input.setSelectionRange?.(
+          keyboardState.start,
+          keyboardState.end,
+          keyboardState.direction,
+        );
+      }
+    }
   }
 
   renderRemote(model) {

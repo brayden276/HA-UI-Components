@@ -82,6 +82,7 @@ const interaction = (element, options = {}) => {
   }
 
   const feedback = options.feedback !== false;
+  const singleFlight = options.singleFlight === true;
   const holdDelay = Math.max(250, Number(options.holdDelay) || INTERACTION_DEFAULTS.holdDelay);
   const moveTolerance = Math.max(4, Number(options.moveTolerance) || INTERACTION_DEFAULTS.moveTolerance);
   const optimistic = optimisticAdapter(options.optimistic, element);
@@ -93,6 +94,8 @@ const interaction = (element, options = {}) => {
   let repeatInterval = null;
   let repeatCount = 0;
   let suppressClick = false;
+  let suppressClickTimer = null;
+  let gestureConsumed = false;
   let pending = 0;
   let errorTimer = null;
   let destroyed = false;
@@ -100,8 +103,23 @@ const interaction = (element, options = {}) => {
 
   const disabled = () =>
     destroyed ||
+    (singleFlight && pending > 0) ||
     element.disabled === true ||
     element.getAttribute?.("aria-disabled") === "true";
+
+  const clearClickSuppression = () => {
+    clearTimeout(suppressClickTimer);
+    suppressClickTimer = null;
+    suppressClick = false;
+  };
+
+  const suppressNextClick = () => {
+    suppressClick = true;
+    clearTimeout(suppressClickTimer);
+    // Native click follows pointerup/keyup in the same task. Avoid leaving a
+    // stale suppression flag that could swallow a later programmatic click.
+    suppressClickTimer = setTimeout(clearClickSuppression, 0);
+  };
 
   const setPressed = (pressed) => {
     if (pressedState === pressed) return;
@@ -196,10 +214,18 @@ const interaction = (element, options = {}) => {
     repeatCount = 0;
     repeatTimer = setTimeout(() => {
       repeatTimer = null;
-      suppressClick = true;
+      if (destroyed || !pointer) return;
+      gestureConsumed = true;
+      suppressNextClick();
       const tick = () => {
+        if (destroyed || !pointer) {
+          clearInterval(repeatInterval);
+          repeatInterval = null;
+          return;
+        }
         repeatCount += 1;
         void invoke("primary", event).catch(() => {});
+        if (destroyed || !pointer) return;
         if (!repeat.accelerate) return;
         const next = Math.max(
           Number(repeat.minimumInterval) || INTERACTION_DEFAULTS.repeatMinimumInterval,
@@ -209,20 +235,25 @@ const interaction = (element, options = {}) => {
         repeatInterval = setInterval(tick, next);
       };
       void invoke("primary", event).catch(() => {});
-      repeatInterval = setInterval(tick, baseInterval);
+      // A synchronous primary action may destroy the interaction. Do not
+      // create an orphaned interval after that teardown.
+      if (!destroyed && pointer) repeatInterval = setInterval(tick, baseInterval);
     }, delay);
   };
 
   const onPointerDown = (event) => {
     if (!primary || disabled() || event.button > 0) return;
     pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
-    suppressClick = false;
+    gestureConsumed = false;
+    clearClickSuppression();
+    try { element.setPointerCapture?.(event.pointerId); } catch {}
     setPressed(true);
     if (hold) {
       holdTimer = setTimeout(() => {
         holdTimer = null;
         if (!pointer) return;
-        suppressClick = true;
+        gestureConsumed = true;
+        suppressNextClick();
         setPressed(false);
         void invoke("hold", event).catch(() => {});
       }, holdDelay);
@@ -234,31 +265,41 @@ const interaction = (element, options = {}) => {
   const onPointerMove = (event) => {
     if (!pointer || event.pointerId !== pointer.id) return;
     if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) <= moveTolerance) return;
-    suppressClick = true;
+    gestureConsumed = true;
+    suppressNextClick();
     cancelPointer();
   };
 
   const onPointerUp = (event) => {
     if (!pointer || event.pointerId !== pointer.id) return;
-    const wasSuppressed = suppressClick;
+    const wasConsumed = gestureConsumed;
     const wasRepeating = repeat && (repeatTimer === null || repeatInterval !== null);
     clearGestureTimers();
     pointer = null;
+    gestureConsumed = false;
     setPressed(false);
-    suppressClick = true;
-    if (!wasSuppressed && !wasRepeating) void invoke("primary", event).catch(() => {});
+    suppressNextClick();
+    if (!wasConsumed && !wasRepeating) void invoke("primary", event).catch(() => {});
   };
 
   const onPointerCancel = () => {
-    suppressClick = true;
+    gestureConsumed = false;
+    suppressNextClick();
     cancelPointer();
   };
 
   const onClick = (event) => {
-    if (!suppressClick || event.detail === 0) return;
-    event.preventDefault();
-    event.stopImmediatePropagation?.();
-    suppressClick = false;
+    if (suppressClick) {
+      event.preventDefault();
+      event.stopImmediatePropagation?.();
+      clearClickSuppression();
+      return;
+    }
+    // Screen readers, voice control and element.click() dispatch click without
+    // a preceding pointer or keyboard sequence. Treat click as a first-class
+    // activation path instead of silently ignoring it.
+    if (!primary || disabled()) return;
+    void invoke("primary", event).catch(() => {});
   };
 
   const onKeyDown = (event) => {
@@ -273,6 +314,7 @@ const interaction = (element, options = {}) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     setPressed(false);
+    suppressNextClick();
     void invoke("primary", event).catch(() => {});
   };
 
@@ -290,7 +332,9 @@ const interaction = (element, options = {}) => {
     destroyed = true;
     clearGestureTimers();
     clearTimeout(errorTimer);
+    clearTimeout(suppressClickTimer);
     errorTimer = null;
+    suppressClickTimer = null;
     signal?.removeEventListener?.("abort", destroy);
     pressedState = false;
     pending = 0;

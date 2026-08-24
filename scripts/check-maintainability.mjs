@@ -52,4 +52,20 @@ for (const helper of ["interaction", "createRequestCoalescer"]) {
   if (!interactions.includes(`${helper},`)) throw new Error(`Shared interaction runtime does not export ${helper}`);
 }
 
+const cameraController = await readFile(resolve(componentDirectory, "camera-controller.js"), "utf8");
+const cameraRenderControls = cameraController.slice(cameraController.indexOf("renderControls()"));
+const signatureGuard = cameraRenderControls.indexOf("if (signature === this.controlsSignature) return;");
+const dynamicTeardown = cameraRenderControls.indexOf("for (const handle of this.controlInteractions) handle.destroy();", signatureGuard);
+if (signatureGuard < 0 || dynamicTeardown < signatureGuard) {
+  throw new Error("camera-controller.js must retain live control interactions when its render signature is unchanged");
+}
+
+const appleTvController = await readFile(resolve(componentDirectory, "component-apple-tv-controller-v1.js"), "utf8");
+if (!appleTvController.includes(":is(button,input,.identity):focus-visible")) {
+  throw new Error("Apple TV identity control must retain a visible keyboard focus treatment");
+}
+if (!appleTvController.includes("const keyboardState = active?.classList?.contains(\"keyboard-input\")")) {
+  throw new Error("Apple TV panel refresh must preserve in-progress keyboard input");
+}
+
 console.log(`Maintainability check passed: ${componentFiles.length} descriptively named component modules use shared helpers`);

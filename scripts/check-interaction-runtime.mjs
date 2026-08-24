@@ -7,6 +7,16 @@ import vm from "node:vm";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = await readFile(resolve(root, "src/shared/interaction.js"), "utf8");
 const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+const liveIntervals = new Set();
+const trackedSetInterval = (...args) => {
+  const id = setInterval(...args);
+  liveIntervals.add(id);
+  return id;
+};
+const trackedClearInterval = (id) => {
+  liveIntervals.delete(id);
+  clearInterval(id);
+};
 
 class MockCustomEvent {
   constructor(type, options = {}) { this.type = type; Object.assign(this, options); }
@@ -17,6 +27,7 @@ class MockElement {
     this.disabled = false;
     this.attributes = new Map();
     this.listeners = new Map();
+    this.capturedPointer = null;
   }
   addEventListener(type, listener) {
     const rows = this.listeners.get(type) ?? [];
@@ -56,16 +67,17 @@ class MockElement {
     else this.attributes.delete(name);
     return enabled;
   }
+  setPointerCapture(pointerId) { this.capturedPointer = pointerId; }
 }
 
 const context = {
   AbortController,
   CustomEvent: MockCustomEvent,
-  clearInterval,
+  clearInterval: trackedClearInterval,
   clearTimeout,
   console,
   matchMedia: () => ({ matches: false }),
-  setInterval,
+  setInterval: trackedSetInterval,
   setTimeout,
 };
 context.globalThis = context;
@@ -78,7 +90,18 @@ const { interaction, createRequestCoalescer, waitForEntityState } = context.__HA
   interaction(element, { primary: () => { calls += 1; } });
   element.dispatch("pointerdown");
   element.dispatch("pointerup");
+  const click = element.dispatch("click");
   assert.equal(calls, 1, "pointer tap should invoke the primary action exactly once");
+  assert.equal(element.capturedPointer, 1, "pointer gestures should retain capture until completion");
+  assert.equal(click.defaultPrevented, true, "the follow-up native click should be consumed");
+}
+
+{
+  const element = new MockElement();
+  let calls = 0;
+  interaction(element, { primary: () => { calls += 1; } });
+  element.dispatch("click", { detail: 0 });
+  assert.equal(calls, 1, "assistive and programmatic click should invoke the primary action");
 }
 
 {
@@ -87,6 +110,7 @@ const { interaction, createRequestCoalescer, waitForEntityState } = context.__HA
   interaction(element, { primary: () => { calls += 1; } });
   element.dispatch("keydown", { key: "Enter", detail: 0 });
   element.dispatch("keyup", { key: "Enter", detail: 0 });
+  element.dispatch("click", { detail: 0 });
   assert.equal(calls, 1, "keyboard activation should invoke the primary action exactly once");
 }
 
@@ -127,6 +151,21 @@ const { interaction, createRequestCoalescer, waitForEntityState } = context.__HA
   await sleep(255);
   element.dispatch("pointerup");
   assert.ok(calls >= 2, "held repeat controls should issue repeated actions");
+  assert.equal(liveIntervals.size, 0, "repeat controls must clear their interval on pointer release");
+}
+
+{
+  const element = new MockElement();
+  let calls = 0;
+  let handle;
+  handle = interaction(element, {
+    primary: () => { calls += 1; handle.destroy(); },
+    repeat: { delay: 150, interval: 40 },
+  });
+  element.dispatch("pointerdown");
+  await sleep(190);
+  assert.equal(calls, 1, "repeat should allow a synchronous action to destroy its interaction");
+  assert.equal(liveIntervals.size, 0, "destroying during the first repeat must not create an orphaned interval");
 }
 
 {
@@ -172,6 +211,24 @@ const { interaction, createRequestCoalescer, waitForEntityState } = context.__HA
   assert.equal(element.hasAttribute("data-interaction-pending"), false, "destroy should clear pending feedback state");
   resolveRequest();
   await pending;
+}
+
+{
+  const element = new MockElement();
+  let calls = 0;
+  let release;
+  const gate = new Promise((resolvePromise) => { release = resolvePromise; });
+  const handle = interaction(element, {
+    primary: () => { calls += 1; return gate; },
+    singleFlight: true,
+  });
+  const first = handle.invoke();
+  await handle.invoke();
+  assert.equal(calls, 1, "single-flight controls must ignore duplicate submissions while pending");
+  release();
+  await first;
+  await handle.invoke();
+  assert.equal(calls, 2, "single-flight controls should become available after completion");
 }
 
 {
@@ -223,4 +280,4 @@ const { interaction, createRequestCoalescer, waitForEntityState } = context.__HA
   );
 }
 
-console.log("Interaction runtime check passed: tap, keyboard, disabled, hold, repeat, drag cancellation, rollback, lifecycle, coalescing and state confirmation");
+console.log("Interaction runtime check passed: pointer, assistive click, keyboard, disabled, hold, repeat lifecycle, single-flight, drag cancellation, rollback, coalescing and state confirmation");
