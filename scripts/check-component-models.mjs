@@ -12,7 +12,7 @@ context.__homeDashboardV2 = {
   areaOf(entity, registry) {
     return entity.area_id || registry.devices.find((device) => device.id === entity.device_id)?.area_id || null;
   },
-  uiEntry(entity) { return Boolean(entity?.entity_id && !entity.disabled_by && !entity.hidden_by); },
+  uiEntry(entity) { return Boolean(entity?.entity_id && !entity.disabled_by && !entity.hidden_by && !["diagnostic", "config"].includes(entity.entity_category)); },
 };
 const sandbox = vm.createContext(context);
 for (const file of ["src/shared/apple-tv-runtime.js", "src/shared/security-runtime.js"]) {
@@ -29,8 +29,8 @@ const securityRegistry = registryFixture({
   entities: [
     { entity_id: "camera.front_main", device_id: "camera-device", platform: "frigate", unique_id: "front_main", area_id: "front" },
     { entity_id: "camera.front_sub", device_id: "camera-device", platform: "frigate", unique_id: "front_sub", area_id: "front" },
-    { entity_id: "switch.front_recordings", device_id: "camera-device", platform: "frigate", translation_key: "recordings" },
-    { entity_id: "switch.front_detect", device_id: "camera-device", platform: "frigate", translation_key: "detect" },
+    { entity_id: "switch.front_recordings", device_id: "camera-device", platform: "frigate", translation_key: "recordings", entity_category: "config" },
+    { entity_id: "switch.front_detect", device_id: "camera-device", platform: "frigate", translation_key: "detect", entity_category: "config" },
     { entity_id: "binary_sensor.front_motion", device_id: "camera-device", platform: "frigate", translation_key: "motion" },
     { entity_id: "binary_sensor.garage_open", device_id: "garage-device", platform: "meross", area_id: "garage" },
     { entity_id: "button.garage_trigger", device_id: "garage-device", platform: "meross", translation_key: "trigger" },
