@@ -40,6 +40,7 @@ const securityRegistry = registryFixture({
 const securityHass = hassFixture({
   "camera.front_main": entityState("camera.front_main", "streaming", { entity_picture: "/api/camera_proxy/camera.front_main" }),
   "camera.front_sub": entityState("camera.front_sub", "streaming"),
+  "camera.front_hd": entityState("camera.front_hd", "streaming"),
   "switch.front_recordings": entityState("switch.front_recordings", "on"),
   "switch.front_detect": entityState("switch.front_detect", "on"),
   "binary_sensor.front_motion": entityState("binary_sensor.front_motion", "on", { device_class: "motion" }),
@@ -47,9 +48,14 @@ const securityHass = hassFixture({
   "button.garage_trigger": entityState("button.garage_trigger", "unknown"),
   "camera.hidden": entityState("camera.hidden", "streaming"),
 });
-const security = securityModel(securityHass, securityRegistry, { area_ids: ["front", "garage"] });
+const security = securityModel(securityHass, securityRegistry, {
+  area_ids: ["front", "garage"],
+  mappings: { "camera_stream:camera.front_main": "camera.front_hd" },
+});
 assert.equal(security.cameras.length, 1, "camera streams belonging to one device must collapse into one camera");
 assert.equal(security.cameras[0].entityId, "camera.front_main", "snapshot-capable stream must be preferred");
+assert.equal(security.cameras[0].streamEntityId, "camera.front_hd", "backend profile must select the full-resolution stream");
+assert.equal(security.cameras[0].name, "Front camera", "camera device names must remain distinguishable");
 assert.deepEqual([...security.cameras[0].switches.map((item) => item.role)], ["Recording", "Detection"]);
 assert.equal(security.cameras[0].ptz.length, 0, "PTZ must not be invented when no PTZ capability exists");
 assert.equal(security.entries.length, 1, "one physical entry must render once");
