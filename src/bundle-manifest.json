@@ -346,5 +346,9 @@
   {
     "order": 87,
     "file": "src/patches/config-contracts.js"
+  },
+  {
+    "order": 88,
+    "file": "src/patches/security-dashboard-live-polish.js"
   }
 ]
