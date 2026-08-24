@@ -33,6 +33,11 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
     return 1;
   }
 
+  connectedCallback() {
+    this._renderSignature = null;
+    this._render();
+  }
+
   disconnectedCallback() {
     window.clearTimeout(this.messageTimer);
     this.messageTimer = null;
