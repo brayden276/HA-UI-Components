@@ -47,6 +47,10 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
     this._clearInteractions();
   }
 
+  connectedCallback() {
+    if (this.c) this.r();
+  }
+
   _clearInteractions() {
     for (const handle of this._interactions) handle.destroy();
     this._interactions = [];
