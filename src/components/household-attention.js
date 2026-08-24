@@ -12,7 +12,7 @@ class ComponentHouseholdAttentionV1 extends HTMLElement{
     if(this._connection!==connection){this._unsubscribe();this._connection=connection;this._registry=null;this._loading=null}
     this._hass=h;this._subscribe();this._load();this._render();
   }
-  connectedCallback(){this._subscribe();this._load();this._render()}
+  connectedCallback(){this._subscribe();this._load();this._renderSignature=null;this._render()}
   disconnectedCallback(){for(const handle of this._interactionHandles)handle.destroy();this._interactionHandles=[];clearTimeout(this._refreshTimer);this._refreshTimer=null;this._unsubscribe()}
   getCardSize(){return this.c?.demo?2:1}
   _subscribe(){
