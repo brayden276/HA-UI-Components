@@ -2121,19 +2121,23 @@ const securityModel = (hass, registry, profile = {}) => {
   const include = new Set(profile.include_entities || []);
   const exclude = new Set(profile.exclude_entities || []);
   const areas = new Set(profile.area_ids || []);
-  // Visible entities choose what becomes a dashboard card.  Capability
-  // siblings are deliberately broader: camera integrations commonly classify
-  // recording/detection switches as config entities even though they are safe,
-  // contextual controls for an already-visible camera.
-  const candidates = (registry?.entities || []).filter((entity) => {
+  // First select dashboard roots by explicit inclusion / area. Then attach
+  // every live sibling from the selected root's device. Integrations such as
+  // Frigate often leave image/config entities unassigned even when the camera
+  // entity itself has an area, so applying the area filter to siblings loses
+  // detections and controls that belong to an otherwise selected camera.
+  const availableEntities = (registry?.entities || []).filter((entity) => {
     if (!entity?.entity_id || entity.disabled_by || entity.hidden_by || !hass?.states?.[entity.entity_id]) return false;
-    if (exclude.has(entity.entity_id)) return false;
+    return !exclude.has(entity.entity_id);
+  });
+  const candidates = availableEntities.filter((entity) => {
     if (include.has(entity.entity_id)) return true;
     return !areas.size || areas.has(securityHD.areaOf(entity, registry));
   });
   const entities = candidates.filter((entity) => securityHD?.uiEntry?.(entity));
+  const eligibleOwners = new Set(candidates.map((entity) => entity.device_id || entity.entity_id));
   const byDevice = new Map();
-  for (const entity of candidates) {
+  for (const entity of availableEntities) {
     const owner = entity.device_id || entity.entity_id;
     const siblings = byDevice.get(owner) || [];
     siblings.push(entity);
@@ -2142,6 +2146,7 @@ const securityModel = (hass, registry, profile = {}) => {
 
   const cameras = [];
   for (const [owner, siblings] of byDevice) {
+    if (!eligibleOwners.has(owner)) continue;
     const cameraEntities = siblings.filter((entity) =>
       securityDomain(entity.entity_id) === "camera" && securityHD?.uiEntry?.(entity),
     );
@@ -9488,6 +9493,23 @@ customElements.whenDefined("component-home-overview-v4").then(() => {
     if (element) install(type, element);
   }
 })();
+}
+
+// Module: src/patches/security-dashboard-live-polish.js
+{
+/** Live-render polish for the rebuilt Security dashboard. */
+const SecurityDashboardLivePolish = customElements.get("component-security-dashboard-v1");
+if (SecurityDashboardLivePolish) {
+  const originalRenderCameras = SecurityDashboardLivePolish.prototype.renderCameras;
+  SecurityDashboardLivePolish.prototype.renderCameras = function renderCamerasWithStableEmptyState(cameras) {
+    originalRenderCameras.call(this, cameras);
+    if (this.elements?.cameraEmpty) {
+      // Author-level `.empty { display:grid }` otherwise overrides the browser's
+      // hidden presentation, leaving a contradictory empty-state under live cameras.
+      this.elements.cameraEmpty.style.display = cameras.length ? "none" : "";
+    }
+  };
+}
 }
 
 globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "10.0.0", components: 45 });
