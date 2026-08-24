@@ -81,6 +81,16 @@ const securityModel = (hass, registry, profile = {}) => {
       const deviceClass = hass.states[item.entity_id]?.attributes?.device_class || "";
       return /^(motion|occupancy|presence|sound)$/.test(deviceClass) || /detect|motion|person|human/.test(capabilityText(item));
     });
+    const classifications = siblings
+      .filter((item) => securityDomain(item.entity_id) === "image")
+      .map((item) => {
+        const label = entityLabel(hass, item);
+        const deviceName = String(device.name_by_user || device.name || "").trim();
+        const name = deviceName && label.toLowerCase().startsWith(`${deviceName.toLowerCase()} `)
+          ? label.slice(deviceName.length).trim()
+          : label;
+        return { entity: item, name };
+      });
     const actions = siblings
       .filter((item) => securityDomain(item.entity_id) === "button" && actionRole(item) !== "action")
       .map((item) => ({ entity: item, role: actionRole(item) }));
@@ -105,6 +115,7 @@ const securityModel = (hass, registry, profile = {}) => {
       streamEntityId,
       switches,
       detections,
+      classifications,
       actions,
       ptz,
     });
