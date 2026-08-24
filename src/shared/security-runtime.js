@@ -85,6 +85,11 @@ const securityModel = (hass, registry, profile = {}) => {
       .filter((item) => securityDomain(item.entity_id) === "button" && actionRole(item) !== "action")
       .map((item) => ({ entity: item, role: actionRole(item) }));
     const ptz = siblings.filter((item) => ["button", "number", "select"].includes(securityDomain(item.entity_id)) && ptzRole(item));
+    const mappedStream = profile.mappings?.[`camera_stream:${entity.entity_id}`] || profile.mappings?.[`camera_stream:${owner}`] || null;
+    const mappedStreamState = mappedStream ? hass.states[mappedStream] : null;
+    const streamEntityId = mappedStreamState && !badSecurityState.has(String(mappedStreamState.state).toLowerCase())
+      ? mappedStream
+      : entity.entity_id;
     const online = Boolean(state && !badSecurityState.has(String(state.state).toLowerCase()));
     const active = detections.some((item) => hass.states[item.entity_id]?.state === "on");
     cameras.push({
@@ -92,11 +97,12 @@ const securityModel = (hass, registry, profile = {}) => {
       deviceId: entity.device_id || null,
       entityId: entity.entity_id,
       entities: cameraEntities.map((item) => item.entity_id),
-      name: String(device.name_by_user || "").trim() || areaName || entityLabel(hass, entity),
+      name: String(device.name_by_user || device.name || "").trim() || areaName || entityLabel(hass, entity),
       areaId,
       areaName,
       online,
       active,
+      streamEntityId,
       switches,
       detections,
       actions,
