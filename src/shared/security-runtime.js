@@ -30,7 +30,7 @@ const actionRole = (entity) => {
 
 const securityModel = (hass, registry, profile = {}) => {
   if (registry?.error) {
-    return { error: registry.error, cameras: [], entries: [], attention: [], allClear: false };
+    return { error: registry.error, cameras: [], entries: [], quickActions: [], attention: [], allClear: false };
   }
   const include = new Set(profile.include_entities || []);
   const exclude = new Set(profile.exclude_entities || []);
@@ -150,6 +150,30 @@ const securityModel = (hass, registry, profile = {}) => {
   }
   entries.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
 
+  const supportedQuickActions = new Map([
+    ["automation", "trigger"],
+    ["scene", "turn_on"],
+    ["script", "turn_on"],
+  ]);
+  const quickActions = Object.entries(profile.mappings || {}).flatMap(([role, entityId]) => {
+    if (!role.startsWith("quick_action:")) return [];
+    const domain = securityDomain(entityId);
+    const service = supportedQuickActions.get(domain);
+    const state = hass?.states?.[entityId];
+    if (!service || !state) return [];
+    const entity = (registry?.entities || []).find((item) => item.entity_id === entityId) || { entity_id: entityId };
+    return [{
+      id: role.slice("quick_action:".length),
+      entityId,
+      domain,
+      service,
+      name: entityLabel(hass, entity),
+      icon: state.attributes?.icon || (domain === "script" ? "mdi:script-text-outline" : domain === "scene" ? "mdi:palette-outline" : "mdi:robot-outline"),
+      available: !badSecurityState.has(String(state.state).toLowerCase()),
+    }];
+  });
+  quickActions.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+
   const attention = [
     ...cameras.filter((camera) => !camera.online).map((camera) => ({ type: "camera-offline", label: `${camera.name} unavailable`, entityId: camera.entityId })),
     ...cameras.filter((camera) => camera.active).map((camera) => ({ type: "camera-activity", label: `${camera.name} activity`, entityId: camera.entityId })),
@@ -159,6 +183,7 @@ const securityModel = (hass, registry, profile = {}) => {
     error: null,
     cameras,
     entries,
+    quickActions,
     attention,
     allClear: attention.length === 0,
     onlineCameras: cameras.filter((camera) => camera.online).length,
@@ -176,6 +201,7 @@ const loadSecurityModel = async (hass, profileId = "household-security", options
       error,
       cameras: [],
       entries: [],
+      quickActions: [],
       attention: [],
       allClear: false,
       onlineCameras: 0,

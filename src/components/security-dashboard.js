@@ -2,6 +2,7 @@
 const {
   createOverlayController,
   interaction,
+  loadSecurityModel,
   openMoreInfo,
   registerCard,
 } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
@@ -17,12 +18,18 @@ class ComponentSecurityDashboardV1 extends HTMLElement {
     this.interactions = [];
     this.viewerStream = null;
     this.viewerEntityId = null;
+    this.quickSequence = 0;
+    this.quickInteractions = [];
+    this.quickResetTimers = new Set();
+    this.profileListener = (event) => {
+      if (event.detail?.kind === "security" && event.detail?.profileId === this.config?.profile) this.refreshQuickActions(true);
+    };
     this.shadowRoot.innerHTML = `<style>
-      :host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}.layout{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}.entries:has(> [hidden]){display:none}
+      :host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}.layout{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}.entries:has(> [hidden]){display:none}.quick{margin-top:8px}.quick-head{min-height:32px;padding:0 2px;display:flex;align-items:center;margin-bottom:8px}.quick-head h2{margin:0;font-size:15px;line-height:1.2;font-weight:600}.quick-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.quick-action{appearance:none;min-width:0;min-height:60px;padding:8px 10px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--card-background-color);color:var(--primary-text-color);font:inherit;text-align:left;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:9px;cursor:pointer}.quick-action:hover{background:var(--secondary-background-color)}.quick-action:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.quick-action:disabled{cursor:default;opacity:.45}.quick-icon{width:36px;height:36px;display:grid;place-items:center;color:var(--primary-color)}.quick-icon ha-icon{--mdc-icon-size:21px}.quick-copy{min-width:0}.quick-name,.quick-state{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.quick-name{font-size:13px;font-weight:650}.quick-state{margin-top:3px;font-size:13px;color:var(--secondary-text-color)}
       .overlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:12px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,rgba(0,0,0,.42)));overscroll-behavior:contain}.sheet{width:min(600px,calc(100vw - 24px));max-height:calc(100dvh - 24px);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,var(--ha-card-border-radius,16px));background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.24))}.head{flex:0 0 auto;min-height:56px;padding:6px 7px 6px 14px;border-bottom:1px solid var(--divider-color);display:flex;align-items:center;gap:8px}.title{min-width:0;flex:1;font-size:14px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.head-action,.close{appearance:none;min-width:44px;height:44px;padding:0 10px;border:0;border-radius:10px;background:transparent;color:var(--secondary-text-color);display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}.head-action:hover,.close:hover{background:var(--secondary-background-color);color:var(--primary-text-color)}.head-action:focus-visible,.close:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.head-action ha-icon,.close ha-icon{--mdc-icon-size:20px}.head-action span{font-size:13px;font-weight:600}.body{min-height:0;overflow:auto;overscroll-behavior:contain;padding:12px 14px max(14px,env(safe-area-inset-bottom))}
       .viewer-overlay{background:color-mix(in srgb,var(--dashboard-media-surface,#111) 84%,transparent)}.viewer-sheet{width:min(1120px,calc(100vw - 24px));max-height:calc(100dvh - 24px)}.viewer-body{position:relative;min-height:0;aspect-ratio:16/9;display:grid;place-items:center;overflow:hidden;background:var(--dashboard-media-surface,#111)}.viewer-stream{display:block;width:100%;height:100%;min-height:0;color:var(--dashboard-media-on-surface,#fff)}
-      @media(max-width:700px){.overlay{padding:0}.sheet{width:100vw;max-width:100vw;max-height:92dvh;margin:auto 0 0;border-width:1px 0 0;border-radius:16px 16px 0 0}.viewer-sheet{height:100dvh;max-height:100dvh;margin:0;border-width:0;border-radius:0}.viewer-body{flex:1 1 auto;aspect-ratio:auto}.body{padding:10px 12px max(18px,env(safe-area-inset-bottom))}.head-action span{display:none}.head-action{padding:0}}
-    </style><div class="layout"><div class="summary"></div><div class="wall"></div><div class="entries"></div></div>
+      @media(max-width:700px){.overlay{padding:0}.sheet{width:100vw;max-width:100vw;max-height:92dvh;margin:auto 0 0;border-width:1px 0 0;border-radius:16px 16px 0 0}.viewer-sheet{height:100dvh;max-height:100dvh;margin:0;border-width:0;border-radius:0}.viewer-body{flex:1 1 auto;aspect-ratio:auto}.body{padding:10px 12px max(18px,env(safe-area-inset-bottom))}.head-action span{display:none}.head-action{padding:0}.quick-list{grid-template-columns:minmax(0,1fr)}}
+    </style><div class="layout"><div class="summary"></div><div class="wall"></div><section class="quick" hidden><div class="quick-head"><h2>Quick actions</h2></div><div class="quick-list"></div></section><div class="entries"></div></div>
     <section class="overlay controls-overlay" role="dialog" aria-modal="true" aria-labelledby="security-controls-title" hidden><div class="sheet controls-sheet"><div class="head"><span class="title controls-title" id="security-controls-title">Camera settings</span><button class="close controls-close" type="button" aria-label="Close camera settings"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body controls-body"></div></div></section>
     <section class="overlay viewer-overlay" role="dialog" aria-modal="true" aria-labelledby="security-viewer-title" hidden><div class="sheet viewer-sheet"><div class="head"><span class="title viewer-title" id="security-viewer-title">Camera</span><button class="head-action viewer-details" type="button"><ha-icon icon="mdi:information-outline"></ha-icon><span>Details</span></button><button class="close viewer-close" type="button" aria-label="Close camera viewer"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="viewer-body"></div></div></section>`;
     this.controlsOverlay = this.shadowRoot.querySelector(".controls-overlay");
@@ -40,6 +47,7 @@ class ComponentSecurityDashboardV1 extends HTMLElement {
   setConfig(config) {
     this.config = { profile: "household-security", camera_columns: 2, ...(config || {}) };
     this.ensure();
+    this.refreshQuickActions();
   }
 
   set hass(hass) {
@@ -49,15 +57,80 @@ class ComponentSecurityDashboardV1 extends HTMLElement {
       this.viewerStream.hass = hass;
       this.viewerStream.stateObj = hass?.states?.[this.viewerEntityId];
     }
+    this.refreshQuickActions();
   }
 
-  connectedCallback() { this.bind(); this.ensure(); }
+  connectedCallback() { window.addEventListener("ha-component-profile-change", this.profileListener); this.bind(); this.ensure(); this.refreshQuickActions(); }
 
   disconnectedCallback() {
     for (const handle of this.interactions) handle.destroy();
     this.interactions = [];
+    window.removeEventListener("ha-component-profile-change", this.profileListener);
+    this.clearQuickActions();
     this.closeCameraControls(false);
     this.closeCameraViewer(false);
+  }
+
+  clearQuickActions() {
+    for (const handle of this.quickInteractions) handle.destroy();
+    this.quickInteractions = [];
+    for (const timer of this.quickResetTimers) clearTimeout(timer);
+    this.quickResetTimers.clear();
+    this.shadowRoot.querySelector(".quick-list")?.replaceChildren();
+  }
+
+  async refreshQuickActions(force = false) {
+    if (!this._hass || !this.config) return;
+    const sequence = ++this.quickSequence;
+    try {
+      const model = await loadSecurityModel(this._hass, this.config.profile, { force });
+      if (sequence !== this.quickSequence || !this.isConnected) return;
+      this.renderQuickActions(model.quickActions || []);
+    } catch {
+      if (sequence === this.quickSequence && this.isConnected) this.renderQuickActions([]);
+    }
+  }
+
+  renderQuickActions(actions) {
+    this.clearQuickActions();
+    const section = this.shadowRoot.querySelector(".quick");
+    const list = this.shadowRoot.querySelector(".quick-list");
+    section.hidden = actions.length === 0;
+    for (const action of actions) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "quick-action";
+      button.disabled = !action.available;
+      button.setAttribute("aria-label", `${action.name}. ${action.available ? "Run quick action" : "Unavailable"}.`);
+      button.innerHTML = '<span class="quick-icon"><ha-icon></ha-icon></span><span class="quick-copy"><span class="quick-name"></span><span class="quick-state" role="status" aria-live="polite"></span></span>';
+      button.querySelector("ha-icon").setAttribute("icon", action.icon);
+      button.querySelector(".quick-name").textContent = action.name;
+      button.querySelector(".quick-state").textContent = action.available ? "Run" : "Unavailable";
+      this.quickInteractions.push(interaction(button, {
+        primary: () => this.runQuickAction(action, button),
+        singleFlight: true,
+        feedback: true,
+      }));
+      list.append(button);
+    }
+  }
+
+  async runQuickAction(action, button) {
+    const state = button.querySelector(".quick-state");
+    state.textContent = "Running…";
+    try {
+      await this._hass.callService(action.domain, action.service, { entity_id: action.entityId });
+      state.textContent = "Started";
+    } catch (error) {
+      state.textContent = error?.message || "Could not start";
+      throw error;
+    } finally {
+      const timer = setTimeout(() => {
+        this.quickResetTimers.delete(timer);
+        if (button.isConnected) state.textContent = action.available ? "Run" : "Unavailable";
+      }, 3200);
+      this.quickResetTimers.add(timer);
+    }
   }
 
   getCardSize() { return 12; }

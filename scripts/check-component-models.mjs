@@ -36,6 +36,7 @@ const securityRegistry = registryFixture({
     { entity_id: "image.front_car", device_id: "camera-device", platform: "frigate", name: "Car" },
     { entity_id: "binary_sensor.garage_open", device_id: "garage-device", platform: "meross", area_id: "garage" },
     { entity_id: "button.garage_trigger", device_id: "garage-device", platform: "meross", translation_key: "trigger" },
+    { entity_id: "script.muster_dogs", platform: "script", name: "Muster Dogs" },
     { entity_id: "camera.hidden", device_id: "hidden-device", platform: "demo", hidden_by: "user" },
   ],
 });
@@ -50,11 +51,12 @@ const securityHass = hassFixture({
   "image.front_car": entityState("image.front_car", "2026-08-24T09:00:00Z", { entity_picture: "/api/image_proxy/image.front_car" }),
   "binary_sensor.garage_open": entityState("binary_sensor.garage_open", "on", { device_class: "garage_door" }),
   "button.garage_trigger": entityState("button.garage_trigger", "unknown"),
+  "script.muster_dogs": entityState("script.muster_dogs", "off", { icon: "mdi:dog-service" }),
   "camera.hidden": entityState("camera.hidden", "streaming"),
 });
 const security = securityModel(securityHass, securityRegistry, {
   area_ids: ["front", "garage"],
-  mappings: { "camera_stream:camera.front_main": "camera.front_hd" },
+  mappings: { "camera_stream:camera.front_main": "camera.front_hd", "quick_action:muster-dogs": "script.muster_dogs" },
 });
 assert.equal(security.cameras.length, 1, "camera streams belonging to one device must collapse into one camera");
 assert.equal(security.cameras[0].entityId, "camera.front_main", "snapshot-capable stream must be preferred");
@@ -63,6 +65,7 @@ assert.equal(security.cameras[0].name, "Front camera", "camera device names must
 assert.deepEqual([...security.cameras[0].switches.map((item) => item.role)], ["Recording", "Detection"]);
 assert.deepEqual([...security.cameras[0].classifications.map((item) => item.name)].sort(), ["Car", "Person"], "Frigate image entities must provide classification snapshots");
 assert.equal(security.cameras[0].ptz.length, 0, "PTZ must not be invented when no PTZ capability exists");
+assert.deepEqual(security.quickActions.map((item) => [item.name, item.domain, item.service]), [["Muster Dogs", "script", "turn_on"]], "profile-mapped quick actions must remain backend driven");
 assert.equal(security.entries.length, 1, "one physical entry must render once");
 assert.equal(security.entries[0].controlEntityId, "button.garage_trigger");
 assert.equal(security.allClear, false);
