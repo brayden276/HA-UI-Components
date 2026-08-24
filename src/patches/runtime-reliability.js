@@ -26,7 +26,6 @@
 
   const retainedLocalFields = new Map([
     ["component-context-strip-v3", ["_interaction"]],
-    ["metric-pair-card-v3", ["_interactions"]],
     ["component-history-graph-v2", ["interactions"]],
     ["component-single-kpi-v2", ["_interaction"]],
     ["component-three-stat-v2", ["_interactions"]],
@@ -50,9 +49,6 @@
     ["component-welcome-header-v1", ["_interaction"]],
     ["component-wled-controller-v1", ["_interactionHandles"]],
     ["component-garage-door-controller-v1", ["interactions"]],
-    ["component-camera-controller-v1", ["interactionHandles", "controlInteractions"]],
-    ["solar-daylight-card-v7", ["_interaction"]],
-    ["energy-history-card-v3", ["_interactionHandles"]],
   ]);
   for (const [type, fields] of retainedLocalFields) {
     patch(type, (prototype) => preserveLocalInteractionFields(prototype, fields));

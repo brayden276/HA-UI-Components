@@ -68,10 +68,27 @@ const optimisticAdapter = (optimistic, element) => {
   throw new TypeError(`Unsupported optimistic interaction mode: ${optimistic}`);
 };
 
+const ensureInteractionFeedback = (element) => {
+  const root = element.getRootNode?.();
+  if (!root?.append || root.__haInteractionFeedbackV2) return null;
+  root.__haInteractionFeedbackV2 = true;
+  const style = document.createElement("style");
+  style.setAttribute("data-ha-interaction-styles", "v2");
+  style.textContent = interactionStyles;
+  const status = document.createElement("span");
+  status.setAttribute("data-ha-interaction-status", "v2");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  status.setAttribute("aria-atomic", "true");
+  root.append(style, status);
+  return status;
+};
+
 const interaction = (element, options = {}) => {
   if (!element?.addEventListener) {
     throw new TypeError("interaction requires an EventTarget element");
   }
+  const feedbackStatus = ensureInteractionFeedback(element);
 
   const primary = typeof options.primary === "function" ? options.primary : null;
   const hold = typeof options.hold === "function" ? options.hold : null;
@@ -139,6 +156,8 @@ const interaction = (element, options = {}) => {
     if (!feedback || destroyed) return;
     clearTimeout(errorTimer);
     element.setAttribute?.("data-interaction-error", "true");
+    const liveStatus = feedbackStatus || element.getRootNode?.()?.querySelector?.("[data-ha-interaction-status]");
+    if (liveStatus) liveStatus.textContent = options.errorMessage || "Action failed. Try again.";
     errorTimer = setTimeout(() => {
       errorTimer = null;
       if (!destroyed) element.removeAttribute?.("data-interaction-error");
@@ -447,8 +466,35 @@ const waitForEntityState = (hassOrProvider, entityId, predicate, options = {}) =
 };
 
 const interactionStyles = `
+[data-interaction-pressed="true"] {
+  transform: scale(.985);
+  filter: brightness(.96);
+  transition: transform var(--dashboard-transition-fast, 80ms) var(--dashboard-easing-standard, ease-out), filter var(--dashboard-transition-fast, 80ms) var(--dashboard-easing-standard, ease-out);
+}
+[data-interaction-pending="true"] {
+  cursor: progress !important;
+  opacity: .72;
+  transition: opacity var(--dashboard-transition-standard, 120ms) var(--dashboard-easing-standard, ease-out);
+}
+[data-interaction-error="true"] {
+  outline: 2px solid var(--error-color, #db4437) !important;
+  outline-offset: 2px;
+}
+[data-ha-interaction-status="v2"] {
+  position: fixed !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
 @media (prefers-reduced-motion: reduce) {
-  [data-interaction-pressed="true"] { transition-duration: 0s !important; }
+  [data-interaction-pressed="true"], [data-interaction-pending="true"] {
+    transition-duration: 0s !important;
+  }
 }
 `;
 

@@ -46,13 +46,18 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.controls = this.shadowRoot.querySelector(".controls");
     this.dialog = this.shadowRoot.querySelector("dialog");
     this.identity = this.shadowRoot.querySelector(".identity");
+    this.bindInteractions();
+    this.dialog.onclick = (event) => { if (event.target === this.dialog) this.dialog.close(); };
+  }
+
+  bindInteractions() {
+    if (this.interactionHandles.length) return;
     this.interactionHandles.push(
       interaction(this.view, { primary: () => this.openCamera(), feedback: true }),
       interaction(this.identity, { primary: () => this.openCamera(), feedback: true }),
       interaction(this.controls, { primary: () => this.openControls(), feedback: true }),
       interaction(this.shadowRoot.querySelector(".close"), { primary: () => this.dialog.close(), feedback: true }),
     );
-    this.dialog.onclick = (event) => { if (event.target === this.dialog) this.dialog.close(); };
   }
 
   setConfig(config) { if (!config?.entity) throw new Error("Camera controller requires entity"); this.config = { ...config }; this.data = null; this.bundleData = null; this.controlsSignature = ""; this.load(); }
@@ -66,7 +71,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
       this.load();
     }
   }
-  connectedCallback() { this.subscribe(); this.load(); }
+  connectedCallback() { this.bindInteractions(); this.subscribe(); this.load(); }
   disconnectedCallback() { for (const handle of this.interactionHandles) handle.destroy(); this.interactionHandles = []; for (const handle of this.controlInteractions) handle.destroy(); this.controlInteractions = []; this.optimisticSwitches.clear(); this.unsubscribe?.(); this.unsubscribe = null; clearTimeout(this.confirmTimer); }
   getCardSize() { return 1; }
   subscribe() {

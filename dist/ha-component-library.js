@@ -1,5 +1,5 @@
 /**
- * HA Component Library v9.0.0
+ * HA Component Library v10.0.0
  * Generated HACS Dashboard bundle.
  *
  * Source is organised by component under src/components. Shared logic lives
@@ -28,6 +28,7 @@ const escapeHtml = (value) =>
   );
 
 const registerCard = ({ type, element, name, description, preview = true }) => {
+  componentLibraryShared.installConfigContract?.(type, element);
   if (!customElements.get(type)) customElements.define(type, element);
   window.customCards ??= [];
   if (!window.customCards.some((card) => card.type === type)) {
@@ -152,10 +153,27 @@ const optimisticAdapter = (optimistic, element) => {
   throw new TypeError(`Unsupported optimistic interaction mode: ${optimistic}`);
 };
 
+const ensureInteractionFeedback = (element) => {
+  const root = element.getRootNode?.();
+  if (!root?.append || root.__haInteractionFeedbackV2) return null;
+  root.__haInteractionFeedbackV2 = true;
+  const style = document.createElement("style");
+  style.setAttribute("data-ha-interaction-styles", "v2");
+  style.textContent = interactionStyles;
+  const status = document.createElement("span");
+  status.setAttribute("data-ha-interaction-status", "v2");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  status.setAttribute("aria-atomic", "true");
+  root.append(style, status);
+  return status;
+};
+
 const interaction = (element, options = {}) => {
   if (!element?.addEventListener) {
     throw new TypeError("interaction requires an EventTarget element");
   }
+  const feedbackStatus = ensureInteractionFeedback(element);
 
   const primary = typeof options.primary === "function" ? options.primary : null;
   const hold = typeof options.hold === "function" ? options.hold : null;
@@ -223,6 +241,8 @@ const interaction = (element, options = {}) => {
     if (!feedback || destroyed) return;
     clearTimeout(errorTimer);
     element.setAttribute?.("data-interaction-error", "true");
+    const liveStatus = feedbackStatus || element.getRootNode?.()?.querySelector?.("[data-ha-interaction-status]");
+    if (liveStatus) liveStatus.textContent = options.errorMessage || "Action failed. Try again.";
     errorTimer = setTimeout(() => {
       errorTimer = null;
       if (!destroyed) element.removeAttribute?.("data-interaction-error");
@@ -531,8 +551,35 @@ const waitForEntityState = (hassOrProvider, entityId, predicate, options = {}) =
 };
 
 const interactionStyles = `
+[data-interaction-pressed="true"] {
+  transform: scale(.985);
+  filter: brightness(.96);
+  transition: transform var(--dashboard-transition-fast, 80ms) var(--dashboard-easing-standard, ease-out), filter var(--dashboard-transition-fast, 80ms) var(--dashboard-easing-standard, ease-out);
+}
+[data-interaction-pending="true"] {
+  cursor: progress !important;
+  opacity: .72;
+  transition: opacity var(--dashboard-transition-standard, 120ms) var(--dashboard-easing-standard, ease-out);
+}
+[data-interaction-error="true"] {
+  outline: 2px solid var(--error-color, #db4437) !important;
+  outline-offset: 2px;
+}
+[data-ha-interaction-status="v2"] {
+  position: fixed !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
 @media (prefers-reduced-motion: reduce) {
-  [data-interaction-pressed="true"] { transition-duration: 0s !important; }
+  [data-interaction-pressed="true"], [data-interaction-pending="true"] {
+    transition-duration: 0s !important;
+  }
 }
 `;
 
@@ -543,6 +590,613 @@ Object.assign(interactionShared, {
   interactionStyles,
   prefersReducedMotion: reducedMotion,
   waitForEntityState,
+});
+}
+
+// Module: src/shared/lifecycle.js
+{
+/** Owned lifecycle and dialog primitives for retained Home Assistant cards. */
+const lifecycleShared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ??= {};
+
+const createLifecycle = (host) => {
+  let controller = null;
+  let cleanups = [];
+
+  const connect = () => {
+    if (controller && !controller.signal.aborted) return controller.signal;
+    controller = new AbortController();
+    return controller.signal;
+  };
+
+  const cleanup = (callback) => {
+    if (typeof callback !== "function") return callback;
+    cleanups.push(callback);
+    return callback;
+  };
+
+  const listen = (target, type, listener, options = {}) => {
+    const signal = connect();
+    target?.addEventListener?.(type, listener, { ...options, signal });
+    return listener;
+  };
+
+  const disconnect = () => {
+    controller?.abort(new Error("Component disconnected"));
+    controller = null;
+    const pending = cleanups;
+    cleanups = [];
+    for (const callback of pending.reverse()) {
+      try { callback(); } catch {}
+    }
+  };
+
+  return Object.freeze({
+    cleanup,
+    connect,
+    disconnect,
+    get connected() { return Boolean(controller && !controller.signal.aborted); },
+    get signal() { return connect(); },
+    host,
+    listen,
+  });
+};
+
+const createDialogController = (host, dialog, options = {}) => {
+  let trigger = null;
+  let busy = false;
+  const focusable = () => [...dialog.querySelectorAll?.(
+    'button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+  ) || []].filter((element) => !element.hidden);
+
+  const restore = () => {
+    const target = trigger;
+    trigger = null;
+    queueMicrotask(() => target?.isConnected && target.focus?.());
+  };
+  const close = (reason = "dismiss") => {
+    if (busy && reason !== "complete") return false;
+    if (dialog.open) dialog.close(reason);
+    return true;
+  };
+  const open = (from) => {
+    trigger = from || host.shadowRoot?.activeElement || document.activeElement;
+    if (!dialog.open) dialog.showModal();
+    queueMicrotask(() => (options.initialFocus?.() || focusable()[0] || dialog).focus?.());
+  };
+  const onCancel = (event) => {
+    if (busy || options.dismissible === false) event.preventDefault();
+  };
+  const onClick = (event) => {
+    if (event.target === dialog && options.clickOutside !== false) close("outside");
+  };
+  const onKeyDown = (event) => {
+    if (event.key !== "Tab") return;
+    const items = focusable();
+    if (!items.length) return;
+    const first = items[0], last = items.at(-1);
+    if (event.shiftKey && event.target === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && event.target === last) { event.preventDefault(); first.focus(); }
+  };
+  dialog.addEventListener("cancel", onCancel);
+  dialog.addEventListener("click", onClick);
+  dialog.addEventListener("keydown", onKeyDown);
+  dialog.addEventListener("close", restore);
+  return Object.freeze({
+    close,
+    destroy() {
+      dialog.removeEventListener("cancel", onCancel);
+      dialog.removeEventListener("click", onClick);
+      dialog.removeEventListener("keydown", onKeyDown);
+      dialog.removeEventListener("close", restore);
+    },
+    get busy() { return busy; },
+    open,
+    setBusy(value) {
+      busy = Boolean(value);
+      dialog.toggleAttribute("aria-busy", busy);
+    },
+  });
+};
+
+const createOverlayController = (host, overlay, options = {}) => {
+  let trigger = null;
+  let locks = [];
+  let opened = false;
+  const focusable = () => [...overlay.querySelectorAll?.(
+    'button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+  ) || []].filter((element) => !element.hidden);
+  const composedParent = (node) => node?.parentElement || node?.getRootNode?.()?.host || null;
+  const restore = () => {
+    const target = trigger;
+    trigger = null;
+    queueMicrotask(() => target?.isConnected && target.focus?.());
+  };
+  const lockBackground = () => {
+    if (locks.length) return;
+    const candidates = new Set([document.documentElement, document.body]);
+    let node = host;
+    while ((node = composedParent(node))) {
+      const style = globalThis.getComputedStyle?.(node);
+      if (/auto|scroll|overlay/.test(`${style?.overflow || ""} ${style?.overflowY || ""}`)) candidates.add(node);
+    }
+    locks = [...candidates].filter(Boolean).map((element) => ({
+      element,
+      overflow: element.style.overflow,
+      overflowY: element.style.overflowY,
+      overscrollBehavior: element.style.overscrollBehavior,
+    }));
+    for (const lock of locks) {
+      lock.element.style.overflow = "hidden";
+      lock.element.style.overflowY = "hidden";
+      lock.element.style.overscrollBehavior = "none";
+    }
+  };
+  const unlockBackground = () => {
+    for (const lock of locks) {
+      lock.element.style.overflow = lock.overflow;
+      lock.element.style.overflowY = lock.overflowY;
+      lock.element.style.overscrollBehavior = lock.overscrollBehavior;
+    }
+    locks = [];
+  };
+  const close = (restoreFocus = true) => {
+    if (!opened) return;
+    opened = false;
+    overlay.hidden = true;
+    document.removeEventListener?.("focusin", focusGuard, true);
+    unlockBackground();
+    if (restoreFocus) restore();
+    else trigger = null;
+  };
+  const requestClose = (reason) => {
+    if (options.canDismiss?.(reason) === false) return;
+    if (options.onDismiss) options.onDismiss(reason);
+    else close(true);
+  };
+  const focusGuard = (event) => {
+    if (!opened || event.composedPath?.().includes(host)) return;
+    queueMicrotask(() => (options.initialFocus?.() || focusable()[0] || overlay).focus?.());
+  };
+  const onClick = (event) => {
+    if (event.target === overlay && options.clickOutside !== false) requestClose("outside");
+  };
+  const onKeyDown = (event) => {
+    if (event.key === "Escape" && options.dismissible !== false) {
+      event.preventDefault();
+      requestClose("escape");
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const items = focusable();
+    if (!items.length) return;
+    const first = items[0], last = items.at(-1), active = host.shadowRoot?.activeElement;
+    if (event.shiftKey && active === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
+  };
+  overlay.addEventListener("click", onClick);
+  host.shadowRoot?.addEventListener("keydown", onKeyDown);
+  return Object.freeze({
+    close,
+    destroy() {
+      close(false);
+      overlay.removeEventListener("click", onClick);
+      host.shadowRoot?.removeEventListener("keydown", onKeyDown);
+    },
+    get open() { return opened; },
+    open(from) {
+      if (opened) return;
+      trigger = from || host.shadowRoot?.activeElement || document.activeElement;
+      opened = true;
+      overlay.hidden = false;
+      lockBackground();
+      document.addEventListener?.("focusin", focusGuard, true);
+      queueMicrotask(() => (options.initialFocus?.() || focusable()[0] || overlay).focus?.());
+    },
+  });
+};
+
+Object.assign(lifecycleShared, { createDialogController, createLifecycle, createOverlayController });
+}
+
+// Module: src/shared/async-broker.js
+{
+/** Shared stale-while-refresh request broker with coalescing and backoff. */
+const asyncShared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ??= {};
+
+const createAsyncBroker = (loader, defaults = {}) => {
+  if (typeof loader !== "function") throw new TypeError("createAsyncBroker requires a loader");
+  const entries = new Map();
+  const ttl = Math.max(0, Number(defaults.ttl) || 120000);
+  const maxStale = Math.max(ttl, Number(defaults.maxStale) || 86400000);
+  const retryBase = Math.max(250, Number(defaults.retryBase) || 2000);
+  const retryMax = Math.max(retryBase, Number(defaults.retryMax) || 60000);
+
+  const entryFor = (key) => {
+    if (!entries.has(key)) entries.set(key, {
+      value: undefined, error: null, updatedAt: 0, promise: null,
+      failures: 0, nextRetryAt: 0, subscribers: new Set(), sequence: 0,
+      invalidated: false, generation: 0,
+    });
+    return entries.get(key);
+  };
+  const snapshot = (key) => {
+    const entry = entryFor(key), age = entry.updatedAt ? Date.now() - entry.updatedAt : Infinity;
+    return Object.freeze({
+      value: entry.value,
+      error: entry.error,
+      loading: Boolean(entry.promise),
+      stale: entry.value !== undefined && (entry.invalidated || age > ttl),
+      updatedAt: entry.updatedAt,
+    });
+  };
+  const notify = (key) => {
+    const current = snapshot(key);
+    for (const subscriber of [...entryFor(key).subscribers]) {
+      try { subscriber(current); } catch {}
+    }
+  };
+  const refresh = (key, context, force = false) => {
+    const entry = entryFor(key), now = Date.now();
+    if (entry.promise) return entry.promise;
+    if (!force && now < entry.nextRetryAt) {
+      return entry.value !== undefined ? Promise.resolve(entry.value) : Promise.reject(entry.error);
+    }
+    const sequence = ++entry.sequence, generation = entry.generation;
+    entry.promise = Promise.resolve()
+      .then(() => loader(key, context, sequence))
+      .then((value) => {
+        if (sequence !== entry.sequence) return entry.value;
+        entry.value = value;
+        entry.error = null;
+        entry.updatedAt = Date.now();
+        entry.failures = 0;
+        entry.nextRetryAt = 0;
+        entry.invalidated = entry.generation !== generation;
+        return value;
+      })
+      .catch((error) => {
+        if (sequence !== entry.sequence) return entry.value;
+        entry.error = error instanceof Error ? error : new Error(String(error));
+        entry.failures += 1;
+        entry.nextRetryAt = Date.now() + Math.min(retryMax, retryBase * (2 ** (entry.failures - 1)));
+        if (entry.value !== undefined && Date.now() - entry.updatedAt <= maxStale) return entry.value;
+        throw entry.error;
+      })
+      .finally(() => {
+        if (sequence === entry.sequence) entry.promise = null;
+        notify(key);
+      });
+    notify(key);
+    return entry.promise;
+  };
+
+  return Object.freeze({
+    clear() { entries.clear(); },
+    invalidate(key) {
+      const entry = entries.get(key);
+      if (!entry) return;
+      entry.invalidated = true;
+      entry.generation += 1;
+      entry.nextRetryAt = 0;
+      notify(key);
+    },
+    peek: snapshot,
+    async read(key, context, options = {}) {
+      const current = snapshot(key), age = current.updatedAt ? Date.now() - current.updatedAt : Infinity;
+      const entry = entryFor(key);
+      if (!options.force && !entry.invalidated && current.value !== undefined && age <= ttl) return current.value;
+      if (!options.force && current.value !== undefined && age <= maxStale) {
+        void refresh(key, context).catch(() => {});
+        return current.value;
+      }
+      let value;
+      try {
+        value = await refresh(key, context, options.force === true);
+      } catch (error) {
+        if (!(options.force && entryFor(key).invalidated)) throw error;
+        value = await refresh(key, context, true);
+      }
+      if (options.force && entryFor(key).invalidated) value = await refresh(key, context, true);
+      return value;
+    },
+    refresh: (key, context) => refresh(key, context, true),
+    subscribe(key, subscriber, options = {}) {
+      const entry = entryFor(key);
+      entry.subscribers.add(subscriber);
+      if (options.replay !== false) subscriber(snapshot(key));
+      return () => entry.subscribers.delete(subscriber);
+    },
+  });
+};
+
+Object.assign(asyncShared, { createAsyncBroker });
+}
+
+// Module: src/shared/localisation.js
+{
+/** Home Assistant-aware locale, timezone and unit formatting. */
+const localeShared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ??= {};
+
+const localeOf = (hass) => {
+  const locale = hass?.locale?.language || navigator.language || "en-AU";
+  return locale === "en" ? "en-AU" : locale;
+};
+const timeZoneOf = (hass) => hass?.config?.time_zone || undefined;
+const numberFormat = (hass, value, options = {}) => {
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? new Intl.NumberFormat(localeOf(hass), options).format(number)
+    : "—";
+};
+const formatPower = (hass, value, options = {}) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const absolute = options.absolute ? Math.abs(number) : number;
+  if (Math.abs(absolute) >= 1000) {
+    return `${numberFormat(hass, absolute / 1000, { maximumFractionDigits: 1 })} kW`;
+  }
+  return `${numberFormat(hass, Math.round(absolute), { maximumFractionDigits: 0 })} W`;
+};
+const formatEnergy = (hass, value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return `${numberFormat(hass, number, { maximumFractionDigits: Math.abs(number) < 1 ? 2 : 1 })} kWh`;
+};
+const formatDate = (hass, value, options) => new Intl.DateTimeFormat(
+  localeOf(hass), { timeZone: timeZoneOf(hass), ...options },
+).format(new Date(value));
+const formatCalendarDay = (hass, value, options = {}) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  if (!match) return "—";
+  return formatDate(hass, Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12), {
+    timeZone: "UTC", ...options,
+  });
+};
+const calendarDayRange = (hass, value) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  if (!match) return null;
+  const year = Number(match[1]), month = Number(match[2]) - 1, day = Number(match[3]);
+  const zone = timeZoneOf(hass);
+  if (!zone) {
+    const start = new Date(year, month, day).getTime();
+    return { start, end: new Date(year, month, day + 1).getTime() };
+  }
+  const formatter = new Intl.DateTimeFormat("en-AU", {
+    timeZone: zone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  });
+  const instantFor = (targetYear, targetMonth, targetDay) => {
+    const target = Date.UTC(targetYear, targetMonth, targetDay);
+    let instant = target;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const parts = Object.fromEntries(formatter.formatToParts(new Date(instant)).map((part) => [part.type, part.value]));
+      const represented = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
+      instant += target - represented;
+    }
+    return instant;
+  };
+  return {
+    start: instantFor(year, month, day),
+    end: instantFor(year, month, day + 1),
+  };
+};
+const formatTime = (hass, value, options = {}) => formatDate(hass, value, {
+  hour: "numeric", minute: "2-digit", ...options,
+});
+
+Object.assign(localeShared, {
+  calendarDayRange,
+  formatDate,
+  formatCalendarDay,
+  formatEnergy,
+  formatPower,
+  formatTime,
+  localeOf,
+  numberFormat,
+  timeZoneOf,
+});
+}
+
+// Module: src/shared/apple-tv-runtime.js
+{
+/** Pure capability and presentation model for Apple TV components. */
+const appleShared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ??= {};
+
+const APPLE_TV_INVALID_STATES = new Set(["unknown", "unavailable", "none", ""]);
+const APPLE_TV_FEATURES = Object.freeze({
+  PAUSE: 1,
+  MUTE: 8,
+  PREVIOUS: 16,
+  NEXT: 32,
+  PLAY: 512,
+  STEP_VOLUME: 1024,
+  SOURCE: 2048,
+  STOP: 4096,
+});
+const APPLE_TV_NAV = Object.freeze([
+  ["up", "Up", "mdi:chevron-up"],
+  ["left", "Left", "mdi:chevron-left"],
+  ["select", "Select", "mdi:circle-outline"],
+  ["right", "Right", "mdi:chevron-right"],
+  ["down", "Down", "mdi:chevron-down"],
+  ["menu", "Menu", "mdi:keyboard-return"],
+  ["home", "Home", "mdi:home-variant-outline"],
+  ["top_menu", "Top menu", "mdi:format-list-bulleted"],
+]);
+const APPLE_TV_APP_ICONS = Object.freeze([
+  [/netflix/i, "mdi:netflix"],
+  [/youtube/i, "mdi:youtube"],
+  [/spotify/i, "mdi:spotify"],
+  [/prime video|amazon/i, "mdi:amazon"],
+  [/plex/i, "mdi:plex"],
+  [/twitch/i, "mdi:twitch"],
+  [/vlc/i, "mdi:vlc"],
+  [/apple tv|apple music|music/i, "mdi:apple"],
+  [/disney/i, "mdi:castle"],
+  [/kayo|sport/i, "mdi:soccer"],
+  [/binge|stan|paramount|movie/i, "mdi:movie-open-play-outline"],
+]);
+
+const appleTvLabel = (value) => String(value || "")
+  .replaceAll("_", " ")
+  .replace(/^./, (letter) => letter.toUpperCase());
+const appleTvDomain = (entityId) => String(entityId || "").split(".")[0];
+const appleTvValid = (state) => Boolean(
+  state && !APPLE_TV_INVALID_STATES.has(String(state.state).toLowerCase()),
+);
+const appleTvSupported = (state, feature) => Boolean(
+  (Number(state?.attributes?.supported_features) || 0) & feature,
+);
+const appleTvAppIcon = (source, configured = {}) => {
+  const override = configured?.[source];
+  if (typeof override === "string" && override.trim()) return override.trim();
+  return APPLE_TV_APP_ICONS.find(([pattern]) => pattern.test(source))?.[1] || "mdi:application-outline";
+};
+
+const appleTvDemoState = (entityId) => {
+  if (entityId === "remote.demo_apple_tv") {
+    return {
+      state: "on",
+      attributes: {
+        supported_commands: APPLE_TV_NAV.map(([command]) => command).concat(["wakeup", "suspend"]),
+      },
+    };
+  }
+  if (entityId === "binary_sensor.demo_apple_tv_keyboard_focus") return { state: "off", attributes: {} };
+  return {
+    state: "playing",
+    attributes: {
+      friendly_name: "Apple TV 4K",
+      source: "Netflix",
+      source_list: ["Netflix", "YouTube", "Apple TV", "Disney+", "Prime Video", "Spotify"],
+      volume_level: 0.42,
+      supported_features: APPLE_TV_FEATURES.PAUSE |
+        APPLE_TV_FEATURES.PLAY |
+        APPLE_TV_FEATURES.MUTE |
+        APPLE_TV_FEATURES.STEP_VOLUME |
+        APPLE_TV_FEATURES.SOURCE |
+        APPLE_TV_FEATURES.PREVIOUS |
+        APPLE_TV_FEATURES.NEXT |
+        APPLE_TV_FEATURES.STOP,
+    },
+  };
+};
+
+const appleTvDiscovery = (config, registry, hass) => {
+  if (config?.demo) {
+    return {
+      media: config.entity,
+      remote: "remote.demo_apple_tv",
+      keyboard: "binary_sensor.demo_apple_tv_keyboard_focus",
+      configEntryId: "demo",
+    };
+  }
+  const shared = globalThis.__homeDashboardV2?.appleTvRegistry?.(
+    config?.entity, registry, hass, { deviceId: config?.device_id },
+  );
+  if (shared) {
+    return {
+      media: config?.entity,
+      remote: shared.remoteEntityId,
+      keyboard: shared.keyboardEntityId,
+      configEntryId: shared.configEntryId,
+    };
+  }
+  const all = registry?.entities || [];
+  const mediaEntry = all.find((entry) => entry.entity_id === config?.entity);
+  const siblings = mediaEntry?.device_id ? registry?.byDevice?.get(mediaEntry.device_id) || [] : [];
+  const usable = (entry) => entry && !entry.disabled_by && !entry.hidden_by &&
+    (entry.platform === "apple_tv" || entry.config_entry_id === mediaEntry?.config_entry_id);
+  const remote = siblings.find((entry) => usable(entry) && appleTvDomain(entry.entity_id) === "remote");
+  const keyboard = siblings.find((entry) => usable(entry) &&
+    appleTvDomain(entry.entity_id) === "binary_sensor" &&
+    /keyboard.*focus|focus.*keyboard/i.test(`${entry.entity_id} ${entry.name || ""} ${entry.original_name || ""}`));
+  return {
+    media: config?.entity,
+    remote: remote?.entity_id || null,
+    keyboard: keyboard?.entity_id || null,
+    configEntryId: mediaEntry?.config_entry_id || remote?.config_entry_id || keyboard?.config_entry_id || null,
+  };
+};
+
+const appleTvModel = (hass, config, registry) => {
+  const entities = appleTvDiscovery(config, registry, hass);
+  const state = (entityId) => entityId
+    ? (hass?.states?.[entityId] ?? (config?.demo ? appleTvDemoState(entityId) : null))
+    : null;
+  const media = state(entities.media), remote = state(entities.remote), keyboard = state(entities.keyboard);
+  const raw = String(media?.state || "unknown").toLowerCase();
+  const available = appleTvValid(media);
+  const sleeping = available && ["off", "standby"].includes(raw);
+  const awake = available && !sleeping;
+  const attrs = media?.attributes || {};
+  const commands = Array.isArray(remote?.attributes?.supported_commands)
+    ? new Set(remote.attributes.supported_commands)
+    : null;
+  const remoteUsable = appleTvValid(remote);
+  const remoteCan = (command) => remoteUsable && (!commands || commands.has(command));
+  const level = Number(attrs.volume_level);
+  const hasLevel = Number.isFinite(level) && level >= 0 && level <= 1;
+  const playing = awake && raw === "playing";
+  const paused = awake && raw === "paused";
+  const idle = awake && ["idle", "on", "buffering"].includes(raw);
+  const sources = Array.isArray(attrs.source_list)
+    ? [...new Set(attrs.source_list
+      .filter((source) => typeof source === "string")
+      .map((source) => source.trim())
+      .filter(Boolean))]
+    : [];
+  const keyboardFocused = awake && appleTvValid(keyboard) && String(keyboard.state).toLowerCase() === "on";
+
+  return Object.freeze({
+    entities,
+    media,
+    remote,
+    available,
+    awake,
+    sleeping,
+    playing,
+    paused,
+    idle,
+    sources,
+    currentSource: attrs.app_name || attrs.source || null,
+    level: hasLevel ? level : null,
+    muted: attrs.is_volume_muted === true,
+    canWake: sleeping && remoteCan("wakeup"),
+    canSleep: awake && remoteCan("suspend"),
+    canNavigate: awake && remoteUsable && APPLE_TV_NAV.some(([command]) => remoteCan(command)),
+    canPlay: awake && (paused || idle) && appleTvSupported(media, APPLE_TV_FEATURES.PLAY),
+    canPause: playing && appleTvSupported(media, APPLE_TV_FEATURES.PAUSE),
+    canStop: (playing || paused) && appleTvSupported(media, APPLE_TV_FEATURES.STOP),
+    canPrevious: (playing || paused) && appleTvSupported(media, APPLE_TV_FEATURES.PREVIOUS),
+    canNext: (playing || paused) && appleTvSupported(media, APPLE_TV_FEATURES.NEXT),
+    canVolumeUp: awake && appleTvSupported(media, APPLE_TV_FEATURES.STEP_VOLUME),
+    canVolumeDown: awake && appleTvSupported(media, APPLE_TV_FEATURES.STEP_VOLUME),
+    canMute: awake && appleTvSupported(media, APPLE_TV_FEATURES.MUTE),
+    canSelectSource: awake && sources.length > 0 && appleTvSupported(media, APPLE_TV_FEATURES.SOURCE),
+    keyboardFocused,
+    canSetKeyboardText: keyboardFocused && Boolean(entities.configEntryId),
+    canAppendKeyboardText: keyboardFocused && Boolean(entities.configEntryId),
+    canClearKeyboardText: keyboardFocused && Boolean(entities.configEntryId),
+    status: !available
+      ? raw === "unknown" ? "Status unknown" : "Apple TV unavailable"
+      : [
+        sleeping ? "Sleeping" : playing ? "Playing" : paused ? "Paused" : idle ? "Idle" : appleTvLabel(raw),
+        attrs.app_name || attrs.source,
+      ].filter(Boolean).join(" · "),
+  });
+};
+
+Object.assign(appleShared, {
+  APPLE_TV_FEATURES,
+  APPLE_TV_NAV,
+  appleTvAppIcon,
+  appleTvDiscovery,
+  appleTvLabel,
+  appleTvModel,
+  appleTvSupported,
+  appleTvValid,
 });
 }
 
@@ -577,7 +1231,7 @@ Object.assign(globalThis.__HA_COMPONENT_LIBRARY_SHARED__, { loadDashboardRegistr
 const DASHBOARD_SHARED_STYLE_ID="dashboard-shared-ui-tokens-v3";
 let dashboardSharedStyle=document.getElementById(DASHBOARD_SHARED_STYLE_ID);
 if(!dashboardSharedStyle){dashboardSharedStyle=document.createElement("style");dashboardSharedStyle.id=DASHBOARD_SHARED_STYLE_ID;document.head.append(dashboardSharedStyle)}
-dashboardSharedStyle.textContent=":root{--dashboard-radius-card:8px;--dashboard-radius-control:6px;--dashboard-radius-dialog:10px;--dashboard-radius-icon:0px;--dashboard-modal-scrim:rgba(0,0,0,.16);--dashboard-card-surface:var(--ha-card-background,var(--card-background-color));--dashboard-card-muted-surface:color-mix(in srgb,var(--primary-text-color) 3%,var(--card-background-color));--dashboard-card-border-color:color-mix(in srgb,var(--primary-text-color) 10%,transparent);--dashboard-card-border:1px solid var(--dashboard-card-border-color);--dashboard-active-surface:color-mix(in srgb,var(--primary-color) 7%,var(--card-background-color));--dashboard-warning-surface:color-mix(in srgb,var(--warning-color,#f9a825) 9%,var(--card-background-color));--dashboard-critical-surface:color-mix(in srgb,var(--error-color) 8%,var(--card-background-color));--dashboard-dialog-shadow:0 16px 48px rgba(0,0,0,.22);--ha-card-border-radius:var(--dashboard-radius-card);--ha-card-box-shadow:none;--ha-card-border-width:1px;--ha-card-border-color:var(--dashboard-card-border-color);--mush-card-border-radius:var(--dashboard-radius-card);--bubble-border-radius:var(--dashboard-radius-card);--bubble-main-background-color:var(--dashboard-card-surface);--bubble-secondary-background-color:transparent;--bubble-accent-color:var(--primary-color);--bubble-border:var(--dashboard-card-border);--bubble-icon-border-radius:var(--dashboard-radius-icon);--bubble-icon-background-color:transparent;--bubble-sub-button-border-radius:var(--dashboard-radius-control);--bubble-sub-button-background-color:transparent;--bubble-button-main-background-color:var(--dashboard-card-surface);--bubble-button-border-radius:var(--dashboard-radius-card);--bubble-button-icon-border-radius:var(--dashboard-radius-icon);--bubble-button-icon-background-color:transparent;--bubble-button-box-shadow:none;--bubble-media-player-border-radius:var(--dashboard-radius-card);--bubble-media-player-buttons-border-radius:var(--dashboard-radius-control);--bubble-media-player-buttons-background-color:transparent;--bubble-media-player-icon-border-radius:var(--dashboard-radius-icon);--bubble-media-player-icon-background-color:transparent;--bubble-cover-border-radius:var(--dashboard-radius-card);--bubble-cover-icon-border-radius:var(--dashboard-radius-icon);--bubble-cover-icon-background-color:transparent;--bubble-select-border-radius:var(--dashboard-radius-card);--bubble-select-button-border-radius:var(--dashboard-radius-control);--bubble-select-button-background-color:transparent;--bubble-select-icon-border-radius:var(--dashboard-radius-icon);--bubble-select-icon-background-color:transparent;--bubble-climate-border-radius:var(--dashboard-radius-card);--bubble-climate-icon-border-radius:var(--dashboard-radius-icon);--bubble-climate-button-background-color:transparent;--bubble-calendar-border-radius:var(--dashboard-radius-card);--bubble-pop-up-border-radius:var(--dashboard-radius-dialog);--bubble-pop-up-main-background-color:var(--card-background-color);--bubble-pop-up-box-shadow:var(--dashboard-dialog-shadow);--bubble-backdrop-background-color:var(--dashboard-modal-scrim);--ha-dialog-scrim-color:var(--dashboard-modal-scrim)}@media(max-width:700px){:root{--dashboard-radius-dialog:8px}}";
+dashboardSharedStyle.textContent=":root{--dashboard-space-1:4px;--dashboard-space-2:8px;--dashboard-space-3:12px;--dashboard-space-4:16px;--dashboard-space-5:24px;--dashboard-control-height:44px;--dashboard-icon-size:22px;--dashboard-transition-fast:80ms;--dashboard-transition-standard:160ms;--dashboard-easing-standard:cubic-bezier(.2,0,0,1);--dashboard-focus-ring:2px solid var(--primary-color);--dashboard-focus-offset:2px;--dashboard-layer-popover:20;--dashboard-layer-overlay:1000;--dashboard-media-surface:#111;--dashboard-media-on-surface:#fff;--dashboard-radius-card:8px;--dashboard-radius-control:6px;--dashboard-radius-dialog:10px;--dashboard-radius-icon:0px;--dashboard-modal-scrim:rgba(0,0,0,.16);--dashboard-card-surface:var(--ha-card-background,var(--card-background-color));--dashboard-card-muted-surface:color-mix(in srgb,var(--primary-text-color) 3%,var(--card-background-color));--dashboard-card-border-color:color-mix(in srgb,var(--primary-text-color) 10%,transparent);--dashboard-card-border:1px solid var(--dashboard-card-border-color);--dashboard-active-surface:color-mix(in srgb,var(--primary-color) 7%,var(--card-background-color));--dashboard-warning-surface:color-mix(in srgb,var(--warning-color,#f9a825) 9%,var(--card-background-color));--dashboard-critical-surface:color-mix(in srgb,var(--error-color) 8%,var(--card-background-color));--dashboard-dialog-shadow:0 16px 48px rgba(0,0,0,.22);--ha-card-border-radius:var(--dashboard-radius-card);--ha-card-box-shadow:none;--ha-card-border-width:1px;--ha-card-border-color:var(--dashboard-card-border-color);--mush-card-border-radius:var(--dashboard-radius-card);--bubble-border-radius:var(--dashboard-radius-card);--bubble-main-background-color:var(--dashboard-card-surface);--bubble-secondary-background-color:transparent;--bubble-accent-color:var(--primary-color);--bubble-border:var(--dashboard-card-border);--bubble-icon-border-radius:var(--dashboard-radius-icon);--bubble-icon-background-color:transparent;--bubble-sub-button-border-radius:var(--dashboard-radius-control);--bubble-sub-button-background-color:transparent;--bubble-button-main-background-color:var(--dashboard-card-surface);--bubble-button-border-radius:var(--dashboard-radius-card);--bubble-button-icon-border-radius:var(--dashboard-radius-icon);--bubble-button-icon-background-color:transparent;--bubble-button-box-shadow:none;--bubble-media-player-border-radius:var(--dashboard-radius-card);--bubble-media-player-buttons-border-radius:var(--dashboard-radius-control);--bubble-media-player-buttons-background-color:transparent;--bubble-media-player-icon-border-radius:var(--dashboard-radius-icon);--bubble-media-player-icon-background-color:transparent;--bubble-cover-border-radius:var(--dashboard-radius-card);--bubble-cover-icon-border-radius:var(--dashboard-radius-icon);--bubble-cover-icon-background-color:transparent;--bubble-select-border-radius:var(--dashboard-radius-card);--bubble-select-button-border-radius:var(--dashboard-radius-control);--bubble-select-button-background-color:transparent;--bubble-select-icon-border-radius:var(--dashboard-radius-icon);--bubble-select-icon-background-color:transparent;--bubble-climate-border-radius:var(--dashboard-radius-card);--bubble-climate-icon-border-radius:var(--dashboard-radius-icon);--bubble-climate-button-background-color:transparent;--bubble-calendar-border-radius:var(--dashboard-radius-card);--bubble-pop-up-border-radius:var(--dashboard-radius-dialog);--bubble-pop-up-main-background-color:var(--card-background-color);--bubble-pop-up-box-shadow:var(--dashboard-dialog-shadow);--bubble-backdrop-background-color:var(--dashboard-modal-scrim);--ha-dialog-scrim-color:var(--dashboard-modal-scrim)}@media(max-width:700px){:root{--dashboard-radius-dialog:8px}}@media(prefers-reduced-motion:reduce){:root{--dashboard-transition-fast:0ms;--dashboard-transition-standard:0ms}}";
 }
 
 // Module: src/shared/split-system-registry.js
@@ -769,6 +1423,38 @@ class DashboardPreferenceEditorV2 extends HTMLElement{constructor(){super();this
 if(!customElements.get('dashboard-preference-editor-v2'))customElements.define('dashboard-preference-editor-v2',DashboardPreferenceEditorV2);
 }
 
+// Module: src/shared/registry-health.js
+{
+/** Distinguish a genuinely empty registry from a registry request failure. */
+(() => {
+  const registry = globalThis.__homeDashboardV2?.REG;
+  if (!registry || registry.__healthAwareV1) return;
+  registry.__healthAwareV1 = true;
+  const originalLoad = registry.load;
+  registry.load = async function healthAwareRegistryLoad(hass, force = false) {
+    const result = await originalLoad.call(this, hass, force);
+    if (result?.error || result?.areas?.length || result?.devices?.length || result?.entities?.length) return result;
+    const connection = hass?.connection;
+    if (!connection?.sendMessagePromise) {
+      return { ...result, error: { code: "connection_unavailable", message: "Home Assistant registry connection is unavailable" } };
+    }
+    try {
+      const verification = await Promise.all([
+        connection.sendMessagePromise({ type: "config/area_registry/list" }),
+        connection.sendMessagePromise({ type: "config/device_registry/list" }),
+        connection.sendMessagePromise({ type: "config/entity_registry/list" }),
+      ]);
+      if (verification.every((items) => Array.isArray(items) && items.length === 0)) return result;
+      return originalLoad.call(this, hass, true);
+    } catch (error) {
+      const failed = { ...result, error: { code: error?.code || "registry_unavailable", message: error?.message || "Home Assistant registries are unavailable" } };
+      this.data = failed;
+      return failed;
+    }
+  };
+})();
+}
+
 // Module: src/shared/wled-runtime.js
 {
 /** Shared WLED registry helpers used by the controller and dashboard integration. */
@@ -920,7 +1606,75 @@ registerCard({ type: "component-empty-state-v2", element: ComponentEmptyStateV2,
 
 // Module: src/support/dashboard-preference-editor.js
 {
-class DashboardPreferenceEditorV3 extends HTMLElement{constructor(){super();this.attachShadow({mode:'open'});this.built=false;this.hiddenIds=new Set}open(o){this.o=o;this.items=o.items.map(x=>({...x}));const ids=new Set(this.items.map(x=>x.id));this.hiddenIds=new Set((o.hidden||[]).filter(id=>ids.has(id)));this.build();this.render();this.d.showModal();queueMicrotask(()=>this.shadowRoot.querySelector('.x')?.focus())}build(){if(this.built)return;this.built=true;this.shadowRoot.innerHTML=`<style>*{box-sizing:border-box}dialog{width:min(560px,calc(100vw - 24px));max-height:min(760px,calc(100dvh - 24px));border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,8px);padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.hd{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--divider-color);background:var(--card-background-color)}h2{font-size:16px;line-height:1.2;font-weight:500;margin:0}.x,.move,.vis{width:44px;height:44px;border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center;color:var(--secondary-text-color)}.x ha-icon,.move ha-icon,.vis ha-icon{--mdc-icon-size:17px}.body{padding:12px 14px 88px}.copy{font-size:12px;color:var(--secondary-text-color);line-height:1.45;margin:0 2px 10px}.rows{display:grid;gap:7px}.row{min-height:56px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px}.row.off{opacity:.52}.ico{width:32px;height:32px;display:grid;place-items:center;color:var(--secondary-text-color)}.ico ha-icon{--mdc-icon-size:18px}.name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{font-size:12px;color:var(--secondary-text-color);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.acts{display:flex}.move[disabled]{opacity:.22}.vis.off{color:var(--error-color)}.ft{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-top:1px solid var(--divider-color);background:var(--card-background-color)}.count{font-size:12px;color:var(--secondary-text-color)}.buttons{display:flex;gap:8px}.cancel,.save{min-height:42px;padding:0 13px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,6px);background:transparent;font-size:13px;font-weight:500}.save{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}:is(button):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}</style><dialog><div class="hd"><h2></h2><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"><div class="copy"></div><div class="rows"></div></div><div class="ft"><span class="count"></span><span class="buttons"><button class="cancel" type="button">Cancel</button><button class="save" type="button">Save</button></span></div></dialog>`;this.d=this.shadowRoot.querySelector('dialog');this.d.addEventListener('click',e=>{if(e.target===this.d)this.d.close()});this.shadowRoot.querySelector('.x').onclick=()=>this.d.close();this.shadowRoot.querySelector('.cancel').onclick=()=>this.d.close();this.shadowRoot.querySelector('.save').onclick=()=>this.save()}render(){this.shadowRoot.querySelector('h2').textContent=this.o.title||'Edit';this.shadowRoot.querySelector('.copy').textContent=this.o.description||'Reorder or hide items.';const rows=this.shadowRoot.querySelector('.rows');rows.replaceChildren();this.items.forEach((x,i)=>{const r=document.createElement('div'),off=this.hiddenIds.has(x.id);r.className=`row ${off?'off':''}`;r.innerHTML=`<span class="ico"><ha-icon icon="${x.icon||'mdi:circle-outline'}"></ha-icon></span><span><div class="name"></div><div class="meta"></div></span><span class="acts"><button class="move up" type="button" aria-label="Move earlier" ${i===0?'disabled':''}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="move down" type="button" aria-label="Move later" ${i===this.items.length-1?'disabled':''}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="vis ${off?'off':''}" type="button" aria-label="${off?'Show':'Hide'}"><ha-icon icon="mdi:${off?'eye-outline':'eye-off-outline'}"></ha-icon></button></span>`;r.querySelector('.name').textContent=x.name;r.querySelector('.meta').textContent=x.meta||'';r.querySelector('.up').onclick=()=>this.move(i,-1);r.querySelector('.down').onclick=()=>this.move(i,1);r.querySelector('.vis').onclick=()=>{off?this.hiddenIds.delete(x.id):this.hiddenIds.add(x.id);this.render()};rows.append(r)});this.shadowRoot.querySelector('.count').textContent=`${this.items.length-this.hiddenIds.size} of ${this.items.length} shown`}move(i,d){const n=i+d;if(n<0||n>=this.items.length)return;[this.items[i],this.items[n]]=[this.items[n],this.items[i]];this.render()}async save(){const b=this.shadowRoot.querySelector('.save');b.disabled=true;b.textContent='Saving…';try{await this.o.onSave?.({order:this.items.map(x=>x.id),hidden:[...this.hiddenIds]});this.d.close()}finally{b.disabled=false;b.textContent='Save'}}}if(!customElements.get('dashboard-preference-editor-v3'))customElements.define('dashboard-preference-editor-v3',DashboardPreferenceEditorV3);
+class DashboardPreferenceEditorV3 extends HTMLElement{constructor(){super();this.attachShadow({mode:'open'});this.built=false;this.hiddenIds=new Set}open(o){this.o=o;this.items=o.items.map(x=>({...x}));const ids=new Set(this.items.map(x=>x.id));this.hiddenIds=new Set((o.hidden||[]).filter(id=>ids.has(id)));this.build();this.render();this.d.showModal();queueMicrotask(()=>this.shadowRoot.querySelector('.x')?.focus())}build(){if(this.built)return;this.built=true;this.shadowRoot.innerHTML=`<style>*{box-sizing:border-box}dialog{width:min(560px,calc(100vw - 24px));max-height:min(760px,calc(100dvh - 24px));border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,8px);padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.hd{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--divider-color);background:var(--card-background-color)}h2{font-size:16px;line-height:1.2;font-weight:500;margin:0}.x,.move,.vis{width:44px;height:44px;border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center;color:var(--secondary-text-color)}.x ha-icon,.move ha-icon,.vis ha-icon{--mdc-icon-size:17px}.body{padding:12px 14px 88px}.copy{font-size:12px;color:var(--secondary-text-color);line-height:1.45;margin:0 2px 10px}.rows{display:grid;gap:7px}.row{min-height:56px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px}.row.off{opacity:.52}.ico{width:32px;height:32px;display:grid;place-items:center;color:var(--secondary-text-color)}.ico ha-icon{--mdc-icon-size:18px}.name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{font-size:12px;color:var(--secondary-text-color);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.acts{display:flex}.move[disabled]{opacity:.22}.vis.off{color:var(--error-color)}.ft{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-top:1px solid var(--divider-color);background:var(--card-background-color)}.count{font-size:12px;color:var(--secondary-text-color)}.buttons{display:flex;gap:8px}.cancel,.save{min-height:44px;padding:0 13px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,6px);background:transparent;font-size:13px;font-weight:500}.save{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}:is(button):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}</style><dialog><div class="hd"><h2></h2><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"><div class="copy"></div><div class="rows"></div></div><div class="ft"><span class="count"></span><span class="buttons"><button class="cancel" type="button">Cancel</button><button class="save" type="button">Save</button></span></div></dialog>`;this.d=this.shadowRoot.querySelector('dialog');this.d.addEventListener('click',e=>{if(e.target===this.d)this.d.close()});this.shadowRoot.querySelector('.x').onclick=()=>this.d.close();this.shadowRoot.querySelector('.cancel').onclick=()=>this.d.close();this.shadowRoot.querySelector('.save').onclick=()=>this.save()}render(){this.shadowRoot.querySelector('h2').textContent=this.o.title||'Edit';this.shadowRoot.querySelector('.copy').textContent=this.o.description||'Reorder or hide items.';const rows=this.shadowRoot.querySelector('.rows');rows.replaceChildren();this.items.forEach((x,i)=>{const r=document.createElement('div'),off=this.hiddenIds.has(x.id);r.className=`row ${off?'off':''}`;r.innerHTML=`<span class="ico"><ha-icon icon="${x.icon||'mdi:circle-outline'}"></ha-icon></span><span><div class="name"></div><div class="meta"></div></span><span class="acts"><button class="move up" type="button" aria-label="Move earlier" ${i===0?'disabled':''}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="move down" type="button" aria-label="Move later" ${i===this.items.length-1?'disabled':''}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="vis ${off?'off':''}" type="button" aria-label="${off?'Show':'Hide'}"><ha-icon icon="mdi:${off?'eye-outline':'eye-off-outline'}"></ha-icon></button></span>`;r.querySelector('.name').textContent=x.name;r.querySelector('.meta').textContent=x.meta||'';r.querySelector('.up').onclick=()=>this.move(i,-1);r.querySelector('.down').onclick=()=>this.move(i,1);r.querySelector('.vis').onclick=()=>{off?this.hiddenIds.delete(x.id):this.hiddenIds.add(x.id);this.render()};rows.append(r)});this.shadowRoot.querySelector('.count').textContent=`${this.items.length-this.hiddenIds.size} of ${this.items.length} shown`}move(i,d){const n=i+d;if(n<0||n>=this.items.length)return;[this.items[i],this.items[n]]=[this.items[n],this.items[i]];this.render()}async save(){const b=this.shadowRoot.querySelector('.save');b.disabled=true;b.textContent='Saving…';try{await this.o.onSave?.({order:this.items.map(x=>x.id),hidden:[...this.hiddenIds]});this.d.close()}finally{b.disabled=false;b.textContent='Save'}}}if(!customElements.get('dashboard-preference-editor-v3'))customElements.define('dashboard-preference-editor-v3',DashboardPreferenceEditorV3);
+}
+
+// Module: src/support/config-editor.js
+{
+/** Generic source-preserving Lovelace editor and component config contract. */
+const editorShared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ??= {};
+
+class HaComponentLibraryConfigEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;color:var(--primary-text-color)}*{box-sizing:border-box}
+      label{display:grid;gap:8px;font-size:13px;font-weight:600}
+      textarea{width:100%;min-height:180px;resize:vertical;padding:12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--card-background-color);color:var(--primary-text-color);font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;tab-size:2}
+      textarea:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+      .hint,.error{font-size:13px;line-height:1.35;font-weight:400}.hint{color:var(--secondary-text-color)}.error{color:var(--error-color);min-height:18px}
+    </style><label><span>Card configuration</span><textarea spellcheck="false" aria-describedby="component-config-hint component-config-error"></textarea></label><div id="component-config-hint" class="hint">Edit the card object. Entity IDs and supported options are validated when Home Assistant previews the card.</div><div id="component-config-error" class="error" role="alert"></div>`;
+    this.textarea = this.shadowRoot.querySelector("textarea");
+    this.error = this.shadowRoot.querySelector(".error");
+    this.textarea.addEventListener("input", () => this._changed());
+  }
+  set hass(value) { this._hass = value; }
+  setConfig(config) {
+    this._config = { ...(config || {}) };
+    this.textarea.value = JSON.stringify(this._config, null, 2);
+    this.error.textContent = "";
+  }
+  _changed() {
+    try {
+      const config = JSON.parse(this.textarea.value);
+      if (!config || Array.isArray(config) || typeof config !== "object") throw new Error("Configuration must be an object");
+      config.type ||= `custom:${this.cardType}`;
+      this._config = config;
+      this.error.textContent = "";
+      this.dispatchEvent(new CustomEvent("config-changed", {
+        bubbles: true,
+        composed: true,
+        detail: { config },
+      }));
+    } catch (error) {
+      this.error.textContent = error.message;
+    }
+  }
+}
+
+if (!customElements.get("ha-component-library-config-editor")) {
+  customElements.define("ha-component-library-config-editor", HaComponentLibraryConfigEditor);
+}
+
+const installConfigContract = (type, element) => {
+  if (!type || !element) return;
+  if (typeof element.getStubConfig !== "function") {
+    element.getStubConfig = () => ({
+      type: `custom:${type}`,
+      ...(typeof element.stubConfig === "function" ? element.stubConfig() : element.stubConfig || {}),
+    });
+  }
+  if (typeof element.getConfigElement !== "function") {
+    element.getConfigElement = async () => {
+      const editor = document.createElement("ha-component-library-config-editor");
+      editor.cardType = type;
+      return editor;
+    };
+  }
+};
+
+Object.assign(editorShared, { installConfigContract });
 }
 
 // Module: src/support/backend-preferences.js
@@ -1088,6 +1842,367 @@ if (PreferenceEditor && !PreferenceEditor.prototype.__backendFeedbackV1) {
     }
   };
 }
+}
+
+// Module: src/support/backend-profiles.js
+{
+/** Validated backend profile client shared by Energy and Security dashboards. */
+const profileShared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ??= {};
+const { createAsyncBroker } = profileShared;
+const connectionIds = new WeakMap();
+let nextConnectionId = 1;
+const connectionId = (hass) => {
+  const connection = hass?.connection;
+  if (!connection) return "none";
+  if (!connectionIds.has(connection)) connectionIds.set(connection, nextConnectionId++);
+  return connectionIds.get(connection);
+};
+const profileKey = (hass, kind, profileId) => `${connectionId(hass)}|${kind}|${profileId}`;
+const profileContext = new Map();
+const profileSubscriptions = new WeakMap();
+
+const attachProfileEvents = (hass) => {
+  const connection = hass?.connection;
+  if (!connection?.subscribeEvents || profileSubscriptions.has(connection)) return;
+  const subscription = connection.subscribeEvents((event) => {
+    const match = /^dashboard-profile\.(energy|security)\.([a-z0-9-]+)$/.exec(String(event?.data?.key || ""));
+    if (match) {
+      profileBroker.invalidate(profileKey(hass, match[1], match[2]));
+      window.dispatchEvent(new CustomEvent("ha-component-profile-change", {
+        detail: { kind: match[1], profileId: match[2] },
+      }));
+    }
+  }, "ha_component_backend_preferences_updated");
+  profileSubscriptions.set(connection, subscription);
+  Promise.resolve(subscription).catch(() => profileSubscriptions.delete(connection));
+};
+
+const profileBroker = createAsyncBroker(async (key) => {
+  const context = profileContext.get(key);
+  if (!context?.hass?.callWS) throw new Error("Home Assistant WebSocket connection is unavailable");
+  return context.hass.callWS({
+    type: "ha_component_backend/profile/get",
+    kind: context.kind,
+    profile_id: context.profileId,
+  });
+}, { ttl: 300000, maxStale: 86400000, retryBase: 3000, retryMax: 60000 });
+
+const dashboardProfiles = Object.freeze({
+  async get(hass, kind, profileId, options = {}) {
+    attachProfileEvents(hass);
+    const key = profileKey(hass, kind, profileId);
+    profileContext.set(key, { hass, kind, profileId });
+    return profileBroker.read(key, null, options);
+  },
+  invalidate(hass, kind, profileId) {
+    profileBroker.invalidate(profileKey(hass, kind, profileId));
+  },
+  peek(hass, kind, profileId) {
+    return profileBroker.peek(profileKey(hass, kind, profileId));
+  },
+  async save(hass, kind, profileId, profile, expectedRevision) {
+    const message = {
+      type: "ha_component_backend/profile/update",
+      kind,
+      profile_id: profileId,
+      profile,
+    };
+    if (Number.isFinite(Number(expectedRevision))) message.expected_revision = Number(expectedRevision);
+    const result = await hass.callWS(message);
+    profileBroker.invalidate(profileKey(hass, kind, profileId));
+    return result;
+  },
+  subscribe(hass, kind, profileId, subscriber) {
+    attachProfileEvents(hass);
+    const key = profileKey(hass, kind, profileId);
+    profileContext.set(key, { hass, kind, profileId });
+    return profileBroker.subscribe(key, subscriber);
+  },
+});
+
+Object.assign(profileShared, { connectionId, dashboardProfiles });
+}
+
+// Module: src/support/energy-store.js
+{
+/** Replayable selected-day state and one shared backend Energy resource. */
+const energyShared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ??= {};
+const { connectionId, createAsyncBroker } = energyShared;
+const dayChannels = new Map();
+
+const padDay = (value) => String(value).padStart(2, "0");
+const dayKey = (date = new Date()) => `${date.getFullYear()}-${padDay(date.getMonth() + 1)}-${padDay(date.getDate())}`;
+const dayKeyInZone = (hass, date = new Date()) => {
+  const timeZone = hass?.config?.time_zone;
+  if (!timeZone) return dayKey(date);
+  try {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-AU", {
+      timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(date).map((part) => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  } catch { return dayKey(date); }
+};
+const validDay = (value, today = dayKey()) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (dayKey(date) !== value || value > today) return null;
+  return value;
+};
+const channel = (name) => {
+  const key = String(name || "energy-day");
+  if (!dayChannels.has(key)) {
+    let stored = null;
+    try { stored = sessionStorage.getItem(`ha-component-library:${key}`); } catch {}
+    const storedDay = validDay(stored);
+    dayChannels.set(key, { value: storedDay || dayKey(), usesDefault: !storedDay, subscribers: new Set() });
+  }
+  return dayChannels.get(key);
+};
+
+const energyDayState = Object.freeze({
+  get(name = "energy-day", hass) {
+    const current = channel(name);
+    if (current.usesDefault) current.value = dayKeyInZone(hass);
+    return current.value;
+  },
+  set(name = "energy-day", value, options = {}) {
+    const current = channel(name), today = dayKeyInZone(options.hass), next = validDay(value, today);
+    if (!next || next === current.value) return current.value;
+    current.value = next;
+    current.usesDefault = false;
+    try { sessionStorage.setItem(`ha-component-library:${name}`, next); } catch {}
+    const detail = { channel: name, day: next, isToday: next === today };
+    for (const subscriber of [...current.subscribers]) subscriber(detail);
+    if (options.broadcast !== false) {
+      window.dispatchEvent(new CustomEvent("energy-day-selector-change", { detail }));
+    }
+    return next;
+  },
+  subscribe(name = "energy-day", subscriber, options = {}) {
+    const current = channel(name);
+    if (current.usesDefault) current.value = dayKeyInZone(options.hass);
+    current.subscribers.add(subscriber);
+    if (options.replay !== false) subscriber({
+      channel: name,
+      day: current.value,
+      isToday: current.value === dayKeyInZone(options.hass),
+    });
+    return () => current.subscribers.delete(subscriber);
+  },
+  today: dayKeyInZone,
+});
+
+const energyContexts = new Map();
+const dataKey = (hass, profileId, day) => `${connectionId(hass)}|${profileId}|${day}`;
+const energyBroker = createAsyncBroker(async (key) => {
+  const context = energyContexts.get(key);
+  if (!context?.hass?.callWS) throw new Error("Home Assistant WebSocket connection is unavailable");
+  return context.hass.callWS({
+    type: "ha_component_backend/energy/day",
+    profile_id: context.profileId,
+    day: context.day,
+  });
+}, { ttl: 120000, maxStale: 86400000, retryBase: 2500, retryMax: 60000 });
+
+const energyDayData = Object.freeze({
+  async get(hass, profileId, day, options = {}) {
+    const key = dataKey(hass, profileId, day);
+    energyContexts.set(key, { hass, profileId, day });
+    return energyBroker.read(key, null, options);
+  },
+  invalidate(hass, profileId, day) { energyBroker.invalidate(dataKey(hass, profileId, day)); },
+  invalidateProfile(hass, profileId) {
+    const id = connectionId(hass);
+    for (const [key, context] of energyContexts) {
+      if (connectionId(context.hass) === id && context.profileId === profileId) energyBroker.invalidate(key);
+    }
+  },
+  peek(hass, profileId, day) { return energyBroker.peek(dataKey(hass, profileId, day)); },
+  subscribe(hass, profileId, day, subscriber) {
+    const key = dataKey(hass, profileId, day);
+    energyContexts.set(key, { hass, profileId, day });
+    return energyBroker.subscribe(key, subscriber);
+  },
+});
+
+Object.assign(energyShared, { energyDayData, energyDayState });
+}
+
+// Module: src/shared/security-runtime.js
+{
+/** Capability-driven Security discovery shared by every Security component. */
+const securityShared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ??= {};
+const securityHD = globalThis.__homeDashboardV2;
+const securityDomain = (entityId) => String(entityId || "").split(".")[0];
+const badSecurityState = new Set(["unknown", "unavailable"]);
+const capabilityText = (entity) => [
+  entity?.translation_key,
+  entity?.unique_id,
+  entity?.entity_id,
+  entity?.platform,
+].filter(Boolean).join(" ").toLowerCase();
+const entityLabel = (hass, entity) => entity?.name || entity?.original_name ||
+  hass?.states?.[entity?.entity_id]?.attributes?.friendly_name || entity?.entity_id || "Control";
+
+const switchRole = (entity) => {
+  const text = capabilityText(entity);
+  if (/record/.test(text)) return "Recording";
+  if (/detect|motion/.test(text)) return "Detection";
+  if (/alert|notification/.test(text)) return "Alerts";
+  if (/audio|sound/.test(text)) return "Audio";
+  return null;
+};
+const ptzRole = (entity) => /(^|[_ :.-])(ptz|pan|tilt|zoom)([_ :.-]|$)/.test(capabilityText(entity));
+const actionRole = (entity) => {
+  const text = capabilityText(entity);
+  if (/trigger|operate|open|close/.test(text)) return "operate";
+  if (/restart|reboot/.test(text)) return "restart";
+  return "action";
+};
+
+const securityModel = (hass, registry, profile = {}) => {
+  if (registry?.error) {
+    return { error: registry.error, cameras: [], entries: [], attention: [], allClear: false };
+  }
+  const include = new Set(profile.include_entities || []);
+  const exclude = new Set(profile.exclude_entities || []);
+  const areas = new Set(profile.area_ids || []);
+  const entities = (registry?.entities || []).filter((entity) => {
+    if (!securityHD?.uiEntry?.(entity) || !hass?.states?.[entity.entity_id]) return false;
+    if (exclude.has(entity.entity_id)) return false;
+    if (include.has(entity.entity_id)) return true;
+    return !areas.size || areas.has(securityHD.areaOf(entity, registry));
+  });
+  const byDevice = new Map();
+  for (const entity of entities) {
+    const owner = entity.device_id || entity.entity_id;
+    const siblings = byDevice.get(owner) || [];
+    siblings.push(entity);
+    byDevice.set(owner, siblings);
+  }
+
+  const cameras = [];
+  for (const [owner, siblings] of byDevice) {
+    const cameraEntities = siblings.filter((entity) => securityDomain(entity.entity_id) === "camera");
+    if (!cameraEntities.length) continue;
+    cameraEntities.sort((left, right) => {
+      const score = (entity) => {
+        const state = hass.states[entity.entity_id];
+        return (include.has(entity.entity_id) ? 100 : 0) +
+          (state?.attributes?.entity_picture ? 20 : 0) +
+          (state?.attributes?.frontend_stream_type ? 10 : 0);
+      };
+      return score(right) - score(left) || String(left.unique_id || left.entity_id).localeCompare(String(right.unique_id || right.entity_id));
+    });
+    const entity = cameraEntities[0], state = hass.states[entity.entity_id];
+    const device = (registry.devices || []).find((item) => item.id === entity.device_id) || {};
+    const areaId = securityHD.areaOf(entity, registry);
+    const areaName = registry.areaMap?.get(areaId)?.name || "";
+    const switches = siblings
+      .filter((item) => securityDomain(item.entity_id) === "switch")
+      .map((item) => ({ entity: item, role: switchRole(item) || entityLabel(hass, item) }));
+    const detections = siblings.filter((item) => {
+      if (securityDomain(item.entity_id) !== "binary_sensor") return false;
+      const deviceClass = hass.states[item.entity_id]?.attributes?.device_class || "";
+      return /^(motion|occupancy|presence|sound)$/.test(deviceClass) || /detect|motion|person|human/.test(capabilityText(item));
+    });
+    const actions = siblings
+      .filter((item) => securityDomain(item.entity_id) === "button")
+      .map((item) => ({ entity: item, role: actionRole(item) }));
+    const ptz = siblings.filter((item) => ["button", "number", "select"].includes(securityDomain(item.entity_id)) && ptzRole(item));
+    const online = Boolean(state && !badSecurityState.has(String(state.state).toLowerCase()));
+    const active = detections.some((item) => hass.states[item.entity_id]?.state === "on");
+    cameras.push({
+      id: owner,
+      deviceId: entity.device_id || null,
+      entityId: entity.entity_id,
+      entities: cameraEntities.map((item) => item.entity_id),
+      name: String(device.name_by_user || "").trim() || areaName || entityLabel(hass, entity),
+      areaId,
+      areaName,
+      online,
+      active,
+      switches,
+      detections,
+      actions,
+      ptz,
+    });
+  }
+  cameras.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+
+  const entries = [];
+  for (const entity of entities) {
+    const domain = securityDomain(entity.entity_id), state = hass.states[entity.entity_id];
+    const deviceClass = state?.attributes?.device_class || "";
+    const isBinaryEntry = domain === "binary_sensor" && /^(door|window|garage_door|opening)$/.test(deviceClass);
+    const isEntry = isBinaryEntry || domain === "lock" || (domain === "cover" && /^(door|garage)$/.test(deviceClass));
+    if (!isEntry) continue;
+    const siblings = entity.device_id ? byDevice.get(entity.device_id) || [] : [];
+    const mapped = profile.mappings?.[`entry_control:${entity.entity_id}`];
+    const control = mapped || siblings
+      .filter((item) => securityDomain(item.entity_id) === "button")
+      .sort((left, right) => (actionRole(left) === "operate" ? -1 : 1) - (actionRole(right) === "operate" ? -1 : 1))[0]?.entity_id || null;
+    const open = domain === "lock" ? state.state === "unlocked" : /^(on|open|opening)$/.test(state.state);
+    entries.push({
+      entityId: entity.entity_id,
+      deviceId: entity.device_id || null,
+      controlEntityId: control,
+      domain,
+      deviceClass,
+      name: entityLabel(hass, entity),
+      state: state.state,
+      open,
+      available: !badSecurityState.has(String(state.state).toLowerCase()),
+      areaId: securityHD.areaOf(entity, registry),
+    });
+  }
+  entries.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+
+  const attention = [
+    ...cameras.filter((camera) => !camera.online).map((camera) => ({ type: "camera-offline", label: `${camera.name} unavailable`, entityId: camera.entityId })),
+    ...cameras.filter((camera) => camera.active).map((camera) => ({ type: "camera-activity", label: `${camera.name} activity`, entityId: camera.entityId })),
+    ...entries.filter((entry) => entry.available && entry.open).map((entry) => ({ type: "entry-open", label: `${entry.name} open`, entityId: entry.entityId })),
+  ];
+  return {
+    error: null,
+    cameras,
+    entries,
+    attention,
+    allClear: attention.length === 0,
+    onlineCameras: cameras.filter((camera) => camera.online).length,
+  };
+};
+
+const loadSecurityModel = async (hass, profileId = "household-security", options = {}) => {
+  const [profileResult, registry] = await Promise.all([
+    securityShared.dashboardProfiles.get(hass, "security", profileId, options).catch((error) => ({ found: false, profile: null, error })),
+    securityHD?.REG?.load?.(hass),
+  ]);
+  if (!profileResult?.found) {
+    const error = profileResult?.error || new Error(`Security profile ${profileId} is not configured`);
+    return {
+      error,
+      cameras: [],
+      entries: [],
+      attention: [],
+      allClear: false,
+      onlineCameras: 0,
+      profile: null,
+      profileMissing: true,
+      profileError: profileResult?.error || null,
+    };
+  }
+  const model = securityModel(hass, registry, profileResult.profile);
+  return { ...model, profile: profileResult?.profile || null, profileMissing: !profileResult?.found, profileError: profileResult?.error || null };
+};
+
+Object.assign(securityShared, {
+  loadSecurityModel,
+  securityCapabilityText: capabilityText,
+  securityEntityLabel: entityLabel,
+  securityModel,
+});
 }
 
 // Module: src/components/single-kpi.js
@@ -1995,7 +3110,7 @@ class ComponentMediaRowV2 extends DashboardBaseCard {
     const next = live
       ? `<button class="i btn next" type="button" aria-label="Next" ${nextEnabled ? '' : 'disabled'}><ha-icon icon="mdi:skip-next"></ha-icon></button>`
       : '<span class="btn" aria-hidden="true"><ha-icon icon="mdi:skip-next"></ha-icon></span>';
-    this.shadowRoot.innerHTML = `<style>${this.cardStyles()}.wrap{min-height:56px;display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:center;gap:10px}.icon{width:36px;height:36px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,0px);background:transparent;color:var(--primary-color)}.buttons{display:flex;gap:4px}.btn{width:30px;height:30px;border:1px solid var(--dashboard-card-border-color,var(--divider-color))!important;border-radius:var(--dashboard-radius-control,5px)!important;background:transparent!important;display:grid;place-items:center;color:var(--secondary-text-color);padding:0!important}.btn.main{color:var(--primary-color)}.btn ha-icon{--mdc-icon-size:17px}</style><ha-card><div class="wrap"><span class="icon"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon></span><span${identityAttrs}><div class="title">${this.escapeHtml(this.c.title)}</div><div class="desc">${this.escapeHtml(this._description(state))}</div></span><span class="buttons">${previous}${main}${next}</span></div></ha-card>`;
+    this.shadowRoot.innerHTML = `<style>${this.cardStyles()}.wrap{min-height:56px;display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:center;gap:10px}.icon{width:36px;height:36px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,0px);background:transparent;color:var(--primary-color)}.buttons{display:flex;gap:4px}.btn{position:relative;width:44px;height:44px;border:0!important;border-radius:var(--dashboard-radius-control,5px)!important;background:transparent!important;display:grid;place-items:center;color:var(--secondary-text-color);padding:0!important}.btn:before{content:'';position:absolute;width:30px;height:30px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px)}.btn.main{color:var(--primary-color)}.btn ha-icon{position:relative;--mdc-icon-size:17px}</style><ha-card><div class="wrap"><span class="icon"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon></span><span${identityAttrs}><div class="title">${this.escapeHtml(this.c.title)}</div><div class="desc">${this.escapeHtml(this._description(state))}</div></span><span class="buttons">${previous}${main}${next}</span></div></ha-card>`;
     if (live) {
       const identity = this.shadowRoot.querySelector('.identity');
       identity?.setAttribute('aria-label', `Open details for ${this.c.title}`);
@@ -2035,41 +3150,16 @@ registerCard({ type: "component-media-row-v2", element: ComponentMediaRowV2, nam
 // Module: src/components/component-apple-tv-controller-v1.js
 {
 /** Live, registry-aware Apple TV controller. */
-const { createRequestCoalescer, interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-const INVALID = new Set(["unknown", "unavailable", "none", ""]);
-const F = {
-  PAUSE: 1,
-  MUTE: 8,
-  PREVIOUS: 16,
-  NEXT: 32,
-  PLAY: 512,
-  STEP_VOLUME: 1024,
-  SOURCE: 2048,
-  STOP: 4096,
-};
-const NAV = [
-  ["up", "Up", "mdi:chevron-up"],
-  ["left", "Left", "mdi:chevron-left"],
-  ["select", "Select", "mdi:circle-outline"],
-  ["right", "Right", "mdi:chevron-right"],
-  ["down", "Down", "mdi:chevron-down"],
-  ["menu", "Menu", "mdi:keyboard-return"],
-  ["home", "Home", "mdi:home-variant-outline"],
-  ["top_menu", "Top menu", "mdi:format-list-bulleted"],
-];
-const APP_ICONS = [
-  [/netflix/i, "mdi:netflix"],
-  [/youtube/i, "mdi:youtube"],
-  [/spotify/i, "mdi:spotify"],
-  [/prime video|amazon/i, "mdi:amazon"],
-  [/plex/i, "mdi:plex"],
-  [/twitch/i, "mdi:twitch"],
-  [/vlc/i, "mdi:vlc"],
-  [/apple tv|apple music|music/i, "mdi:apple"],
-  [/disney/i, "mdi:castle"],
-  [/kayo|sport/i, "mdi:soccer"],
-  [/binge|stan|paramount|movie/i, "mdi:movie-open-play-outline"],
-];
+const {
+  APPLE_TV_NAV: NAV,
+  appleTvAppIcon,
+  appleTvModel,
+  createOverlayController,
+  createRequestCoalescer,
+  interaction,
+  openMoreInfo,
+  registerCard,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 
 class ComponentAppleTvControllerV1 extends HTMLElement {
   static getGridOptions() {
@@ -2081,22 +3171,17 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this.pending = new Set();
     this.panelMode = null;
-    this.panelTrigger = null;
+    this.panelController = null;
     this.registry = null;
     this.unsubscribe = null;
     this.message = "";
     this.messageType = "info";
     this.messageTimer = null;
-    this.scrollLocks = [];
     this.interactionHandles = [];
     this.dynamicInteractions = [];
     this.volumeCoalescer = null;
     this.volumeGestureActive = false;
     this.optimisticVolume = null;
-    this.focusGuard = (event) => {
-      if (!this.panelMode || event.composedPath().includes(this)) return;
-      queueMicrotask(() => this.el?.close?.focus());
-    };
   }
 
   setConfig(config) {
@@ -2132,8 +3217,10 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.unsubscribe?.();
     this.unsubscribe = null;
     clearTimeout(this.messageTimer);
-    this.unlockBackground();
-    document.removeEventListener?.("focusin", this.focusGuard, true);
+    this.panelMode = null;
+    this.volumeGestureActive = false;
+    this.optimisticVolume = null;
+    this.panelController?.close(false);
   }
 
   getCardSize() {
@@ -2156,231 +3243,8 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     });
   }
 
-  state(id) {
-    return id ? (this._hass?.states?.[id] ?? this.demoState(id)) : null;
-  }
-
-  demoState(id) {
-    if (!this.config?.demo) return null;
-    if (id === "remote.demo_apple_tv") {
-      return {
-        state: "on",
-        attributes: {
-          supported_commands: NAV.map((entry) => entry[0]).concat([
-            "wakeup",
-            "suspend",
-          ]),
-        },
-      };
-    }
-    if (id === "binary_sensor.demo_apple_tv_keyboard_focus") {
-      return { state: "off", attributes: {} };
-    }
-    return {
-      state: "playing",
-      attributes: {
-        friendly_name: "Apple TV 4K",
-        source: "Netflix",
-        source_list: [
-          "Netflix",
-          "YouTube",
-          "Apple TV",
-          "Disney+",
-          "Prime Video",
-          "Spotify",
-        ],
-        volume_level: 0.42,
-        supported_features:
-          F.PAUSE |
-          F.PLAY |
-          F.MUTE |
-          F.STEP_VOLUME |
-          F.SOURCE |
-          F.PREVIOUS |
-          F.NEXT |
-          F.STOP,
-      },
-    };
-  }
-
-  valid(state) {
-    return Boolean(
-      state && !INVALID.has(String(state.state).toLowerCase()),
-    );
-  }
-
-  supported(state, feature) {
-    return Boolean(
-      (Number(state?.attributes?.supported_features) || 0) & feature,
-    );
-  }
-
-  domain(id) {
-    return String(id || "").split(".")[0];
-  }
-
-  discovery() {
-    if (this.config?.demo) {
-      return {
-        media: this.config.entity,
-        remote: "remote.demo_apple_tv",
-        keyboard: "binary_sensor.demo_apple_tv_keyboard_focus",
-        configEntryId: "demo",
-      };
-    }
-
-    const shared = globalThis.__homeDashboardV2?.appleTvRegistry?.(
-      this.config?.entity,
-      this.registry,
-      this._hass,
-      { deviceId: this.config?.device_id },
-    );
-    if (shared) {
-      return {
-        media: this.config?.entity,
-        remote: shared.remoteEntityId,
-        keyboard: shared.keyboardEntityId,
-        configEntryId: shared.configEntryId,
-      };
-    }
-
-    const all = this.registry?.entities || [];
-    const mediaEntry = all.find(
-      (entry) => entry.entity_id === this.config?.entity,
-    );
-    const siblings = mediaEntry?.device_id
-      ? this.registry?.byDevice?.get(mediaEntry.device_id) || []
-      : [];
-    const usable = (entry) =>
-      entry &&
-      !entry.disabled_by &&
-      !entry.hidden_by &&
-      (entry.platform === "apple_tv" ||
-        entry.config_entry_id === mediaEntry?.config_entry_id);
-    const remote = siblings.find(
-      (entry) => usable(entry) && this.domain(entry.entity_id) === "remote",
-    );
-    const keyboard = siblings.find(
-      (entry) =>
-        usable(entry) &&
-        this.domain(entry.entity_id) === "binary_sensor" &&
-        /keyboard.*focus|focus.*keyboard/i.test(
-          `${entry.entity_id} ${entry.name || ""} ${entry.original_name || ""}`,
-        ),
-    );
-
-    return {
-      media: this.config?.entity,
-      remote: remote?.entity_id || null,
-      keyboard: keyboard?.entity_id || null,
-      configEntryId:
-        mediaEntry?.config_entry_id ||
-        remote?.config_entry_id ||
-        keyboard?.config_entry_id ||
-        null,
-    };
-  }
-
   model() {
-    const entities = this.discovery();
-    const media = this.state(entities.media);
-    const remote = this.state(entities.remote);
-    const keyboard = this.state(entities.keyboard);
-    const raw = String(media?.state || "unknown").toLowerCase();
-    const available = this.valid(media);
-    const sleeping = available && ["off", "standby"].includes(raw);
-    const awake = available && !sleeping;
-    const attrs = media?.attributes || {};
-    const commands = Array.isArray(remote?.attributes?.supported_commands)
-      ? new Set(remote.attributes.supported_commands)
-      : null;
-    const remoteUsable = this.valid(remote);
-    const remoteCan = (command) =>
-      remoteUsable && (!commands || commands.has(command));
-    const level = Number(attrs.volume_level);
-    const hasLevel = Number.isFinite(level) && level >= 0 && level <= 1;
-    const playing = awake && raw === "playing";
-    const paused = awake && raw === "paused";
-    const idle = awake && ["idle", "on", "buffering"].includes(raw);
-    const sources = Array.isArray(attrs.source_list)
-      ? [
-          ...new Set(
-            attrs.source_list
-              .filter((source) => typeof source === "string")
-              .map((source) => source.trim())
-              .filter(Boolean),
-          ),
-        ]
-      : [];
-    const keyboardFocused =
-      awake &&
-      this.valid(keyboard) &&
-      String(keyboard.state).toLowerCase() === "on";
-
-    return {
-      entities,
-      media,
-      remote,
-      available,
-      awake,
-      sleeping,
-      playing,
-      paused,
-      idle,
-      sources,
-      currentSource: attrs.app_name || attrs.source || null,
-      level: hasLevel ? level : null,
-      muted: attrs.is_volume_muted === true,
-      canWake: sleeping && remoteCan("wakeup"),
-      canSleep: awake && remoteCan("suspend"),
-      canNavigate:
-        awake && remoteUsable && NAV.some(([command]) => remoteCan(command)),
-      canPlay:
-        awake && (paused || idle) && this.supported(media, F.PLAY),
-      canPause: playing && this.supported(media, F.PAUSE),
-      canStop:
-        (playing || paused) && this.supported(media, F.STOP),
-      canPrevious:
-        (playing || paused) && this.supported(media, F.PREVIOUS),
-      canNext:
-        (playing || paused) && this.supported(media, F.NEXT),
-      canVolumeUp: awake && this.supported(media, F.STEP_VOLUME),
-      canVolumeDown: awake && this.supported(media, F.STEP_VOLUME),
-      canMute: awake && this.supported(media, F.MUTE),
-      canSelectSource:
-        awake && sources.length > 0 && this.supported(media, F.SOURCE),
-      keyboardFocused,
-      canSetKeyboardText:
-        keyboardFocused && Boolean(entities.configEntryId),
-      canAppendKeyboardText:
-        keyboardFocused && Boolean(entities.configEntryId),
-      canClearKeyboardText:
-        keyboardFocused && Boolean(entities.configEntryId),
-      status: !available
-        ? raw === "unknown"
-          ? "Status unknown"
-          : "Apple TV unavailable"
-        : [
-            sleeping
-              ? "Sleeping"
-              : playing
-                ? "Playing"
-                : paused
-                  ? "Paused"
-                  : idle
-                    ? "Idle"
-                    : this.label(raw),
-            attrs.app_name || attrs.source,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-    };
-  }
-
-  label(value) {
-    return String(value || "")
-      .replaceAll("_", " ")
-      .replace(/^./, (letter) => letter.toUpperCase());
+    return appleTvModel(this._hass, this.config, this.registry);
   }
 
   name(model) {
@@ -2551,9 +3415,10 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       interaction(this.el.appsLaunch, { primary: () => this.openPanel("apps", this.el.appsLaunch), feedback: true }),
       interaction(this.el.close, { primary: () => this.closePanel(true), feedback: true }),
     );
-    this.el.panel.onclick = (event) => {
-      if (event.target === this.el.panel) this.closePanel(true);
-    };
+    this.panelController = createOverlayController(this, this.el.panel, {
+      initialFocus: () => this.el.close,
+      onDismiss: () => this.closePanel(true),
+    });
     this.el.panel.addEventListener("wheel", (event) => event.stopPropagation(), {
       passive: true,
     });
@@ -2562,14 +3427,6 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       (event) => event.stopPropagation(),
       { passive: true },
     );
-    this.shadowRoot.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && this.panelMode) {
-        event.preventDefault();
-        this.closePanel(true);
-      } else if (event.key === "Tab" && this.panelMode) {
-        this.trapFocus(event);
-      }
-    });
   }
 
   icon(name) {
@@ -2966,14 +3823,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   appIcon(source) {
-    const configured = this.config?.app_icons?.[source];
-    if (typeof configured === "string" && configured.trim()) {
-      return configured.trim();
-    }
-    return (
-      APP_ICONS.find(([pattern]) => pattern.test(source))?.[1] ||
-      "mdi:application-outline"
-    );
+    return appleTvAppIcon(source, this.config?.app_icons);
   }
 
   async invoke(action, request, success) {
@@ -3136,90 +3986,16 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       return;
     }
     this.panelMode = mode;
-    this.panelTrigger = trigger;
-    this.el.panel.hidden = false;
-    this.lockBackground();
-    document.addEventListener?.("focusin", this.focusGuard, true);
+    this.panelController.open(trigger);
     this.render();
-    queueMicrotask(() => this.el.close.focus());
   }
 
   closePanel(restore) {
     this.volumeGestureActive = false;
     this.optimisticVolume = null;
     this.panelMode = null;
-    this.el.panel.hidden = true;
-    this.unlockBackground();
-    document.removeEventListener?.("focusin", this.focusGuard, true);
-    const trigger = this.panelTrigger;
-    this.panelTrigger = null;
+    this.panelController.close(restore);
     this.render();
-    if (restore) {
-      queueMicrotask(() => {
-        const fallback = trigger === this.el.appsLaunch
-          ? this.el.appsLaunch
-          : this.el.remoteLaunch;
-        (trigger?.isConnected ? trigger : fallback)?.focus();
-      });
-    }
-  }
-
-  composedParent(node) {
-    if (!node) return null;
-    return node.parentElement || node.getRootNode?.()?.host || null;
-  }
-
-  lockBackground() {
-    if (this.scrollLocks.length) return;
-    const candidates = new Set([document.documentElement, document.body]);
-    let node = this;
-    while ((node = this.composedParent(node))) {
-      const style = getComputedStyle(node);
-      if (/auto|scroll|overlay/.test(`${style.overflow} ${style.overflowY}`)) {
-        candidates.add(node);
-      }
-    }
-    this.scrollLocks = [...candidates]
-      .filter(Boolean)
-      .map((element) => ({
-        element,
-        overflow: element.style.overflow,
-        overflowY: element.style.overflowY,
-        overscrollBehavior: element.style.overscrollBehavior,
-      }));
-    for (const lock of this.scrollLocks) {
-      lock.element.style.overflow = "hidden";
-      lock.element.style.overflowY = "hidden";
-      lock.element.style.overscrollBehavior = "none";
-    }
-  }
-
-  unlockBackground() {
-    for (const lock of this.scrollLocks) {
-      lock.element.style.overflow = lock.overflow;
-      lock.element.style.overflowY = lock.overflowY;
-      lock.element.style.overscrollBehavior = lock.overscrollBehavior;
-    }
-    this.scrollLocks = [];
-  }
-
-  trapFocus(event) {
-    const focusable = [
-      ...this.el.panel.querySelectorAll(
-        "button:not([disabled]),input:not([disabled])",
-      ),
-    ];
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    const active = this.shadowRoot.activeElement;
-    if (event.shiftKey && active === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && active === last) {
-      event.preventDefault();
-      first.focus();
-    }
   }
 }
 
@@ -3497,7 +4273,7 @@ class ComponentHistoryGraphV2 extends HTMLElement {
   getCardSize() { return 7; }
   build() {
     this.b = 1;
-    this.shadowRoot.innerHTML = `<style>:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:4px 5px 5px}.top{min-height:28px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 5px}.meta{font-size:11.5px;font-weight:600;color:var(--secondary-text-color);white-space:nowrap}.legend{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}.legend button{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:12px;font-weight:600;padding:3px 0;display:flex;align-items:center;gap:6px;cursor:pointer}.legend button:active{transform:scale(.97)}.legend button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:5px}.sw{width:17px;height:3px;border-radius:999px}.s1{background:var(--primary-color)}.s2{background:var(--warning-color,#f5b942)}.s3{background:var(--secondary-text-color)}.chart{position:relative;width:100%;height:clamp(400px,48vw,520px)}svg{display:block;width:100%;height:100%;overflow:hidden;touch-action:none}.axis{fill:var(--secondary-text-color);font-size:11px;font-weight:500;font-family:inherit}.small{fill:var(--secondary-text-color);font-size:10px;font-weight:600;font-family:inherit}.grid{stroke:var(--divider-color);stroke-width:1;opacity:.58}.zero{stroke:var(--divider-color);stroke-width:1.35;opacity:.95}.l1{fill:none;stroke:var(--primary-color);stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.l2{fill:none;stroke:var(--warning-color,#f5b942);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.f2{fill:color-mix(in srgb,var(--warning-color,#f5b942) 12%,transparent)}.l3{fill:none;stroke:var(--secondary-text-color);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.cursor{stroke:var(--secondary-text-color);stroke-width:1;stroke-dasharray:3 3;opacity:0}.tip{position:absolute;min-width:145px;padding:9px 10px;border-radius:11px;background:var(--card-background-color);border:1px solid var(--divider-color);box-shadow:0 7px 22px rgba(0,0,0,.2);pointer-events:none;opacity:0;transform:translate(-50%,-100%);font-size:11.5px;line-height:1.45}.tip.show{opacity:1}.tip b{color:var(--primary-text-color);font-weight:650}.tr{display:flex;justify-content:space-between;gap:14px;color:var(--secondary-text-color)}@media(max-width:700px){.wrap{padding:3px}.legend{gap:9px}.legend button,.meta{font-size:10.5px}.chart{height:400px}.axis{font-size:10px}.small{font-size:9.5px}}</style><ha-card><div class="wrap"><div class="top"><div class="meta"></div><div class="legend">${[1, 2, 3].map((i) => `<button type="button" data-series="${i}" aria-pressed="true"><span class="sw s${i}"></span><span class="k${i}"></span></button>`).join('')}</div></div><div class="chart"><svg role="img" aria-label="Interactive reusable graph example"></svg><div class="tip"></div></div></div></ha-card>`;
+    this.shadowRoot.innerHTML = `<style>:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:4px 5px 5px}.top{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 5px}.meta{font-size:11.5px;font-weight:600;color:var(--secondary-text-color);white-space:nowrap}.legend{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}.legend button{appearance:none;min-height:44px;border:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:12px;font-weight:600;padding:3px 0;display:flex;align-items:center;gap:6px;cursor:pointer}.legend button:active{transform:scale(.97)}.legend button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:5px}.sw{width:17px;height:3px;border-radius:999px}.s1{background:var(--primary-color)}.s2{background:var(--warning-color,#f5b942)}.s3{background:var(--secondary-text-color)}.chart{position:relative;width:100%;height:clamp(400px,48vw,520px)}svg{display:block;width:100%;height:100%;overflow:hidden;touch-action:none}.axis{fill:var(--secondary-text-color);font-size:11px;font-weight:500;font-family:inherit}.small{fill:var(--secondary-text-color);font-size:10px;font-weight:600;font-family:inherit}.grid{stroke:var(--divider-color);stroke-width:1;opacity:.58}.zero{stroke:var(--divider-color);stroke-width:1.35;opacity:.95}.l1{fill:none;stroke:var(--primary-color);stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.l2{fill:none;stroke:var(--warning-color,#f5b942);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.f2{fill:color-mix(in srgb,var(--warning-color,#f5b942) 12%,transparent)}.l3{fill:none;stroke:var(--secondary-text-color);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.cursor{stroke:var(--secondary-text-color);stroke-width:1;stroke-dasharray:3 3;opacity:0}.tip{position:absolute;min-width:145px;padding:9px 10px;border-radius:11px;background:var(--card-background-color);border:1px solid var(--divider-color);box-shadow:0 7px 22px rgba(0,0,0,.2);pointer-events:none;opacity:0;transform:translate(-50%,-100%);font-size:11.5px;line-height:1.45}.tip.show{opacity:1}.tip b{color:var(--primary-text-color);font-weight:650}.tr{display:flex;justify-content:space-between;gap:14px;color:var(--secondary-text-color)}@media(max-width:700px){.wrap{padding:3px}.legend{gap:9px}.legend button,.meta{font-size:10.5px}.chart{height:400px}.axis{font-size:10px}.small{font-size:9.5px}}</style><ha-card><div class="wrap"><div class="top"><div class="meta"></div><div class="legend">${[1, 2, 3].map((i) => `<button type="button" data-series="${i}" aria-pressed="true"><span class="sw s${i}"></span><span class="k${i}"></span></button>`).join('')}</div></div><div class="chart"><svg role="img" aria-label="Interactive reusable graph example"></svg><div class="tip"></div></div></div></ha-card>`;
     this.e = { m: this.shadowRoot.querySelector('.meta'), svg: this.shadowRoot.querySelector('svg'), tip: this.shadowRoot.querySelector('.tip'), chart: this.shadowRoot.querySelector('.chart'), ks: [1, 2, 3].map((i) => this.shadowRoot.querySelector(`.k${i}`)) };
     this.e.svg.addEventListener('pointerdown', (event) => this.pointerDown(event));
     this.e.svg.addEventListener('pointermove', (event) => this.pointerMove(event));
@@ -3611,15 +4387,16 @@ registerCard({ type: "component-context-strip-v3", element: ComponentContextStri
 // Module: src/components/metric-pair.js
 {
 /** ComponentMetricPairCardV3 — reusable Home Assistant dashboard card. */
-const { interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { formatEnergy, formatPower, interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentMetricPairCardV3 extends HTMLElement{
   constructor(){super();this.attachShadow({mode:'open'});this._selectedDay=this._dayKey(new Date());this._stats={};this._loading=false;this._error='';this._lastKey=null;this._interactions=[];this._dayListener=e=>this._onDayChange(e)}
   setConfig(c){this.c={left_value:'Primary value',left_label:'Primary label',right_value:'Secondary value',right_label:'Secondary label',right_primary:'Primary text',right_secondary:'Secondary text',deadband:15,day_channel:null,...(c||{})};if(this._built){this._render();this._scheduleStats()}}
   set hass(h){this.h=h;if(!this._built)this._build();this._render();this._scheduleStats()}
-  connectedCallback(){window.addEventListener('energy-day-selector-change',this._dayListener);if(!this._selectedDay)this._selectedDay=this._dayKey(new Date());this._scheduleStats()}
+  connectedCallback(){window.addEventListener('energy-day-selector-change',this._dayListener);if(!this._selectedDay)this._selectedDay=this._dayKey(new Date());this._bindInteractions();this._scheduleStats()}
   disconnectedCallback(){window.removeEventListener('energy-day-selector-change',this._dayListener);for(const handle of this._interactions)handle.destroy();this._interactions=[]}
   getCardSize(){return 2}
-  _build(){this._built=true;this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:12px 14px;display:grid;grid-template-columns:minmax(82px,auto) minmax(0,1fr);gap:16px;align-items:stretch}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;padding:0;min-width:0;min-height:44px}button:not(:disabled){cursor:pointer}button:disabled{opacity:1}button:focus-visible{outline:2px solid var(--primary-color);outline-offset:4px;border-radius:8px}.left{text-align:left;display:flex;flex-direction:column;align-items:flex-start;padding-top:1px}.right{text-align:right;display:flex;flex-direction:column;justify-content:center;align-items:flex-end}.left-value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em;color:var(--primary-text-color);white-space:nowrap}.left-label{margin-top:4px;font-size:13px;line-height:1.2;color:var(--secondary-text-color);white-space:nowrap}.right-top,.right-bottom{width:100%;display:flex;align-items:center;justify-content:flex-end;gap:5px;max-width:100%;font-size:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.right-bottom{margin-top:4px}.right-value,.right-primary{font-weight:600;color:var(--primary-text-color);flex:0 0 auto}.right-label,.right-secondary{font-weight:500;color:var(--secondary-text-color);overflow:hidden;text-overflow:ellipsis}@media(max-width:700px){.wrap{padding:12px;grid-template-columns:minmax(76px,auto) minmax(0,1fr);gap:12px}.left-value{font-size:25px}.right-top,.right-bottom{font-size:13px}}</style><ha-card><div class="wrap"><button class="left" type="button"><div class="left-value"></div><div class="left-label"></div></button><button class="right" type="button" aria-live="polite"><div class="right-top"><span class="right-value"></span><span class="right-label"></span></div><div class="right-bottom"><span class="right-primary"></span><span class="right-secondary"></span></div></button></div></ha-card>`;this.e={left:this.shadowRoot.querySelector('.left'),right:this.shadowRoot.querySelector('.right'),leftValue:this.shadowRoot.querySelector('.left-value'),leftLabel:this.shadowRoot.querySelector('.left-label'),rightValue:this.shadowRoot.querySelector('.right-value'),rightLabel:this.shadowRoot.querySelector('.right-label'),rightPrimary:this.shadowRoot.querySelector('.right-primary'),rightSecondary:this.shadowRoot.querySelector('.right-secondary')};this._interactions.push(interaction(this.e.left,{primary:()=>this._more(this._clickEntity('left')),feedback:true}),interaction(this.e.right,{primary:()=>this._more(this._clickEntity('right')),feedback:true}))}
+  _build(){this._built=true;this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:12px 14px;display:grid;grid-template-columns:minmax(82px,auto) minmax(0,1fr);gap:16px;align-items:stretch}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;padding:0;min-width:0;min-height:44px}button:not(:disabled){cursor:pointer}button:disabled{opacity:1}button:focus-visible{outline:2px solid var(--primary-color);outline-offset:4px;border-radius:8px}.left{text-align:left;display:flex;flex-direction:column;align-items:flex-start;padding-top:1px}.right{text-align:right;display:flex;flex-direction:column;justify-content:center;align-items:flex-end}.left-value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em;color:var(--primary-text-color);white-space:nowrap;font-variant-numeric:tabular-nums}.left-label{margin-top:4px;font-size:13px;line-height:1.2;color:var(--secondary-text-color);white-space:nowrap}.right-top,.right-bottom{width:100%;display:flex;align-items:center;justify-content:flex-end;gap:5px;max-width:100%;font-size:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.right-bottom{margin-top:4px}.right-value,.right-primary{font-weight:600;color:var(--primary-text-color);flex:0 0 auto;font-variant-numeric:tabular-nums}.right-label,.right-secondary{font-weight:500;color:var(--secondary-text-color);overflow:hidden;text-overflow:ellipsis}@media(max-width:700px){.wrap{padding:12px;grid-template-columns:minmax(76px,auto) minmax(0,1fr);gap:12px}.left-value{font-size:25px}.right-top,.right-bottom{font-size:13px}}</style><ha-card><div class="wrap"><button class="left" type="button"><div class="left-value"></div><div class="left-label"></div></button><button class="right" type="button"><div class="right-top"><span class="right-value"></span><span class="right-label"></span></div><div class="right-bottom"><span class="right-primary"></span><span class="right-secondary"></span></div></button></div></ha-card>`;this.e={left:this.shadowRoot.querySelector('.left'),right:this.shadowRoot.querySelector('.right'),leftValue:this.shadowRoot.querySelector('.left-value'),leftLabel:this.shadowRoot.querySelector('.left-label'),rightValue:this.shadowRoot.querySelector('.right-value'),rightLabel:this.shadowRoot.querySelector('.right-label'),rightPrimary:this.shadowRoot.querySelector('.right-primary'),rightSecondary:this.shadowRoot.querySelector('.right-secondary')};this._bindInteractions()}
+  _bindInteractions(){if(!this.e||this._interactions.length)return;this._interactions.push(interaction(this.e.left,{primary:()=>this._more(this._clickEntity('left')),feedback:true}),interaction(this.e.right,{primary:()=>this._more(this._clickEntity('right')),feedback:true}))}
   _entity(v){if(!v||typeof v!=='object')return null;if(typeof v.entity==='string')return v.entity;if(Array.isArray(v.entities))return v.entities.find(x=>typeof x==='string')||null;if(Array.isArray(v.terms)){const t=v.terms.find(x=>x&&typeof x.entity==='string');return t?.entity||null}return null}
   _clickEntity(side){if(side==='left')return this.c.left_more_info_entity||this._entity(this.c.left_value)||this._entity(this.c.left_label);return this.c.right_more_info_entity||this._entity(this.c.right_value)||this._entity(this.c.right_label)||this._entity(this.c.right_primary)||this._entity(this.c.right_secondary)}
   _more(entityId){openMoreInfo(this,entityId)}
@@ -3630,18 +4407,189 @@ class ComponentMetricPairCardV3 extends HTMLElement{
   _formatNeeds(v){if(!v||typeof v!=='object')return null;return String(v.format||'').startsWith('energy_kwh_day')?'change':null}
   _statEntities(){const change=new Set(),vals=[this.c?.left_value,this.c?.left_label,this.c?.right_value,this.c?.right_label,this.c?.right_primary,this.c?.right_secondary];for(const v of vals){if(this._formatNeeds(v)!=='change')continue;if(typeof v.entity==='string')change.add(v.entity);for(const id of v.entities||[])if(typeof id==='string')change.add(id);for(const term of v.terms||[])if(typeof term?.entity==='string')change.add(term.entity)}return{change:[...change].sort()}}
   _currentKey(){const ids=this._statEntities(),refresh=this._isToday()?Math.floor(Date.now()/300000):'fixed';return`${this._selectedDay}|${refresh}|c:${ids.change.join(',')}`}
-  _onDayChange(event){if(!this.c?.day_channel||event?.detail?.channel!==this.c.day_channel)return;const day=String(event.detail.day||''),start=this._dayStart(day),today=this._dayStart(this._dayKey(new Date()));if(!start||start>today||day===this._selectedDay)return;this._selectedDay=day;this._stats={};this._error='';this._lastKey=null;this._render();this._scheduleStats()}
-  _scheduleStats(){if(!this.h||!this.c?.day_channel)return;const ids=this._statEntities();if(!ids.change.length)return;const key=this._currentKey();if(this._loading||key===this._lastKey)return;this._fetchStats(this._range(),ids,key)}
-  async _fetchStats(range,ids,key){this._loading=true;this._error='';this._render();try{const result=await this.h.callWS({type:'recorder/statistics_during_period',start_time:new Date(range.start).toISOString(),end_time:new Date(range.end).toISOString(),statistic_ids:ids.change,period:'5minute',types:['change']});if(key!==this._currentKey())return;const stats={};for(const entity of ids.change){const rows=(result?.[entity]||[]).filter(row=>{const s=typeof row.start==='number'?row.start:Date.parse(row.start);return Number.isFinite(s)&&s>=range.start&&s<range.end});const changes=rows.map(r=>Number(r.change)).filter(Number.isFinite);stats[entity]={change:changes.length?changes.reduce((a,b)=>a+b,0):null}}this._stats=stats;this._lastKey=key}catch(_){if(key===this._currentKey())this._error='Data unavailable'}finally{this._loading=false;this._render();if(key!==this._currentKey())this._scheduleStats()}}
+  _onDayChange(event){if(!this.c?.day_channel||event?.detail?.channel!==this.c.day_channel)return;const day=String(event.detail.day||''),start=this._dayStart(day),today=this._dayStart(this._dayKey(new Date()));if(!start||start>today||day===this._selectedDay)return;this._selectedDay=day;this._error='';this._lastKey=null;this._retryAt=0;this._render();this._scheduleStats()}
+  _scheduleStats(){if(!this.h||!this.c?.day_channel||Date.now()<(this._retryAt||0))return;const ids=this._statEntities();if(!ids.change.length)return;const key=this._currentKey();if(this._loading||key===this._lastKey)return;this._fetchStats(this._range(),ids,key)}
+  async _fetchStats(range,ids,key){this._loading=true;this._error='';this._render();try{const result=await this.h.callWS({type:'recorder/statistics_during_period',start_time:new Date(range.start).toISOString(),end_time:new Date(range.end).toISOString(),statistic_ids:ids.change,period:'5minute',types:['change']});if(key!==this._currentKey())return;const stats={};for(const entity of ids.change){const rows=(result?.[entity]||[]).filter(row=>{const s=typeof row.start==='number'?row.start:Date.parse(row.start);return Number.isFinite(s)&&s>=range.start&&s<range.end});const changes=rows.map(r=>Number(r.change)).filter(Number.isFinite);stats[entity]={change:changes.length?changes.reduce((a,b)=>a+b,0):null}}this._stats=stats;this._lastKey=key;this._retryAt=0}catch(_){if(key===this._currentKey()){this._error='Data unavailable';this._retryAt=Date.now()+30000}}finally{this._loading=false;this._render();if(key!==this._currentKey())this._scheduleStats()}}
   _number(entity,type){const v=this._stats?.[entity]?.[type];return Number.isFinite(v)?v:null}
   _liveNumber(entity){const s=this.h?.states?.[entity];if(!s||['unknown','unavailable'].includes(s.state))return null;const n=Number(s.state);return Number.isFinite(n)?n:null}
   _status(){if(this._loading)return'Loading…';if(this._error)return this._error;return null}
-  _energy(v){if(!Number.isFinite(v))return'—';const a=Math.abs(v),digits=a<1?2:1;return`${v.toFixed(digits)} kWh`}
-  _watts(v,abs=false){if(!Number.isFinite(v))return'—';return`${Math.round(abs?Math.abs(v):v)} W`}
+  _energy(v){return formatEnergy(this.h,v)}
+  _watts(v,abs=false){return formatPower(this.h,v,{absolute:abs})}
   _resolve(v){if(v===null||v===undefined)return'';if(typeof v!=='object')return String(v);if(v.text!==undefined)return String(v.text);const f=String(v.format||''),status=this._formatNeeds(v)?this._status():null;if(status)return status;if(f==='energy_kwh_day')return this._energy(this._number(v.entity,'change'));if(f==='energy_kwh_day_sum'){if(!Array.isArray(v.entities)||!v.entities.length)return'—';let total=0;for(const id of v.entities){const n=this._number(id,'change');if(n===null)return'—';total+=n}return this._energy(total)}if(f==='energy_kwh_day_formula'){if(!Array.isArray(v.terms)||!v.terms.length)return'—';let total=0;for(const term of v.terms){const n=this._number(term?.entity,'change');if(n===null)return'—';total+=n*(Number.isFinite(Number(term.factor))?Number(term.factor):1)}return this._energy(total)}if(['watts','watts_abs'].includes(f))return this._watts(this._liveNumber(v.entity),f==='watts_abs');if(f==='grid_import_watts'){const n=this._liveNumber(v.entity),d=Math.max(0,Number(v.deadband??this.c.deadband)||15);if(n===null)return'—';return`${Math.round(n>=d?n:0)} W`}if(f==='grid_export_watts'){const n=this._liveNumber(v.entity),d=Math.max(0,Number(v.deadband??this.c.deadband)||15);if(n===null)return'—';return`${Math.round(n<=-d?Math.abs(n):0)} W`}if(f==='grid_label'){const n=this._liveNumber(v.entity),d=Math.max(0,Number(v.deadband??this.c.deadband)||15);if(n===null)return'Live grid';return n>=d?'Live grid import':n<=-d?'Live grid export':'Live grid flow'}if(f==='grid_direction'){const n=this._liveNumber(v.entity),d=Math.max(0,Number(v.deadband??this.c.deadband)||15);if(n===null)return'Unavailable';return n>=d?'Importing now':n<=-d?'Exporting now':'Balanced now'}if(!v.entity)return'';const s=this.h?.states?.[v.entity];return s?(this.h?.formatEntityState?this.h.formatEntityState(s):String(s.state)):(v.unavailable||'Unavailable')}
   _render(){if(!this.e||!this.c)return;this.e.leftValue.textContent=this._resolve(this.c.left_value);this.e.leftLabel.textContent=this._resolve(this.c.left_label);this.e.rightValue.textContent=this._resolve(this.c.right_value);this.e.rightLabel.textContent=this._resolve(this.c.right_label);this.e.rightPrimary.textContent=this._resolve(this.c.right_primary);this.e.rightSecondary.textContent=this._resolve(this.c.right_secondary);const l=this._clickEntity('left'),r=this._clickEntity('right');this.e.left.disabled=!l;this.e.right.disabled=!r;this.e.left.setAttribute('aria-label',`${this.e.leftValue.textContent} ${this.e.leftLabel.textContent}${l?'. Open details.':''}`.trim());this.e.right.setAttribute('aria-label',`${this.e.rightValue.textContent} ${this.e.rightLabel.textContent}, ${this.e.rightPrimary.textContent} ${this.e.rightSecondary.textContent}${r?'. Open details.':''}`.trim());this.e.right.setAttribute('aria-busy',String(this._loading))}
 }
 registerCard({ type: "metric-pair-card-v3", element: ComponentMetricPairCardV3, name: "Metric Pair", description: "Live power metrics with selected-day energy totals." });
+}
+
+// Module: src/components/energy-summary.js
+{
+/** ComponentEnergySummaryV1 — one backend-driven Energy summary surface. */
+const {
+  createLifecycle,
+  energyDayData,
+  energyDayState,
+  formatCalendarDay,
+  formatEnergy,
+  formatPower,
+  interaction,
+  openMoreInfo,
+  registerCard,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentEnergySummaryV1 extends HTMLElement {
+  static stubConfig = { profile: "household-energy", day_channel: "energy-day" };
+  static getGridOptions() { return { columns: 12, rows: "auto" }; }
+
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.lifecycle = createLifecycle(this);
+    this.data = null;
+    this.error = null;
+    this.loading = false;
+    this.sequence = 0;
+    this.dayUnsub = null;
+    this.profileListener = (event) => {
+      if (event.detail?.kind !== "energy" || event.detail?.profileId !== this.config?.profile) return;
+      energyDayData.invalidateProfile(this._hass, this.config.profile);
+      this.load(true);
+    };
+    this.interactions = [];
+  }
+
+  setConfig(config) {
+    this.config = { profile: "household-energy", day_channel: "energy-day", title: "Energy", ...(config || {}) };
+    this.day = energyDayState.get(this.config.day_channel);
+    if (!this.built) this.build();
+    this.render();
+    this.load();
+  }
+  set hass(hass) {
+    this._hass = hass;
+    this.day = energyDayState.get(this.config?.day_channel, hass);
+    this.render();
+    this.load();
+  }
+  connectedCallback() {
+    this.lifecycle.connect();
+    window.addEventListener("ha-component-profile-change", this.profileListener);
+    this.bindInteractions();
+    this.dayUnsub ||= energyDayState.subscribe(this.config?.day_channel, (detail) => {
+      if (detail.day === this.day) return;
+      this.day = detail.day;
+      this.render();
+      this.load();
+    }, { hass: this._hass });
+    this.load();
+  }
+  disconnectedCallback() {
+    this.lifecycle.disconnect();
+    window.removeEventListener("ha-component-profile-change", this.profileListener);
+    this.dayUnsub?.();
+    this.dayUnsub = null;
+    for (const handle of this.interactions) handle.destroy();
+    this.interactions = [];
+  }
+  getCardSize() { return 3; }
+
+  build() {
+    this.built = true;
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;min-width:0}*{box-sizing:border-box}
+      ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
+      .wrap{padding:12px 14px 14px}.head{min-height:32px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+      h2{margin:0;font-size:15px;line-height:1.2;font-weight:600}.context{display:flex;align-items:center;gap:7px;min-width:0;color:var(--secondary-text-color);font-size:13px}.day{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.state{flex:0 0 auto;padding:3px 7px;border-radius:999px;background:var(--secondary-background-color);font-weight:600}.state.now{color:var(--primary-color)}
+      .live{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:8px}.daily{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+      .metric{appearance:none;min-width:0;min-height:68px;padding:10px 11px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:transparent;color:inherit;font:inherit;text-align:left;display:flex;flex-direction:column;justify-content:center;cursor:pointer}.metric:disabled{cursor:default;opacity:1}.metric:not(:disabled):hover{background:var(--secondary-background-color)}.metric:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+      .value{font-size:22px;line-height:1;font-weight:650;letter-spacing:-.025em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.label{margin-top:6px;font-size:13px;line-height:1.2;font-weight:500;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.daily .value{font-size:18px}.daily .metric{min-height:62px}
+      .feedback{min-height:18px;margin-top:8px;color:var(--secondary-text-color);font-size:13px;line-height:1.35}.feedback.error{color:var(--error-color)}
+      :host([data-loading]) .wrap{cursor:progress}:host([data-loading]) .state{opacity:.75}
+      @media(max-width:700px){.wrap{padding:12px}.daily{grid-template-columns:repeat(2,minmax(0,1fr))}.value{font-size:20px}}
+      @media(max-width:420px){.live{grid-template-columns:1fr}.metric{min-height:58px}.live .metric{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}.live .label{grid-column:1;grid-row:1;margin:0}.live .value{grid-column:2;grid-row:1}.head{align-items:flex-start}.context{justify-content:flex-end}}
+    </style><ha-card><div class="wrap"><div class="head"><h2></h2><div class="context"><span class="day"></span><span class="state"></span></div></div><div class="live">
+      <button class="metric house" type="button"><span class="value">—</span><span class="label">House now</span></button>
+      <button class="metric solar" type="button"><span class="value">—</span><span class="label">Solar now</span></button>
+      <button class="metric grid" type="button"><span class="value">—</span><span class="label">Grid now</span></button>
+    </div><div class="daily">
+      <button class="metric consumed" type="button" disabled><span class="value">—</span><span class="label">Consumed</span></button>
+      <button class="metric generated" type="button" disabled><span class="value">—</span><span class="label">Generated</span></button>
+      <button class="metric imported" type="button" disabled><span class="value">—</span><span class="label">Imported</span></button>
+      <button class="metric exported" type="button" disabled><span class="value">—</span><span class="label">Exported</span></button>
+    </div><div class="feedback" role="status"></div></div></ha-card>`;
+    this.elements = {
+      title: this.shadowRoot.querySelector("h2"), day: this.shadowRoot.querySelector(".day"), state: this.shadowRoot.querySelector(".state"), feedback: this.shadowRoot.querySelector(".feedback"),
+      house: this.shadowRoot.querySelector(".house .value"), solar: this.shadowRoot.querySelector(".solar .value"), grid: this.shadowRoot.querySelector(".grid .value"),
+      consumed: this.shadowRoot.querySelector(".consumed .value"), generated: this.shadowRoot.querySelector(".generated .value"), imported: this.shadowRoot.querySelector(".imported .value"), exported: this.shadowRoot.querySelector(".exported .value"),
+    };
+    this.bindInteractions();
+  }
+
+  bindInteractions() {
+    if (!this.built || this.interactions.length) return;
+    const targets = [
+      [".house", "sensor.ha_component_house_power"],
+      [".solar", "sensor.ha_component_solar_power"],
+      [".grid", "sensor.ha_component_grid_power"],
+    ];
+    for (const [selector, entityId] of targets) {
+      this.interactions.push(interaction(this.shadowRoot.querySelector(selector), {
+        primary: () => openMoreInfo(this, entityId), feedback: true,
+      }));
+    }
+  }
+
+  async load(force = false) {
+    if (!this._hass || !this.config || !this.day) return;
+    if (this.loading) { this.reloadAfterLoad ||= force; return; }
+    const sequence = ++this.sequence;
+    this.loading = true;
+    this.error = null;
+    this.toggleAttribute("data-loading", true);
+    this.render();
+    try {
+      const data = await energyDayData.get(this._hass, this.config.profile, this.day, { force });
+      if (sequence === this.sequence) this.data = data;
+    } catch (error) {
+      if (sequence === this.sequence) this.error = error;
+    } finally {
+      if (sequence === this.sequence) {
+        this.loading = false;
+        this.toggleAttribute("data-loading", false);
+        this.render();
+        if (this.reloadAfterLoad) { this.reloadAfterLoad = false; this.load(true); }
+      }
+    }
+  }
+
+  render() {
+    if (!this.elements || !this.config) return;
+    const data = this.data, isToday = this.day === energyDayState.today(this._hass);
+    this.elements.title.textContent = this.config.title;
+    this.elements.day.textContent = isToday ? "Today" : formatCalendarDay(this._hass, this.day, { weekday: "short", day: "numeric", month: "short" });
+    this.elements.state.textContent = isToday ? "Now" : "Historical";
+    this.elements.state.classList.toggle("now", isToday);
+    this.elements.house.textContent = formatPower(this._hass, data?.house_w);
+    this.elements.solar.textContent = formatPower(this._hass, data?.solar_w);
+    const grid = data?.grid_w == null ? Number.NaN : Number(data.grid_w);
+    this.elements.grid.textContent = formatPower(this._hass, data?.grid_w, { absolute: true });
+    this.shadowRoot.querySelector(".grid .label").textContent = Number.isFinite(grid) ? grid > 15 ? "Importing now" : grid < -15 ? "Exporting now" : "Grid balanced" : "Grid unavailable";
+    this.elements.consumed.textContent = formatEnergy(this._hass, data?.consumed_kwh);
+    this.elements.generated.textContent = formatEnergy(this._hass, data?.generated_kwh);
+    this.elements.imported.textContent = formatEnergy(this._hass, data?.imported_kwh);
+    this.elements.exported.textContent = formatEnergy(this._hass, data?.exported_kwh);
+    const coverage = Number(data?.coverage);
+    const feedback = this.error ? (/unknown energy profile/i.test(this.error.message || "")
+      ? `Configure ${this.config.profile} in HA Component Backend`
+      : (this.error.message || "Energy data is unavailable")) :
+      this.loading ? (this.data ? "Updating…" : "Loading Energy data…") :
+      data?.stale ? "Showing the last successful update" :
+      Number.isFinite(coverage) && coverage < 1 ? `${Math.round(coverage * 100)}% of source data available` : "";
+    this.elements.feedback.textContent = feedback;
+    this.elements.feedback.classList.toggle("error", Boolean(this.error));
+  }
+}
+
+registerCard({ type: "component-energy-summary-v1", element: ComponentEnergySummaryV1, name: "Energy Summary V1", description: "Stable backend-driven live power and selected-day Energy totals." });
 }
 
 // Module: src/components/update-summary.js
@@ -4156,298 +5104,100 @@ registerCard({ type: "component-empty-state-v3", element: ComponentEmptyStateV3,
 
 // Module: src/components/energy-day-selector.js
 {
-/** ComponentEnergyDaySelectorV1 — reusable Home Assistant dashboard card. */
-const { interaction, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+/** ComponentEnergyDaySelectorV1 — stable, replayable selected-day control. */
+const { energyDayState, formatCalendarDay, interaction, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
 class ComponentEnergyDaySelectorV1 extends HTMLElement {
+  static stubConfig = { channel: "energy-day" };
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._selected = this._todayKey();
-    this._connectedOnce = false;
-    this._interactions = [];
+    this.interactions = [];
+    this.unsubscribe = null;
   }
-
   setConfig(config) {
-    this.config = {
-      channel: "energy-day",
-      title: "Energy day",
-      ...config,
-    };
-    this._selected = this._todayKey();
-    this._render();
-    if (this.isConnected) queueMicrotask(() => this._emit());
+    this.config = { channel: "energy-day", title: "Energy day", ...(config || {}) };
+    this.selected = energyDayState.get(this.config.channel);
+    if (!this.built) this.build();
+    this.update();
   }
-
   set hass(hass) {
     this._hass = hass;
+    this.selected = energyDayState.get(this.config?.channel, hass);
+    this.update();
   }
-
   connectedCallback() {
-    this._selected = this._todayKey();
-    this._render();
-    queueMicrotask(() => this._emit());
+    this.bindInteractions();
+    this.unsubscribe ||= energyDayState.subscribe(this.config?.channel, (detail) => {
+      this.selected = detail.day;
+      this.update();
+    }, { hass: this._hass });
   }
-
   disconnectedCallback() {
-    this._clearInteractions();
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    for (const handle of this.interactions) handle.destroy();
+    this.interactions = [];
   }
+  getCardSize() { return 1; }
 
-  getCardSize() {
-    return 1;
-  }
-
-  _clearInteractions() {
-    for (const handle of this._interactions) handle.destroy();
-    this._interactions = [];
-  }
-
-  _pad(value) {
-    return String(value).padStart(2, "0");
-  }
-
-  _key(date) {
-    return `${date.getFullYear()}-${this._pad(date.getMonth() + 1)}-${this._pad(date.getDate())}`;
-  }
-
-  _todayKey() {
-    return this._key(new Date());
-  }
-
-  _parse(value) {
+  parse(value) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
     if (!match) return null;
     const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-    if (
-      date.getFullYear() !== Number(match[1]) ||
-      date.getMonth() !== Number(match[2]) - 1 ||
-      date.getDate() !== Number(match[3])
-    ) {
-      return null;
-    }
-    date.setHours(0, 0, 0, 0);
-    return date;
+    return this.key(date) === value ? date : null;
   }
-
-  _isToday() {
-    return this._selected === this._todayKey();
+  key(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
+  isToday() { return this.selected === energyDayState.today(this._hass); }
+  setDay(value) {
+    this.selected = energyDayState.set(this.config.channel, value, { hass: this._hass });
+    this.update();
   }
-
-  _label() {
-    const date = this._parse(this._selected) || new Date();
-    const options = {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-    };
-    if (date.getFullYear() !== new Date().getFullYear()) {
-      options.year = "numeric";
-    }
-    return date.toLocaleDateString("en-AU", options);
-  }
-
-  _emit() {
-    window.dispatchEvent(
-      new CustomEvent("energy-day-selector-change", {
-        detail: {
-          channel: this.config?.channel || "energy-day",
-          day: this._selected,
-          isToday: this._isToday(),
-        },
-      }),
-    );
-  }
-
-  _setDay(value) {
-    const date = this._parse(value);
-    const today = this._parse(this._todayKey());
-    if (!date || date > today) return;
-    const next = this._key(date);
-    if (next === this._selected) return;
-    this._selected = next;
-    this._render();
-    this._emit();
-  }
-
-  _shift(days) {
-    const date = this._parse(this._selected) || new Date();
+  shift(days) {
+    const date = this.parse(this.selected) || new Date();
     date.setDate(date.getDate() + days);
-    this._setDay(this._key(date));
+    this.setDay(this.key(date));
   }
 
-  _render() {
-    if (!this.config) return;
-    this._clearInteractions();
-    const today = this._isToday();
+  build() {
+    this.built = true;
     this.shadowRoot.innerHTML = `<style>
-      :host {
-        display: block;
-        min-width: 0;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      ha-card {
-        overflow: hidden;
-        border-radius: var(--ha-card-border-radius, 16px);
-        background: var(--ha-card-background, var(--card-background-color));
-        color: var(--primary-text-color);
-      }
-      .row {
-        min-height: 56px;
-        padding: 6px 8px;
-        display: grid;
-        grid-template-columns: 44px minmax(0, 1fr) 44px auto;
-        align-items: center;
-        gap: 8px;
-      }
-      button {
-        appearance: none;
-        min-width: 44px;
-        min-height: 44px;
-        border: 0;
-        border-radius: 12px;
-        background: transparent;
-        color: inherit;
-        font: inherit;
-        cursor: pointer;
-      }
-      button:active:not(:disabled) {
-        transform: scale(.97);
-      }
-      button:focus-visible,
-      .date:focus-within {
-        outline: 2px solid var(--primary-color);
-        outline-offset: 2px;
-      }
-      button:disabled {
-        color: var(--disabled-text-color, var(--secondary-text-color));
-        cursor: default;
-        opacity: .45;
-      }
-      .step {
-        display: grid;
-        place-items: center;
-      }
-      ha-icon {
-        --mdc-icon-size: 22px;
-      }
-      .date {
-        position: relative;
-        min-width: 0;
-        min-height: 44px;
-        padding: 4px 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        border-radius: 12px;
-        background: var(--secondary-background-color);
-        overflow: hidden;
-      }
-      .label {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 13px;
-        font-weight: 650;
-      }
-      .state {
-        flex: 0 0 auto;
-        padding: 3px 7px;
-        border-radius: 999px;
-        background: var(--card-background-color);
-        color: var(--secondary-text-color);
-        font-size: 13px;
-        font-weight: 600;
-      }
-      .state.historical {
-        color: var(--primary-color);
-      }
-      input {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        opacity: 0;
-        cursor: pointer;
-      }
-      .today {
-        padding: 0 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        color: var(--primary-color);
-        background: var(--secondary-background-color);
-        font-size: 13px;
-        font-weight: 650;
-      }
-      .today:disabled {
-        opacity: .55;
-      }
-      @media (max-width: 420px) {
-        .row {
-          grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
-          gap: 4px;
-          padding: 6px;
-        }
-        .today {
-          width: 44px;
-          padding: 0;
-        }
-        .today span {
-          display: none;
-        }
-      }
-    </style>
-    <ha-card>
-      <div class="row">
-        <button class="step previous" type="button" aria-label="Previous day">
-          <ha-icon icon="mdi:chevron-left"></ha-icon>
-        </button>
-        <label class="date">
-          <span class="label">${this._label()}</span>
-          <span class="state ${today ? "" : "historical"}" role="status" aria-live="polite">
-            ${today ? "Today" : "Historical"}
-          </span>
-          <input type="date" aria-label="Select energy day" value="${this._selected}" max="${this._todayKey()}">
-        </label>
-        <button class="step next" type="button" aria-label="Next day" ${today ? "disabled" : ""}>
-          <ha-icon icon="mdi:chevron-right"></ha-icon>
-        </button>
-        <button class="today" type="button" aria-label="Return to today" ${today ? "disabled" : ""}>
-          <ha-icon icon="mdi:calendar-today-outline"></ha-icon><span>Today</span>
-        </button>
-      </div>
-    </ha-card>`;
-
+      :host{display:block;min-width:0}*{box-sizing:border-box}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
+      .row{min-height:56px;padding:6px 8px;display:grid;grid-template-columns:44px minmax(0,1fr) 44px auto;align-items:center;gap:8px}
+      button{appearance:none;min-width:44px;min-height:44px;border:0;border-radius:12px;background:transparent;color:inherit;font:inherit;cursor:pointer}button:focus-visible,.date:focus-within{outline:2px solid var(--primary-color);outline-offset:2px}button:disabled{color:var(--disabled-text-color,var(--secondary-text-color));cursor:default;opacity:.45}.step{display:grid;place-items:center}ha-icon{--mdc-icon-size:22px}
+      .date{position:relative;min-width:0;min-height:44px;padding:4px 8px;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:12px;background:var(--secondary-background-color);overflow:hidden}.label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:650}.state{flex:0 0 auto;padding:3px 7px;border-radius:999px;background:var(--card-background-color);color:var(--secondary-text-color);font-size:13px;font-weight:600}.state.historical{color:var(--primary-color)}
+      input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}.today{padding:0 12px;display:flex;align-items:center;justify-content:center;gap:6px;color:var(--primary-color);background:var(--secondary-background-color);font-size:13px;font-weight:650}.today:disabled{opacity:.55}
+      @media(max-width:420px){.row{grid-template-columns:44px minmax(0,1fr) 44px 44px;gap:4px;padding:6px}.today{width:44px;padding:0}.today span{display:none}}
+    </style><ha-card><div class="row"><button class="step previous" type="button" aria-label="Previous day"><ha-icon icon="mdi:chevron-left"></ha-icon></button><label class="date"><span class="label"></span><span class="state" role="status"></span><input type="date" aria-label="Select Energy day"></label><button class="step next" type="button" aria-label="Next day"><ha-icon icon="mdi:chevron-right"></ha-icon></button><button class="today" type="button" aria-label="Return to today"><ha-icon icon="mdi:calendar-today-outline"></ha-icon><span>Today</span></button></div></ha-card>`;
+    this.elements = {
+      label: this.shadowRoot.querySelector(".label"), state: this.shadowRoot.querySelector(".state"), input: this.shadowRoot.querySelector("input"), next: this.shadowRoot.querySelector(".next"), today: this.shadowRoot.querySelector(".today"),
+    };
+    this.elements.input.addEventListener("change", (event) => this.setDay(event.target.value));
+    this.bindInteractions();
+  }
+  bindInteractions() {
+    if (!this.built || this.interactions.length) return;
     const repeat = { delay: 350, interval: 110, accelerate: true };
-    this._interactions.push(
-      interaction(this.shadowRoot.querySelector(".previous"), {
-        primary: () => this._shift(-1),
-        optimistic: "selection",
-        repeat,
-        feedback: true,
-      }),
-      interaction(this.shadowRoot.querySelector(".next"), {
-        primary: () => this._shift(1),
-        optimistic: "selection",
-        repeat,
-        feedback: true,
-      }),
-      interaction(this.shadowRoot.querySelector(".today"), {
-        primary: () => this._setDay(this._todayKey()),
-        optimistic: "selection",
-        repeat: false,
-        feedback: true,
-      }),
+    this.interactions.push(
+      interaction(this.shadowRoot.querySelector(".previous"), { primary: () => this.shift(-1), repeat, feedback: true }),
+      interaction(this.elements.next, { primary: () => this.shift(1), repeat, feedback: true }),
+      interaction(this.elements.today, { primary: () => this.setDay(energyDayState.today(this._hass)), feedback: true }),
     );
-    this.shadowRoot.querySelector("input").onchange = (event) =>
-      this._setDay(event.target.value);
+  }
+  update() {
+    if (!this.elements || !this.selected) return;
+    const today = this.isToday();
+    this.elements.label.textContent = formatCalendarDay(this._hass, this.selected, { weekday: "short", day: "numeric", month: "short", ...(this.selected.slice(0, 4) === energyDayState.today(this._hass).slice(0, 4) ? {} : { year: "numeric" }) });
+    this.elements.state.textContent = today ? "Today" : "Historical";
+    this.elements.state.classList.toggle("historical", !today);
+    this.elements.input.value = this.selected;
+    this.elements.input.max = energyDayState.today(this._hass);
+    this.elements.next.disabled = today;
+    this.elements.today.disabled = today;
   }
 }
-registerCard({ type: "component-energy-day-selector-v1", element: ComponentEnergyDaySelectorV1, name: "Energy Day Selector", description: "Reusable day selector that broadcasts historical energy-day state." });
+
+registerCard({ type: "component-energy-day-selector-v1", element: ComponentEnergyDaySelectorV1, name: "Energy Day Selector", description: "Stable selected-day control shared by every Energy card." });
 }
 
 // Module: src/components/text-effect.js
@@ -4543,7 +5293,7 @@ class ComponentWelcomeHeaderV1 extends HTMLElement{
     const signature=JSON.stringify([Math.floor(now.getTime()/60000),state?.state,attrs.temperature,attrs.temperature_unit,attrs.cloud_coverage,zone]);
     if(signature===this._signature)return;this._signature=signature;
     this._interaction?.destroy();this._interaction=null;
-    this.shadowRoot.innerHTML="<style>:host{display:block;min-width:0}*{box-sizing:border-box}button{font:inherit}ha-card{border:0;box-shadow:none;background:transparent;color:var(--primary-text-color)}.row{min-height:32px;padding:0 2px;display:flex;align-items:center;justify-content:space-between;gap:12px}.time{min-width:0;white-space:nowrap;color:var(--secondary-text-color);font-size:14px;line-height:1.2;font-weight:400}.weather{appearance:none;border:0;min-height:32px;padding:0;background:transparent;color:var(--secondary-text-color);font-size:13px;line-height:1.2;font-weight:400;white-space:nowrap;cursor:pointer;text-align:right}.weather:hover{text-decoration:underline}.weather:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:6px}@media(max-width:520px){.row{gap:8px}.time{font-size:13px}.weather{font-size:12px}}@media(max-width:350px){.row{gap:6px}.time{font-size:12px}.weather{font-size:11px}}</style><ha-card><div class=\"row\"><span class=\"time\">"+this._escape(time)+"</span><button class=\"weather\" type=\"button\" aria-label=\"Outside "+this._escape(temperatureText)+", "+this._escape(cloudText)+". Open weather details.\">"+this._escape(temperatureText+" · "+cloudText)+"</button></div></ha-card>";
+    this.shadowRoot.innerHTML="<style>:host{display:block;min-width:0}*{box-sizing:border-box}button{font:inherit}ha-card{border:0;box-shadow:none;background:transparent;color:var(--primary-text-color)}.row{min-height:44px;padding:0 2px;display:flex;align-items:center;justify-content:space-between;gap:12px}.time{min-width:0;white-space:nowrap;color:var(--secondary-text-color);font-size:14px;line-height:1.2;font-weight:400}.weather{appearance:none;border:0;min-height:44px;padding:0;background:transparent;color:var(--secondary-text-color);font-size:13px;line-height:1.2;font-weight:400;white-space:nowrap;cursor:pointer;text-align:right}.weather:hover{text-decoration:underline}.weather:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:6px}@media(max-width:520px){.row{gap:8px}.time{font-size:13px}.weather{font-size:12px}}@media(max-width:350px){.row{gap:6px}.time{font-size:12px}.weather{font-size:11px}}</style><ha-card><div class=\"row\"><span class=\"time\">"+this._escape(time)+"</span><button class=\"weather\" type=\"button\" aria-label=\"Outside "+this._escape(temperatureText)+", "+this._escape(cloudText)+". Open weather details.\">"+this._escape(temperatureText+" · "+cloudText)+"</button></div></ha-card>";
     this._interaction=interaction(this.shadowRoot.querySelector(".weather"),{primary:()=>this._openWeather(),feedback:true});
   }
 }
@@ -4910,13 +5660,18 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.controls = this.shadowRoot.querySelector(".controls");
     this.dialog = this.shadowRoot.querySelector("dialog");
     this.identity = this.shadowRoot.querySelector(".identity");
+    this.bindInteractions();
+    this.dialog.onclick = (event) => { if (event.target === this.dialog) this.dialog.close(); };
+  }
+
+  bindInteractions() {
+    if (this.interactionHandles.length) return;
     this.interactionHandles.push(
       interaction(this.view, { primary: () => this.openCamera(), feedback: true }),
       interaction(this.identity, { primary: () => this.openCamera(), feedback: true }),
       interaction(this.controls, { primary: () => this.openControls(), feedback: true }),
       interaction(this.shadowRoot.querySelector(".close"), { primary: () => this.dialog.close(), feedback: true }),
     );
-    this.dialog.onclick = (event) => { if (event.target === this.dialog) this.dialog.close(); };
   }
 
   setConfig(config) { if (!config?.entity) throw new Error("Camera controller requires entity"); this.config = { ...config }; this.data = null; this.bundleData = null; this.controlsSignature = ""; this.load(); }
@@ -4930,7 +5685,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
       this.load();
     }
   }
-  connectedCallback() { this.subscribe(); this.load(); }
+  connectedCallback() { this.bindInteractions(); this.subscribe(); this.load(); }
   disconnectedCallback() { for (const handle of this.interactionHandles) handle.destroy(); this.interactionHandles = []; for (const handle of this.controlInteractions) handle.destroy(); this.controlInteractions = []; this.optimisticSwitches.clear(); this.unsubscribe?.(); this.unsubscribe = null; clearTimeout(this.confirmTimer); }
   getCardSize() { return 1; }
   subscribe() {
@@ -5087,6 +5842,625 @@ class ComponentCameraControllerV1 extends HTMLElement {
 }
 
 registerCard({ type: "component-camera-controller-v1", element: ComponentCameraControllerV1, name: "Camera Controller V1", description: "One device-aware controller for each physical ONVIF camera." });
+}
+
+// Module: src/components/camera-controller-v2.js
+{
+/** ComponentCameraControllerV2 — platform-adapted camera controls. */
+const {
+  createDialogController,
+  interaction,
+  loadSecurityModel,
+  openMoreInfo,
+  registerCard,
+  waitForEntityState,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentCameraControllerV2 extends HTMLElement {
+  static stubConfig = { profile: "household-security" };
+  static getGridOptions() { return { columns: 12, rows: "auto" }; }
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.sequence = 0;
+    this.fixedInteractions = [];
+    this.controlInteractions = [];
+    this.confirmId = null;
+    this.confirmTimer = null;
+    this.profileListener = (event) => {
+      if (event.detail?.kind === "security" && event.detail?.profileId === this.config?.profile) this.refresh(true);
+    };
+    this.build();
+  }
+  setConfig(config) {
+    this.config = { profile: "household-security", expanded: false, ...(config || {}) };
+    this.render();
+    this.refresh();
+  }
+  set hass(hass) { this._hass = hass; this.refresh(); }
+  connectedCallback() { window.addEventListener("ha-component-profile-change", this.profileListener); this.bindFixed(); this.refresh(); }
+  disconnectedCallback() {
+    window.removeEventListener("ha-component-profile-change", this.profileListener);
+    for (const handle of [...this.fixedInteractions, ...this.controlInteractions]) handle.destroy();
+    this.fixedInteractions = [];
+    this.controlInteractions = [];
+    clearTimeout(this.confirmTimer);
+    if (this.dialog.open) this.dialog.close();
+  }
+  getCardSize() { return this.config?.expanded ? 5 : 1; }
+
+  build() {
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;min-width:0}*{box-sizing:border-box}button{font:inherit;color:inherit}
+      ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.row{min-height:62px;padding:8px 9px 8px 12px;display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:center;gap:9px}.icon{width:36px;height:36px;display:grid;place-items:center;color:var(--secondary-text-color)}.icon ha-icon{--mdc-icon-size:21px}.identity{appearance:none;border:0;background:transparent;min-width:0;min-height:44px;padding:4px 0;text-align:left;cursor:pointer}.name,.state{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.name{font-size:13px;font-weight:650}.state{margin-top:3px;font-size:13px;color:var(--secondary-text-color)}.actions{display:flex;gap:4px}.action,.close{appearance:none;min-width:44px;height:44px;padding:0 10px;border:0;border-radius:10px;background:transparent;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;color:var(--secondary-text-color)}.action:hover,.close:hover{background:var(--secondary-background-color);color:var(--primary-text-color)}.action ha-icon,.close ha-icon{--mdc-icon-size:19px}button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}button:disabled{cursor:default;opacity:.45}
+      dialog{width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,16px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.24));overflow:hidden}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.32));backdrop-filter:blur(3px)}.sheet{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}.head{min-height:56px;padding:6px 7px 6px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--divider-color)}.sheet-title{min-width:0;flex:1;font-size:14px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.body,.inline{overflow:auto;overscroll-behavior:contain;padding:12px 14px max(14px,env(safe-area-inset-bottom))}.inline{border-top:1px solid var(--divider-color)}.inline[hidden]{display:none}.groups{display:grid;gap:16px}.group{display:grid;gap:7px}.group[hidden]{display:none}.group-list{display:grid;gap:6px}.group-title{display:flex;align-items:center;gap:8px;color:var(--secondary-text-color);font-size:13px;font-weight:600}.group-title:after{content:'';height:1px;background:var(--divider-color);flex:1}.control{min-height:52px;padding:5px 5px 5px 10px;border:1px solid var(--divider-color);border-radius:12px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px}.copy{min-width:0}.control-name,.control-state{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.control-name{font-size:13px;font-weight:600}.control-state{margin-top:3px;font-size:13px;color:var(--secondary-text-color)}.control button{appearance:none;width:96px;min-height:44px;padding:0 10px;border:1px solid var(--divider-color);border-radius:10px;background:transparent;cursor:pointer}.control button.on{color:var(--primary-color);border-color:color-mix(in srgb,var(--primary-color) 45%,var(--divider-color));background:color-mix(in srgb,var(--primary-color) 8%,transparent)}.control button.confirm{color:var(--warning-color,var(--error-color));border-color:currentColor}.detection.on{border-color:color-mix(in srgb,var(--primary-color) 40%,var(--divider-color))}.feedback{min-height:18px;margin-top:8px;color:var(--secondary-text-color);font-size:13px}.feedback.error{color:var(--error-color)}
+      @media(max-width:520px){.action span{display:none}.action{padding:0}dialog{width:100vw;max-width:100vw;max-height:90dvh;margin:auto 0 0;border-width:1px 0 0;border-radius:16px 16px 0 0}.sheet{max-height:90dvh}.body{padding:10px 12px max(18px,env(safe-area-inset-bottom))}}
+    </style><ha-card><div class="row"><span class="icon"><ha-icon icon="mdi:cctv"></ha-icon></span><button class="identity" type="button"><span class="name">Camera</span><span class="state">Loading…</span></button><span class="actions"><button class="action view" type="button"><ha-icon icon="mdi:eye-outline"></ha-icon><span>View</span></button><button class="action open-controls" type="button"><ha-icon icon="mdi:tune-variant"></ha-icon><span>Controls</span></button></span></div><div class="inline" hidden></div></ha-card><dialog><div class="sheet"><div class="head"><span class="sheet-title">Camera controls</span><button class="close" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"></div></div></dialog>`;
+    this.elements = { name: this.shadowRoot.querySelector(".name"), state: this.shadowRoot.querySelector(".state"), identity: this.shadowRoot.querySelector(".identity"), view: this.shadowRoot.querySelector(".view"), open: this.shadowRoot.querySelector(".open-controls"), inline: this.shadowRoot.querySelector(".inline"), body: this.shadowRoot.querySelector(".body"), sheetTitle: this.shadowRoot.querySelector(".sheet-title") };
+    this.dialog = this.shadowRoot.querySelector("dialog");
+    this.dialogController = createDialogController(this, this.dialog, { initialFocus: () => this.shadowRoot.querySelector(".close") });
+    this.bindFixed();
+  }
+  bindFixed() {
+    if (this.fixedInteractions.length) return;
+    this.fixedInteractions.push(
+      interaction(this.elements.identity, { primary: () => this.openCamera(), feedback: true }),
+      interaction(this.elements.view, { primary: () => this.openCamera(), feedback: true }),
+      interaction(this.elements.open, { primary: (event) => this.openControls(event.currentTarget), feedback: true }),
+      interaction(this.shadowRoot.querySelector(".close"), { primary: () => this.dialogController.close(), feedback: true }),
+    );
+  }
+  async refresh(force = false) {
+    if (!this._hass || !this.config) return;
+    const sequence = ++this.sequence;
+    try {
+      const model = await loadSecurityModel(this._hass, this.config.profile, { force });
+      if (sequence !== this.sequence) return;
+      this.model = model;
+      this.camera = model.cameras.find((camera) => camera.entityId === this.config.entity || camera.deviceId === this.config.device_id) || model.cameras[0] || null;
+      this.render();
+    } catch (error) {
+      if (sequence === this.sequence) { this.model = { error }; this.camera = null; this.render(); }
+    }
+  }
+  render() {
+    if (!this.config) return;
+    const camera = this.camera, error = this.model?.error || this.model?.profileError;
+    this.elements.name.textContent = camera?.name || this.config.title || "Camera";
+    this.elements.state.textContent = this.model?.profileMissing
+      ? `Configure ${this.config.profile}`
+      : error ? "Controls unavailable" : camera?.active ? "Activity detected" : camera?.online ? "Online" : "Unavailable";
+    this.elements.identity.disabled = !camera?.online;
+    this.elements.view.disabled = !camera?.online;
+    const hasControls = Boolean(camera && (camera.switches.length || camera.detections.length || camera.actions.length || camera.ptz.length));
+    this.elements.open.hidden = this.config.expanded || !hasControls;
+    this.elements.inline.hidden = !this.config.expanded;
+    this.elements.sheetTitle.textContent = `${camera?.name || "Camera"} controls`;
+    if (this.config.expanded || this.dialog.open) this.renderControls();
+  }
+  openCamera() { if (this.camera?.online) openMoreInfo(this, this.camera.entityId); }
+  openControls(trigger) {
+    if (!this.camera) return;
+    this.renderControls();
+    this.dialogController.open(trigger);
+  }
+  renderControls() {
+    const host = this.config.expanded ? this.elements.inline : this.elements.body;
+    const camera = this.camera;
+    for (const handle of this.controlInteractions) handle.destroy();
+    this.controlInteractions = [];
+    host.replaceChildren();
+    if (!camera) { host.textContent = "Camera controls are unavailable"; return; }
+    const groups = document.createElement("div"); groups.className = "groups";
+    const group = (title) => { const section = document.createElement("section"); section.className = "group"; section.innerHTML = '<div class="group-title"></div><div class="group-list"></div>'; section.querySelector(".group-title").textContent = title; groups.append(section); return section.querySelector(".group-list"); };
+    if (camera.detections.length) {
+      const list = group("Detection status");
+      for (const entity of camera.detections) {
+        const state = this._hass.states[entity.entity_id], available = Boolean(state && !["unknown", "unavailable"].includes(state.state)), on = available && state.state === "on", row = document.createElement("div");
+        row.className = `control detection ${on ? "on" : ""}`;
+        row.innerHTML = '<span class="copy"><span class="control-name"></span><span class="control-state"></span></span>';
+        row.querySelector(".control-name").textContent = entity.name || entity.original_name || "Detection";
+        row.querySelector(".control-state").textContent = !available ? "Unavailable" : on ? "Detected" : "Clear";
+        list.append(row);
+      }
+    }
+    if (camera.switches.length) {
+      const list = group("Camera controls");
+      for (const capability of camera.switches) {
+        const entityId = capability.entity.entity_id, state = this._hass.states[entityId], on = state?.state === "on", usable = Boolean(state && !["unknown", "unavailable"].includes(state.state)), row = document.createElement("div");
+        row.className = "control";
+        row.innerHTML = '<span class="copy"><span class="control-name"></span><span class="control-state"></span></span><button type="button"></button>';
+        row.querySelector(".control-name").textContent = capability.role;
+        row.querySelector(".control-state").textContent = usable ? on ? "On" : "Off" : "Unavailable";
+        const button = row.querySelector("button"), confirmation = this.confirmId === entityId;
+        button.textContent = confirmation ? "Confirm off" : on ? "On" : "Off";
+        button.classList.toggle("on", on); button.classList.toggle("confirm", confirmation); button.disabled = !usable; button.setAttribute("aria-pressed", String(on));
+        button.setAttribute("aria-label", confirmation ? `Confirm turning off ${capability.role}` : `${on ? "Turn off" : "Turn on"} ${capability.role}`);
+        this.controlInteractions.push(interaction(button, { primary: () => this.toggle(capability, on), hold: () => openMoreInfo(this, entityId), singleFlight: true, feedback: true }));
+        list.append(row);
+      }
+    }
+    if (camera.ptz.length) {
+      const list = group("Pan, tilt and zoom");
+      for (const entity of camera.ptz) this.actionRow(list, entity, "Open", () => openMoreInfo(this, entity.entity_id));
+    }
+    if (camera.actions.length) {
+      const list = group("Maintenance");
+      for (const capability of camera.actions) this.actionRow(list, capability.entity, this.confirmId === capability.entity.entity_id ? "Confirm" : "Run", () => this.press(capability.entity.entity_id), this.confirmId === capability.entity.entity_id);
+    }
+    const feedback = document.createElement("div"); feedback.className = `feedback ${this.error ? "error" : ""}`; feedback.setAttribute("role", "status"); feedback.textContent = this.error || ""; groups.append(feedback);
+    host.append(groups);
+  }
+  actionRow(list, entity, label, action, confirm = false) {
+    const state = this._hass.states[entity.entity_id], usable = Boolean(state && state.state !== "unavailable"), row = document.createElement("div");
+    row.className = "control"; row.innerHTML = '<span class="copy"><span class="control-name"></span><span class="control-state"></span></span><button type="button"></button>';
+    row.querySelector(".control-name").textContent = entity.name || entity.original_name || "Camera action";
+    row.querySelector(".control-state").textContent = usable ? "Available" : "Unavailable";
+    const button = row.querySelector("button"); button.textContent = label; button.disabled = !usable; button.classList.toggle("confirm", confirm);
+    this.controlInteractions.push(interaction(button, { primary: action, singleFlight: true, feedback: true }));
+    list.append(row);
+  }
+  askConfirmation(entityId) {
+    this.confirmId = entityId;
+    clearTimeout(this.confirmTimer);
+    this.confirmTimer = setTimeout(() => { this.confirmId = null; this.renderControls(); }, 5000);
+    this.renderControls();
+  }
+  async toggle(capability, wasOn) {
+    const entityId = capability.entity.entity_id, destructiveOff = wasOn && /^(Recording|Detection|Alerts)$/i.test(capability.role);
+    if (destructiveOff && this.confirmId !== entityId) return this.askConfirmation(entityId);
+    this.confirmId = null; clearTimeout(this.confirmTimer); this.error = ""; this.dialogController.setBusy(true);
+    try {
+      await this._hass.callService("switch", wasOn ? "turn_off" : "turn_on", { entity_id: entityId });
+      await waitForEntityState(() => this._hass, entityId, (value) => value === (wasOn ? "off" : "on"), { timeout: 9000 });
+    } catch (error) {
+      this.error = error?.message || "Camera did not confirm the change";
+      throw error;
+    } finally {
+      this.dialogController.setBusy(false); this.renderControls();
+    }
+  }
+  async press(entityId) {
+    if (this.confirmId !== entityId) return this.askConfirmation(entityId);
+    this.confirmId = null; clearTimeout(this.confirmTimer); this.error = ""; this.dialogController.setBusy(true);
+    try { await this._hass.callService("button", "press", { entity_id: entityId }); }
+    catch (error) { this.error = error?.message || "Camera action failed"; throw error; }
+    finally { this.dialogController.setBusy(false); this.renderControls(); }
+  }
+}
+
+registerCard({ type: "component-camera-controller-v2", element: ComponentCameraControllerV2, name: "Camera Controller V2", description: "Platform-adapted camera controls with explicit state and protected destructive changes." });
+}
+
+// Module: src/components/security-summary.js
+{
+/** ComponentSecuritySummaryV1 — exception-first household Security status. */
+const { interaction, loadSecurityModel, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentSecuritySummaryV1 extends HTMLElement {
+  static stubConfig = { profile: "household-security" };
+  static getGridOptions() { return { columns: 12, rows: "auto" }; }
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.sequence = 0;
+    this.interactions = [];
+    this.profileListener = (event) => {
+      if (event.detail?.kind === "security" && event.detail?.profileId === this.config?.profile) this.refresh(true);
+    };
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;min-width:0}*{box-sizing:border-box}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
+      .wrap{padding:12px 14px}.top{min-height:44px;display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:10px}.icon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--secondary-background-color);color:var(--secondary-text-color)}.icon ha-icon{--mdc-icon-size:22px}.ok .icon{color:var(--primary-color)}
+      .copy{min-width:0}.title,.detail{display:block}.title{font-size:15px;line-height:1.2;font-weight:650}.detail{margin-top:3px;color:var(--secondary-text-color);font-size:13px;line-height:1.3}.count{font-size:13px;font-weight:600;color:var(--secondary-text-color);white-space:nowrap}.attention{display:grid;gap:6px;margin-top:8px}.attention:empty{display:none}.attention button{appearance:none;width:100%;min-height:44px;padding:8px 10px;border:1px solid var(--divider-color);border-radius:12px;background:transparent;color:inherit;font:inherit;text-align:left;display:flex;align-items:center;gap:8px;cursor:pointer}.attention button:hover{background:var(--secondary-background-color)}.attention button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.attention ha-icon{--mdc-icon-size:18px;color:var(--warning-color,var(--primary-color))}.attention span{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .error{color:var(--error-color)}@media(max-width:420px){.wrap{padding:12px}.count{display:none}}
+    </style><ha-card><div class="wrap"><div class="top"><span class="icon"><ha-icon icon="mdi:shield-check-outline"></ha-icon></span><span class="copy"><span class="title">Security</span><span class="detail">Loading household status…</span></span><span class="count"></span></div><div class="attention"></div></div></ha-card>`;
+    this.elements = { wrap: this.shadowRoot.querySelector(".wrap"), icon: this.shadowRoot.querySelector(".icon ha-icon"), title: this.shadowRoot.querySelector(".title"), detail: this.shadowRoot.querySelector(".detail"), count: this.shadowRoot.querySelector(".count"), attention: this.shadowRoot.querySelector(".attention") };
+  }
+  setConfig(config) { this.config = { profile: "household-security", title: "Security", ...(config || {}) }; this.refresh(); }
+  set hass(hass) { this._hass = hass; this.refresh(); }
+  connectedCallback() { window.addEventListener("ha-component-profile-change", this.profileListener); this.refresh(); }
+  disconnectedCallback() { window.removeEventListener("ha-component-profile-change", this.profileListener); for (const handle of this.interactions) handle.destroy(); this.interactions = []; }
+  getCardSize() { return 2; }
+  async refresh(force = false) {
+    if (!this._hass || !this.config) return;
+    const sequence = ++this.sequence;
+    try {
+      const model = await loadSecurityModel(this._hass, this.config.profile, { force });
+      if (sequence === this.sequence) { this.model = model; this.render(); }
+    } catch (error) {
+      if (sequence === this.sequence) { this.model = { error, cameras: [], entries: [], attention: [] }; this.render(); }
+    }
+  }
+  render() {
+    if (!this.model || !this.elements) return;
+    for (const handle of this.interactions) handle.destroy();
+    this.interactions = [];
+    const model = this.model, error = model.error || model.profileError;
+    this.elements.title.textContent = this.config.title;
+    this.elements.wrap.classList.toggle("ok", !error && model.allClear);
+    this.elements.detail.classList.toggle("error", Boolean(error));
+    this.elements.icon.setAttribute("icon", error ? "mdi:shield-alert-outline" : model.allClear ? "mdi:shield-check-outline" : "mdi:shield-alert-outline");
+    this.elements.detail.textContent = model.profileMissing
+      ? `Configure ${this.config.profile} in HA Component Backend`
+      : error ? (error.message || "Security status is unavailable")
+        : model.allClear ? "All clear" : `${model.attention.length} item${model.attention.length === 1 ? "" : "s"} need attention`;
+    this.elements.count.textContent = error ? "Unavailable" : `${model.onlineCameras || 0}/${model.cameras.length} cameras online`;
+    this.elements.attention.replaceChildren();
+    for (const item of (model.attention || []).slice(0, 4)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.innerHTML = '<ha-icon icon="mdi:alert-circle-outline"></ha-icon><span></span>';
+      button.querySelector("span").textContent = item.label;
+      button.setAttribute("aria-label", `${item.label}. Open details.`);
+      this.interactions.push(interaction(button, { primary: () => openMoreInfo(this, item.entityId), feedback: true }));
+      this.elements.attention.append(button);
+    }
+  }
+}
+
+registerCard({ type: "component-security-summary-v1", element: ComponentSecuritySummaryV1, name: "Security Summary V1", description: "Exception-first all-clear and attention summary discovered from Home Assistant capabilities." });
+}
+
+// Module: src/components/security-camera-wall.js
+{
+/** ComponentSecurityCameraWallV3 — lazy snapshot-first Security camera wall. */
+const { interaction, loadSecurityModel, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentSecurityCameraWallV3 extends HTMLElement {
+  static stubConfig = { profile: "household-security", columns: 2 };
+  static getGridOptions() { return { columns: 12, rows: "auto" }; }
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.tiles = new Map();
+    this.sequence = 0;
+    this.timer = null;
+    this.visible = true;
+    this.profileListener = (event) => {
+      if (event.detail?.kind === "security" && event.detail?.profileId === this.config?.profile) this.refresh(true);
+    };
+    this.visibility = () => { this.visible = document.visibilityState !== "hidden"; this.syncPlayback(); if (this.visible) this.refreshSnapshots(); };
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;min-width:0}*{box-sizing:border-box}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
+      .wrap{padding:12px 14px 14px}.head{min-height:32px;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}h2{margin:0;font-size:15px;line-height:1.2;font-weight:600}.meta{font-size:13px;color:var(--secondary-text-color)}
+      .grid{display:grid;grid-template-columns:repeat(var(--security-columns,2),minmax(0,1fr));gap:8px}.empty{min-height:56px;display:grid;place-items:center;color:var(--secondary-text-color);font-size:13px}.empty[hidden]{display:none}
+      .tile{min-width:0;overflow:hidden;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color)}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit}.media{position:relative;display:block;width:100%;aspect-ratio:16/9;overflow:hidden;padding:0;background:var(--dashboard-media-surface,#111);cursor:pointer}.snapshot,.live{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.snapshot{opacity:0;transition:opacity var(--dashboard-transition-standard,160ms) var(--dashboard-easing-standard,ease)}.snapshot.ready{opacity:1}.live{opacity:0;transition:opacity var(--dashboard-transition-standard,180ms) var(--dashboard-easing-standard,ease);pointer-events:none}.tile.live-ready .live{opacity:1}.tile.live-ready .snapshot{opacity:0}.live-label{position:absolute;right:8px;bottom:8px;min-height:32px;padding:0 9px;border-radius:999px;display:flex;align-items:center;gap:5px;background:color-mix(in srgb,var(--dashboard-media-surface,#111) 78%,transparent);color:var(--dashboard-media-on-surface,#fff);font-size:12px;font-weight:650}.live-label[hidden],.offline .live-label{display:none}.live-label ha-icon{--mdc-icon-size:16px}.offline .media:after{content:'Camera unavailable';position:absolute;inset:0;display:grid;place-items:center;padding:12px;background:color-mix(in srgb,var(--dashboard-media-surface,#111) 74%,transparent);color:var(--dashboard-media-on-surface,#fff);font-size:13px;font-weight:600;text-align:center}
+      .footer{min-height:52px;padding:4px 4px 4px 10px;display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;gap:4px;background:var(--card-background-color)}.identity{min-width:0;min-height:44px;padding:4px 0;text-align:left;cursor:pointer}.name,.state{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.name{font-size:13px;font-weight:650}.state{margin-top:3px;font-size:13px;color:var(--secondary-text-color)}.more{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;color:var(--secondary-text-color);cursor:pointer}.more:hover{background:var(--secondary-background-color);color:var(--primary-text-color)}button:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px}.more ha-icon{--mdc-icon-size:20px}
+      @media(max-width:700px){.wrap{padding:12px}.grid{grid-template-columns:1fr}}
+      @media(prefers-reduced-motion:reduce){.snapshot,.live{transition:none}}
+    </style><ha-card><div class="wrap"><div class="head"><h2>Camera wall</h2><span class="meta">Loading…</span></div><div class="grid"></div><div class="empty" hidden></div></div></ha-card>`;
+    this.grid = this.shadowRoot.querySelector(".grid");
+    this.meta = this.shadowRoot.querySelector(".meta");
+    this.empty = this.shadowRoot.querySelector(".empty");
+  }
+  setConfig(config) {
+    this.config = { profile: "household-security", columns: 2, title: "Camera wall", refresh_seconds: 15, ...(config || {}) };
+    this.style.setProperty("--security-columns", Math.max(1, Math.min(3, Number(this.config.columns) || 2)));
+    this.shadowRoot.querySelector("h2").textContent = this.config.title;
+    if (this.timer) this.schedule();
+    this.refresh();
+  }
+  set hass(hass) {
+    this._hass = hass;
+    for (const tile of this.tiles.values()) this.updateTile(tile, tile.camera);
+    this.refresh();
+  }
+  connectedCallback() {
+    document.addEventListener?.("visibilitychange", this.visibility);
+    window.addEventListener("ha-component-profile-change", this.profileListener);
+    this.refresh();
+    this.schedule();
+  }
+  disconnectedCallback() {
+    document.removeEventListener?.("visibilitychange", this.visibility);
+    window.removeEventListener("ha-component-profile-change", this.profileListener);
+    clearInterval(this.timer);
+    this.timer = null;
+    for (const tile of this.tiles.values()) this.destroyTile(tile);
+    this.tiles.clear();
+    this.grid.replaceChildren();
+  }
+  getCardSize() { return 6; }
+  schedule() {
+    clearInterval(this.timer);
+    this.timer = setInterval(() => this.refreshSnapshots(), Math.max(10, Number(this.config?.refresh_seconds) || 15) * 1000);
+  }
+  async refresh(force = false) {
+    if (!this._hass || !this.config) return;
+    const sequence = ++this.sequence;
+    try {
+      const model = await loadSecurityModel(this._hass, this.config.profile, { force });
+      if (sequence === this.sequence) { this.model = model; this.render(); }
+    } catch (error) {
+      if (sequence === this.sequence) { this.model = { error, cameras: [] }; this.render(); }
+    }
+  }
+  render() {
+    const cameras = this.model?.cameras || [], keep = new Set(cameras.map((camera) => camera.id));
+    this.meta.textContent = this.model?.error ? "Unavailable" : `${cameras.filter((camera) => camera.online).length}/${cameras.length} online`;
+    this.empty.hidden = cameras.length > 0;
+    this.empty.textContent = this.model?.profileMissing
+      ? `Configure ${this.config.profile} in HA Component Backend`
+      : this.model?.error ? (this.model.error.message || "Camera discovery is unavailable") : "No cameras available";
+    for (const camera of cameras) {
+      let tile = this.tiles.get(camera.id);
+      if (!tile) { tile = this.createTile(camera); this.tiles.set(camera.id, tile); }
+      tile.camera = camera;
+      this.updateTile(tile, camera);
+      this.grid.append(tile.root);
+    }
+    for (const [id, tile] of [...this.tiles]) {
+      if (keep.has(id)) continue;
+      this.destroyTile(tile);
+      tile.root.remove();
+      this.tiles.delete(id);
+    }
+    this.refreshSnapshots();
+  }
+  createTile(camera) {
+    const root = document.createElement("article");
+    root.className = "tile";
+    root.innerHTML = `<button class="media" type="button"><img class="snapshot" alt=""><span class="live"></span><span class="live-label"><ha-icon icon="mdi:play"></ha-icon><span>Live</span></span></button><div class="footer"><button class="identity" type="button"><span class="name"></span><span class="state"></span></button><button class="more" type="button" aria-label="Camera controls"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button></div>`;
+    const snapshot = root.querySelector(".snapshot"), liveHost = root.querySelector(".live");
+    const tile = { root, camera, snapshot, liveHost, visible: true, stream: null, liveTimer: null, liveRequested: false, lastUrl: null, handles: [] };
+    snapshot.addEventListener("load", () => { snapshot.classList.add("ready"); tile.lastUrl = snapshot.src; this.ensureLive(tile); });
+    snapshot.addEventListener("error", () => { if (tile.lastUrl && snapshot.src !== tile.lastUrl) snapshot.src = tile.lastUrl; });
+    tile.handles.push(
+      interaction(root.querySelector(".media"), { primary: () => this.toggleLive(tile), feedback: true }),
+      interaction(root.querySelector(".identity"), { primary: () => openMoreInfo(this, tile.camera.entityId), feedback: true }),
+      interaction(root.querySelector(".more"), { primary: () => this.requestControls(tile.camera, root.querySelector(".more")), feedback: true }),
+    );
+    if (globalThis.IntersectionObserver) {
+      tile.observer = new IntersectionObserver((entries) => {
+        tile.visible = entries.some((entry) => entry.isIntersecting);
+        this.syncTilePlayback(tile);
+        if (tile.visible) this.updateSnapshot(tile);
+      }, { rootMargin: "160px" });
+      tile.observer.observe(root);
+    }
+    return tile;
+  }
+  updateTile(tile, camera) {
+    const state = this._hass?.states?.[camera.entityId];
+    tile.root.classList.toggle("offline", !camera.online);
+    tile.root.classList.toggle("activity", camera.active);
+    tile.root.querySelector(".name").textContent = camera.name;
+    tile.root.querySelector(".state").textContent = camera.active ? "Activity detected" : camera.online ? "Online" : "Unavailable";
+    tile.root.querySelector(".identity").disabled = !camera.online;
+    const media = tile.root.querySelector(".media"), snapshotOnly = this.model?.profile?.viewer?.preferred_stream === "snapshot";
+    if ((snapshotOnly || !camera.online) && tile.stream) { tile.liveRequested = false; this.stopLive(tile); }
+    media.disabled = !camera.online || snapshotOnly;
+    tile.root.querySelector(".live-label").hidden = snapshotOnly;
+    media.setAttribute("aria-label", `${snapshotOnly ? "Snapshot of" : tile.stream ? "Show snapshot for" : "View live"} ${camera.name}`);
+    media.setAttribute("aria-pressed", String(Boolean(tile.stream)));
+    tile.snapshot.alt = `${camera.name} camera snapshot`;
+    if (tile.stream) { tile.stream.hass = this._hass; tile.stream.stateObj = state; }
+    if (!snapshotOnly) this.updateLiveLabel(tile);
+  }
+  updateSnapshot(tile) {
+    if (!this.visible || !tile.visible || !tile.camera.online) return;
+    const state = this._hass?.states?.[tile.camera.entityId], picture = state?.attributes?.entity_picture;
+    if (!picture) return;
+    const base = this._hass?.hassUrl ? this._hass.hassUrl(picture) : picture;
+    const url = `${base}${base.includes("?") ? "&" : "?"}_=${Math.floor(Date.now() / 10000)}`;
+    if (url !== tile.snapshot.src) tile.snapshot.src = url;
+  }
+  refreshSnapshots() { for (const tile of this.tiles.values()) this.updateSnapshot(tile); }
+  ensureLive(tile) {
+    const preference = this.model?.profile?.viewer?.preferred_stream || "auto";
+    if (preference === "live") tile.liveRequested = true;
+    if (preference === "snapshot" || !tile.liveRequested || tile.stream || !tile.camera.online || !tile.visible || !this.visible) return;
+    const stream = document.createElement("ha-camera-stream");
+    stream.className = "live";
+    stream.muted = true;
+    stream.controls = false;
+    stream.hass = this._hass;
+    stream.stateObj = this._hass?.states?.[tile.camera.entityId];
+    const ready = () => { clearTimeout(tile.liveTimer); tile.liveTimer = null; tile.root.classList.add("live-ready"); this.updateLiveLabel(tile); };
+    stream.addEventListener?.("playing", ready);
+    stream.addEventListener?.("canplay", ready);
+    tile.liveHost.replaceChildren(stream);
+    tile.stream = stream;
+    tile.root.classList.add("live-requested");
+    tile.liveTimer = setTimeout(ready, 1800);
+    this.updateLiveLabel(tile);
+  }
+  toggleLive(tile) {
+    if (!tile.camera.online) return;
+    if (tile.liveRequested || tile.stream) {
+      tile.liveRequested = false;
+      this.stopLive(tile);
+    } else {
+      tile.liveRequested = true;
+      this.ensureLive(tile);
+    }
+    this.updateLiveLabel(tile);
+  }
+  stopLive(tile) {
+    clearTimeout(tile.liveTimer);
+    tile.liveTimer = null;
+    tile.stream?.remove?.();
+    tile.stream = null;
+    tile.root.classList.remove("live-requested", "live-ready");
+  }
+  updateLiveLabel(tile) {
+    const active = Boolean(tile.stream), ready = tile.root.classList.contains("live-ready");
+    const media = tile.root.querySelector(".media"), label = tile.root.querySelector(".live-label span"), icon = tile.root.querySelector(".live-label ha-icon");
+    media.setAttribute("aria-label", `${active ? ready ? "Show snapshot for" : "Cancel live view for" : "View live"} ${tile.camera.name}`);
+    media.setAttribute("aria-pressed", String(active));
+    label.textContent = active ? ready ? "Snapshot" : "Loading live…" : "Live";
+    icon.setAttribute("icon", active ? ready ? "mdi:image-outline" : "mdi:progress-clock" : "mdi:play");
+  }
+  syncPlayback() { for (const tile of this.tiles.values()) this.syncTilePlayback(tile); }
+  syncTilePlayback(tile) {
+    if ((!this.visible || !tile.visible) && tile.stream) this.stopLive(tile);
+    if (this.visible && tile.visible) this.ensureLive(tile);
+  }
+  requestControls(camera, trigger) {
+    this.dispatchEvent(new CustomEvent("security-camera-control-request", { bubbles: true, composed: true, detail: { camera, trigger } }));
+  }
+  destroyTile(tile) {
+    tile.observer?.disconnect();
+    for (const handle of tile.handles) handle.destroy();
+    tile.handles = [];
+    this.stopLive(tile);
+  }
+}
+
+registerCard({ type: "component-security-camera-wall-v3", element: ComponentSecurityCameraWallV3, name: "Security Camera Wall V3", description: "Snapshot-first, lazy live camera wall with capability-driven controls." });
+}
+
+// Module: src/components/security-entry-points.js
+{
+/** ComponentSecurityEntryPointsV1 — capability-driven doors, garage and locks. */
+const { interaction, loadSecurityModel, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentSecurityEntryPointsV1 extends HTMLElement {
+  static stubConfig = { profile: "household-security" };
+  static getGridOptions() { return { columns: 12, rows: "auto" }; }
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.sequence = 0;
+    this.interactions = [];
+    this.children = [];
+    this.profileListener = (event) => {
+      if (event.detail?.kind === "security" && event.detail?.profileId === this.config?.profile) this.refresh(true);
+    };
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;min-width:0}*{box-sizing:border-box}.head{min-height:32px;padding:0 2px;display:flex;align-items:center;margin-bottom:8px}h2{margin:0;font-size:15px;line-height:1.2;font-weight:600}.list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.entry{appearance:none;min-width:0;min-height:60px;padding:8px 10px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--card-background-color);color:var(--primary-text-color);font:inherit;text-align:left;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:9px;cursor:pointer}.entry:hover{background:var(--secondary-background-color)}.entry:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.icon{width:36px;height:36px;display:grid;place-items:center;color:var(--secondary-text-color)}.open .icon{color:var(--warning-color,var(--primary-color))}.icon ha-icon{--mdc-icon-size:21px}.copy{min-width:0}.name,.state{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.name{font-size:13px;font-weight:650}.state{margin-top:3px;font-size:13px;color:var(--secondary-text-color)}@media(max-width:700px){.list{grid-template-columns:1fr}}
+    </style><div class="head"><h2>Entry points</h2></div><div class="list"></div>`;
+    this.list = this.shadowRoot.querySelector(".list");
+  }
+  setConfig(config) { this.config = { profile: "household-security", title: "Entry points", ...(config || {}) }; this.shadowRoot.querySelector("h2").textContent = this.config.title; this.refresh(); }
+  set hass(hass) { this._hass = hass; for (const child of this.children) child.hass = hass; this.refresh(); }
+  connectedCallback() { window.addEventListener("ha-component-profile-change", this.profileListener); this.refresh(); }
+  disconnectedCallback() { window.removeEventListener("ha-component-profile-change", this.profileListener); this.clear(); }
+  getCardSize() { return this.hidden ? 0 : 3; }
+  clear() {
+    for (const handle of this.interactions) handle.destroy();
+    this.interactions = [];
+    this.children = [];
+    this.list.replaceChildren();
+  }
+  async refresh(force = false) {
+    if (!this._hass || !this.config) return;
+    const sequence = ++this.sequence;
+    try {
+      const model = await loadSecurityModel(this._hass, this.config.profile, { force });
+      if (sequence === this.sequence) { this.model = model; this.render(); }
+    } catch (error) {
+      if (sequence === this.sequence) { this.model = { error, entries: [] }; this.render(); }
+    }
+  }
+  render() {
+    this.clear();
+    const entries = this.model?.entries || [];
+    this.hidden = entries.length === 0;
+    for (const entry of entries) {
+      if (entry.deviceClass === "garage_door" && entry.controlEntityId) {
+        const controller = document.createElement("component-garage-door-controller-v1");
+        controller.setConfig({ entity: entry.entityId, control_entity: entry.controlEntityId, title: entry.name });
+        controller.hass = this._hass;
+        this.children.push(controller);
+        this.list.append(controller);
+        continue;
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `entry ${entry.open ? "open" : ""}`;
+      const icon = entry.domain === "lock" ? (entry.open ? "mdi:lock-open-outline" : "mdi:lock-outline") : entry.deviceClass === "window" ? "mdi:window-closed-variant" : "mdi:door-closed";
+      button.innerHTML = `<span class="icon"><ha-icon></ha-icon></span><span class="copy"><span class="name"></span><span class="state"></span></span>`;
+      button.querySelector("ha-icon").setAttribute("icon", icon);
+      button.querySelector(".name").textContent = entry.name;
+      button.querySelector(".state").textContent = !entry.available ? "Unavailable" : entry.domain === "lock" ? entry.open ? "Unlocked" : "Locked" : entry.open ? "Open" : "Closed";
+      button.setAttribute("aria-label", `${entry.name}, ${button.querySelector(".state").textContent}. Open details.`);
+      button.disabled = !entry.available;
+      this.interactions.push(interaction(button, { primary: () => openMoreInfo(this, entry.entityId), feedback: true }));
+      this.list.append(button);
+    }
+  }
+}
+
+registerCard({ type: "component-security-entry-points-v1", element: ComponentSecurityEntryPointsV1, name: "Security Entry Points V1", description: "Capability-driven garage, door, window and lock status using the shared garage controller where available." });
+}
+
+// Module: src/components/security-dashboard.js
+{
+/** ComponentSecurityDashboardV1 — thin Security composition wrapper. */
+const { createDialogController, interaction, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentSecurityDashboardV1 extends HTMLElement {
+  static stubConfig = { profile: "household-security" };
+  static getGridOptions() { return { columns: 12, rows: "auto" }; }
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.children = new Map();
+    this.interactions = [];
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;min-width:0}.layout{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}.entries:has(> [hidden]){display:none}
+      dialog{width:min(600px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,16px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:0 16px 48px rgba(0,0,0,.24);overflow:hidden}dialog::backdrop{background:rgba(0,0,0,.32);backdrop-filter:blur(3px)}.sheet{display:flex;flex-direction:column;max-height:calc(100dvh - 24px)}.head{min-height:56px;padding:6px 7px 6px 14px;border-bottom:1px solid var(--divider-color);display:flex;align-items:center;gap:8px}.title{min-width:0;flex:1;font-size:14px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.close{appearance:none;width:44px;height:44px;border:0;border-radius:10px;background:transparent;color:var(--secondary-text-color);display:grid;place-items:center;cursor:pointer}.close:hover{background:var(--secondary-background-color);color:var(--primary-text-color)}.close:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.close ha-icon{--mdc-icon-size:20px}.body{overflow:auto;overscroll-behavior:contain;padding:12px 14px max(14px,env(safe-area-inset-bottom))}
+      @media(max-width:520px){dialog{width:100vw;max-width:100vw;max-height:90dvh;margin:auto 0 0;border-width:1px 0 0;border-radius:16px 16px 0 0}.sheet{max-height:90dvh}.body{padding:10px 12px max(18px,env(safe-area-inset-bottom))}}
+    </style><div class="layout"><div class="summary"></div><div class="wall"></div><div class="entries"></div></div><dialog><div class="sheet"><div class="head"><span class="title">Camera controls</span><button class="close" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"></div></div></dialog>`;
+    this.dialog = this.shadowRoot.querySelector("dialog");
+    this.dialogController = createDialogController(this, this.dialog, { initialFocus: () => this.shadowRoot.querySelector(".close") });
+  }
+  setConfig(config) {
+    this.config = { profile: "household-security", camera_columns: 2, ...(config || {}) };
+    this.ensure();
+  }
+  set hass(hass) { this._hass = hass; for (const child of this.children.values()) child.hass = hass; }
+  connectedCallback() { this.bind(); this.ensure(); }
+  disconnectedCallback() { for (const handle of this.interactions) handle.destroy(); this.interactions = []; if (this.dialog.open) this.dialog.close(); }
+  getCardSize() { return 12; }
+  bind() {
+    if (this.interactions.length) return;
+    this.interactions.push(interaction(this.shadowRoot.querySelector(".close"), { primary: () => this.dialogController.close(), feedback: true }));
+  }
+  ensure() {
+    if (!this.config) return;
+    let summary = this.children.get("summary");
+    if (!summary) {
+      summary = document.createElement("component-security-summary-v1");
+      this.shadowRoot.querySelector(".summary").append(summary);
+      this.children.set("summary", summary);
+    }
+    summary.setConfig({ profile: this.config.profile });
+    let wall = this.children.get("wall");
+    if (!wall) {
+      wall = document.createElement("component-security-camera-wall-v3");
+      wall.addEventListener("security-camera-control-request", (event) => this.openCameraControls(event.detail));
+      this.shadowRoot.querySelector(".wall").append(wall);
+      this.children.set("wall", wall);
+    }
+    wall.setConfig({ profile: this.config.profile, columns: this.config.camera_columns });
+    let entries = this.children.get("entries");
+    if (!entries) {
+      entries = document.createElement("component-security-entry-points-v1");
+      this.shadowRoot.querySelector(".entries").append(entries);
+      this.children.set("entries", entries);
+    }
+    entries.setConfig({ profile: this.config.profile });
+    for (const child of [summary, wall, entries]) if (this._hass) child.hass = this._hass;
+  }
+  openCameraControls(detail) {
+    const camera = detail?.camera;
+    if (!camera) return;
+    let controller = this.children.get("camera-controller");
+    if (!controller) {
+      controller = document.createElement("component-camera-controller-v2");
+      this.children.set("camera-controller", controller);
+      this.shadowRoot.querySelector(".body").append(controller);
+    }
+    controller.setConfig({ profile: this.config.profile, entity: camera.entityId, device_id: camera.deviceId, expanded: true, title: camera.name });
+    if (this._hass) controller.hass = this._hass;
+    this.shadowRoot.querySelector(".title").textContent = `${camera.name} controls`;
+    this.dialogController.open(detail.trigger);
+  }
+}
+
+registerCard({ type: "component-security-dashboard-v1", element: ComponentSecurityDashboardV1, name: "Security Dashboard V1", description: "Single-card capability-driven Security dashboard composition." });
 }
 
 // Module: src/components/smart-collection.js
@@ -5352,17 +6726,18 @@ globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2,{intera
 
 // Module: src/components/home-overview.js
 {
-const {interaction,openMoreInfo}=globalThis.__HA_COMPONENT_LIBRARY_SHARED__;class ComponentHomeOverviewV4 extends HTMLElement{static getGridOptions(){return{columns:12,rows:'auto'}}constructor(){super();this.attachShadow({mode:'open'});this.c=null;this.h=null;this._children=new Map;this.built=false;this.building=false;this.timer=null;this._weatherInteraction=null;this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}*{box-sizing:border-box}ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}.top{min-height:32px;padding:0 2px;display:flex;align-items:center;justify-content:space-between;gap:12px}.time{min-width:0;white-space:nowrap;color:var(--secondary-text-color);font-size:14px;line-height:1.2;font-weight:400}.weather{appearance:none;border:0;min-height:32px;padding:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:13px;line-height:1.2;font-weight:400;white-space:nowrap;cursor:pointer}.weather:hover{text-decoration:underline}.weather:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:6px}.sections{margin-top:8px}.section+.section{margin-top:16px}@media(max-width:520px){.time{font-size:13px}.weather{font-size:12px}}@media(max-width:350px){.time{font-size:12px}.weather{font-size:11px}}</style><ha-card><div class="top"><span class="time"></span><button class="weather" type="button"></button></div><div class="sections"></div></ha-card>`;this.sections=this.shadowRoot.querySelector('.sections');this._bindWeather()}setConfig(c){this.c={weather_entity:'weather.forecast_home',base_path:'/home-control',current_dashboard:'home-control',favourites_helpers:['input_text.dashboard_favourite_1','input_text.dashboard_favourite_2','input_text.dashboard_favourite_3','input_text.dashboard_favourite_4'],...c};this.renderHeader();this.ensure();this.tick()}set hass(h){this.h=h;for(const x of this._children.values())x.hass=h;this.renderHeader();if(!this.built)this.ensure()}connectedCallback(){this._bindWeather();this.tick();this.ensure()}disconnectedCallback(){this._weatherInteraction?.destroy();this._weatherInteraction=null;clearTimeout(this.timer)}getCardSize(){return 12}_bindWeather(){if(this._weatherInteraction)return;this._weatherInteraction=interaction(this.shadowRoot.querySelector('.weather'),{primary:()=>this.moreWeather(),feedback:true})}tick(){clearTimeout(this.timer);this.renderHeader();this.timer=setTimeout(()=>this.tick(),60000-Date.now()%60000+100)}renderHeader(){if(!this.c)return;const now=new Date(),zone=this.h?.config?.time_zone,loc=this.h?.locale?.language||navigator.language||'en-AU',locale=loc==='en'?'en-AU':loc;this.shadowRoot.querySelector('.time').textContent=new Intl.DateTimeFormat(locale,{hour:'numeric',minute:'2-digit',timeZone:zone}).format(now);const s=this.h?.states?.[this.c.weather_entity],a=s?.attributes||{},n=v=>Number.isFinite(Number(v))?new Intl.NumberFormat(locale,{maximumFractionDigits:1}).format(Number(v)):'—',temp=n(a.temperature)+(a.temperature_unit||'°C'),cloud=Number.isFinite(Number(a.cloud_coverage))?`Cloud ${Math.round(Number(a.cloud_coverage))}%`:'Cloud —',w=this.shadowRoot.querySelector('.weather');w.textContent=`${temp} · ${cloud}`;w.setAttribute('aria-label',`Outside ${temp}, ${cloud}. Open weather details.`)}moreWeather(){if(this.c?.weather_entity)openMoreInfo(this,this.c.weather_entity)}async ensure(){if(this.built||this.building||!this.c||!this.h)return;this.building=true;await Promise.all(['component-favourites-minimal-v1','component-smart-collection-v3','component-room-directory-v4','component-household-directory-v3'].map(x=>customElements.whenDefined(x)));if(!this.isConnected){this.building=false;return}const defs=[['favourites',()=>{const x=document.createElement('component-favourites-minimal-v1');x.setConfig({helpers:this.c.favourites_helpers,max:4,title:'Favourites'});return x}],['active',()=>{const x=document.createElement('component-smart-collection-v3');x.setConfig({mode:'active',title:'Active now',icon:'mdi:motion-play-outline',editable:false,pref_key:null});return x}],['rooms',()=>{const x=document.createElement('component-room-directory-v4');x.setConfig({mode:'home',title:'Rooms',icon:'mdi:floor-plan',pref_key:'home-control.rooms.v2',base_path:this.c.base_path,navigation_path:`${this.c.base_path}/rooms`});return x}],['household',()=>{const x=document.createElement('component-household-directory-v3');x.setConfig({pref_key:'home-control.household.v2',base_path:this.c.base_path,current_dashboard:this.c.current_dashboard});return x}]];for(const[id,make]of defs){const x=make();x.classList.add('section');x.hass=this.h;this._children.set(id,x);this.sections.append(x)}this.built=true;this.building=false}}if(!customElements.get('component-home-overview-v4'))customElements.define('component-home-overview-v4',ComponentHomeOverviewV4);window.customCards=window.customCards||[];if(!window.customCards.some(x=>x.type==='component-home-overview-v4'))window.customCards.push({type:'component-home-overview-v4',name:'Home Overview V4',description:'Stable minimal Home overview without state-refresh teardown.'});
+const {interaction,openMoreInfo}=globalThis.__HA_COMPONENT_LIBRARY_SHARED__;class ComponentHomeOverviewV4 extends HTMLElement{static getGridOptions(){return{columns:12,rows:'auto'}}constructor(){super();this.attachShadow({mode:'open'});this.c=null;this.h=null;this._children=new Map;this.built=false;this.building=false;this.timer=null;this._weatherInteraction=null;this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}*{box-sizing:border-box}ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}.top{min-height:44px;padding:0 2px;display:flex;align-items:center;justify-content:space-between;gap:12px}.time{min-width:0;white-space:nowrap;color:var(--secondary-text-color);font-size:14px;line-height:1.2;font-weight:400}.weather{appearance:none;border:0;min-height:44px;padding:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:13px;line-height:1.2;font-weight:400;white-space:nowrap;cursor:pointer}.weather:hover{text-decoration:underline}.weather:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:6px}.sections{margin-top:8px}.section+.section{margin-top:16px}@media(max-width:520px){.time{font-size:13px}.weather{font-size:12px}}@media(max-width:350px){.time{font-size:12px}.weather{font-size:11px}}</style><ha-card><div class="top"><span class="time"></span><button class="weather" type="button"></button></div><div class="sections"></div></ha-card>`;this.sections=this.shadowRoot.querySelector('.sections');this._bindWeather()}setConfig(c){this.c={weather_entity:'weather.forecast_home',base_path:'/home-control',current_dashboard:'home-control',favourites_helpers:['input_text.dashboard_favourite_1','input_text.dashboard_favourite_2','input_text.dashboard_favourite_3','input_text.dashboard_favourite_4'],...c};this.renderHeader();this.ensure();this.tick()}set hass(h){this.h=h;for(const x of this._children.values())x.hass=h;this.renderHeader();if(!this.built)this.ensure()}connectedCallback(){this._bindWeather();this.tick();this.ensure()}disconnectedCallback(){this._weatherInteraction?.destroy();this._weatherInteraction=null;clearTimeout(this.timer)}getCardSize(){return 12}_bindWeather(){if(this._weatherInteraction)return;this._weatherInteraction=interaction(this.shadowRoot.querySelector('.weather'),{primary:()=>this.moreWeather(),feedback:true})}tick(){clearTimeout(this.timer);this.renderHeader();this.timer=setTimeout(()=>this.tick(),60000-Date.now()%60000+100)}renderHeader(){if(!this.c)return;const now=new Date(),zone=this.h?.config?.time_zone,loc=this.h?.locale?.language||navigator.language||'en-AU',locale=loc==='en'?'en-AU':loc;this.shadowRoot.querySelector('.time').textContent=new Intl.DateTimeFormat(locale,{hour:'numeric',minute:'2-digit',timeZone:zone}).format(now);const s=this.h?.states?.[this.c.weather_entity],a=s?.attributes||{},n=v=>Number.isFinite(Number(v))?new Intl.NumberFormat(locale,{maximumFractionDigits:1}).format(Number(v)):'—',temp=n(a.temperature)+(a.temperature_unit||'°C'),cloud=Number.isFinite(Number(a.cloud_coverage))?`Cloud ${Math.round(Number(a.cloud_coverage))}%`:'Cloud —',w=this.shadowRoot.querySelector('.weather');w.textContent=`${temp} · ${cloud}`;w.setAttribute('aria-label',`Outside ${temp}, ${cloud}. Open weather details.`)}moreWeather(){if(this.c?.weather_entity)openMoreInfo(this,this.c.weather_entity)}async ensure(){if(this.built||this.building||!this.c||!this.h)return;this.building=true;await Promise.all(['component-favourites-minimal-v1','component-smart-collection-v3','component-room-directory-v4','component-household-directory-v3'].map(x=>customElements.whenDefined(x)));if(!this.isConnected){this.building=false;return}const defs=[['favourites',()=>{const x=document.createElement('component-favourites-minimal-v1');x.setConfig({helpers:this.c.favourites_helpers,max:4,title:'Favourites'});return x}],['active',()=>{const x=document.createElement('component-smart-collection-v3');x.setConfig({mode:'active',title:'Active now',icon:'mdi:motion-play-outline',editable:false,pref_key:null});return x}],['rooms',()=>{const x=document.createElement('component-room-directory-v4');x.setConfig({mode:'home',title:'Rooms',icon:'mdi:floor-plan',pref_key:'home-control.rooms.v2',base_path:this.c.base_path,navigation_path:`${this.c.base_path}/rooms`});return x}],['household',()=>{const x=document.createElement('component-household-directory-v3');x.setConfig({pref_key:'home-control.household.v2',base_path:this.c.base_path,current_dashboard:this.c.current_dashboard});return x}]];for(const[id,make]of defs){const x=make();x.classList.add('section');x.hass=this.h;this._children.set(id,x);this.sections.append(x)}this.built=true;this.building=false}}if(!customElements.get('component-home-overview-v4'))customElements.define('component-home-overview-v4',ComponentHomeOverviewV4);window.customCards=window.customCards||[];if(!window.customCards.some(x=>x.type==='component-home-overview-v4'))window.customCards.push({type:'component-home-overview-v4',name:'Home Overview V4',description:'Stable minimal Home overview without state-refresh teardown.'});
 }
 
 // Module: src/components/solar-daylight-card.js
 {
 /** SolarDaylightCardV7 — reusable Solar dashboard daylight context card. */
-const { interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { formatTime, interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class SolarDaylightCardV7 extends HTMLElement{
   constructor(){super();this.attachShadow({mode:'open'});this._forecast=[];this._lastFetch=0;this._pending=false;this._updateSignature='';this._interaction=null}
   setConfig(c){const weather=(c||{}).weather_entity||'weather.forecast_home';this.c=c||{};this.sun=this.c.sun_entity||'sun.sun';if(weather!==this.weather){this._forecast=[];this._lastFetch=0}this.weather=weather;this._updateSignature=''}
   set hass(h){this.h=h;if(!this._built)this._build();this._update();this._fetch()}
+  connectedCallback(){this._bindInteraction();this._fetch()}
   disconnectedCallback(){this._interaction?.destroy();this._interaction=null}
   getCardSize(){return 1}
   _build(){
@@ -5376,11 +6751,12 @@ button:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;
 @media(max-width:900px){button{gap:10px;padding:11px 12px;font-size:11px}.clouds{gap:10px}.cloud-item{gap:3px}}
 @media(max-width:650px){button{font-size:11px;gap:6px;padding:10px}.clouds{gap:7px}}
 </style><ha-card><button type="button"><span class="phase"></span><span class="clouds"><span class="cloud-item"><span class="cloud-label">Cloud Coverage</span><span class="cloud-value now">—</span></span><span class="cloud-item"><span class="cloud-label">+4 Hours</span><span class="cloud-value plus4">—</span></span><span class="cloud-item"><span class="cloud-label">+8 Hours</span><span class="cloud-value plus8">—</span></span></span><span class="event"></span></button></ha-card>`;
-    this.b=this.shadowRoot.querySelector('button');this.p=this.shadowRoot.querySelector('.phase');this.ev=this.shadowRoot.querySelector('.event');this.nowEl=this.shadowRoot.querySelector('.now');this.p4=this.shadowRoot.querySelector('.plus4');this.p8=this.shadowRoot.querySelector('.plus8');this._interaction=interaction(this.b,{primary:()=>this._more(this.sun),hold:()=>this._more(this.weather),optimistic:false,repeat:false,feedback:true})
+    this.b=this.shadowRoot.querySelector('button');this.p=this.shadowRoot.querySelector('.phase');this.ev=this.shadowRoot.querySelector('.event');this.nowEl=this.shadowRoot.querySelector('.now');this.p4=this.shadowRoot.querySelector('.plus4');this.p8=this.shadowRoot.querySelector('.plus8');this._bindInteraction()
   }
+  _bindInteraction(){if(!this.b||this._interaction)return;this._interaction=interaction(this.b,{primary:()=>this._more(this.sun),hold:()=>this._more(this.weather),optimistic:false,repeat:false,feedback:true})}
   _more(entityId){openMoreInfo(this,entityId)}
   _num(v,f=null){if(v===null||v===undefined||v==='')return f;const n=Number(v);return Number.isFinite(n)?n:f}
-  _time(v){if(!v)return'';const d=new Date(v);return Number.isNaN(d.getTime())?'':d.toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})}
+  _time(v){if(!v)return'';const d=new Date(v);return Number.isNaN(d.getTime())?'':formatTime(this.h,d)}
   _cloud(v){const n=this._num(v);return n===null?'—':`${Math.round(Math.min(100,Math.max(0,n)))}%`}
   _at(hours){if(!this._forecast.length)return null;const target=Date.now()+hours*3600000;let best=null,dist=Infinity;for(const x of this._forecast){const t=new Date(x.datetime||0).getTime(),v=this._num(x.cloud_coverage);if(!Number.isFinite(t)||v===null)continue;const d=Math.abs(t-target);if(d<dist){dist=d;best=v}}return dist<=90*60000?best:null}
   _forecastPayload(r){return r?.response?.[this.weather]||r?.service_response?.[this.weather]||r?.[this.weather]||r?.response?.service_response?.[this.weather]||null}
@@ -5396,13 +6772,13 @@ button:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;
     this.b.setAttribute('aria-label',`${phase}, cloud coverage ${nowText}, plus 4 hours ${plus4}, plus 8 hours ${plus8}, ${event}. Tap for sun details; hold for weather details.`)
   }
   async _fetch(){
-    if(!this.h||this._pending)return;const now=Date.now();if(this._lastFetch&&now-this._lastFetch<30*60*1000)return;this._lastFetch=now;this._pending=true;
+    if(!this.h||this._pending)return;const now=Date.now();if(now<(this._retryAt||0)||this._lastFetch&&now-this._lastFetch<30*60*1000)return;this._pending=true;
     const weather=this.weather;
     try{
       const r=await this.h.callWS({type:'call_service',domain:'weather',service:'get_forecasts',service_data:{type:'hourly'},target:{entity_id:this.weather},return_response:true});
       const x=this._forecastPayload(r);
-      if(weather===this.weather)this._forecast=Array.isArray(x?.forecast)?x.forecast.slice(0,24):[]
-    }catch(_){if(weather===this.weather)this._forecast=[]}
+      if(weather===this.weather){this._forecast=Array.isArray(x?.forecast)?x.forecast.slice(0,24):[];this._lastFetch=Date.now();this._failures=0;this._retryAt=0}
+    }catch(_){if(weather===this.weather){this._failures=(this._failures||0)+1;this._retryAt=Date.now()+Math.min(5*60*1000,15000*2**(this._failures-1))}}
     this._pending=false;
     if(weather===this.weather)this._update();else this._fetch()
   }
@@ -5413,39 +6789,45 @@ registerCard({ type: "solar-daylight-card-v7", element: SolarDaylightCardV7, nam
 // Module: src/components/energy-history-card.js
 {
 /** EnergyHistoryCardV3 — reusable Solar dashboard history card. */
-const { interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { calendarDayRange, energyDayData, energyDayState, formatCalendarDay, formatPower, formatTime, interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class EnergyHistoryCardV3 extends HTMLElement{
-  constructor(){super();this.attachShadow({mode:'open'});this._series={};this._loading=false;this._lastEnd=0;this._resizeObserver=null;this._resizeTimer=null;this._selectedDay=null;this._dayListener=e=>this._onDayChange(e);this._pinned=false;this._pointerState=null;this._interactionHandles=[];this._outside=e=>{if(this._pinned&&!e.composedPath?.().includes(this)){this._pinned=false;this._hideTip()}}}
+  constructor(){super();this.attachShadow({mode:'open'});this._series={};this._loading=false;this._lastEnd=0;this._resizeObserver=null;this._resizeTimer=null;this._selectedDay=null;this._dayUnsubscribe=null;this._forceRefresh=false;this._pinned=false;this._pointerState=null;this._interactionHandles=[];this._retryAt=0;this._retryDelay=30000;this._retryTimer=null;this._profileListener=e=>{if(e.detail?.kind==='energy'&&e.detail?.profileId===this.c?.profile){energyDayData.invalidateProfile(this.h,this.c.profile);this._forceRefresh=true;this._lastRangeKey=null;this._scheduleFetch()}};this._outside=e=>{if(this._pinned&&!e.composedPath?.().includes(this)){this._pinned=false;this._hideTip()}}}
   setConfig(c){
-    const next={house_entity:'sensor.house_consumption_power',solar_entity:'sensor.total_solar_power',grid_entity:'sensor.refoss_smart_energy_monitor_em_channel_3_power',hours:24,bucket_minutes:10,calendar_day:false,day_channel:null,...(c||{})};
-    const changed=this.c&&['house_entity','solar_entity','grid_entity','bucket_minutes','hours','calendar_day'].some(key=>this.c[key]!==next[key]);
+    const next={profile:null,house_entity:'sensor.house_consumption_power',solar_entity:'sensor.total_solar_power',grid_entity:'sensor.refoss_smart_energy_monitor_em_channel_3_power',hours:24,bucket_minutes:10,calendar_day:false,day_channel:null,...(c||{})};
+    if(next.profile)next.calendar_day=true;
+    const changed=this.c&&['profile','house_entity','solar_entity','grid_entity','bucket_minutes','hours','calendar_day'].some(key=>this.c[key]!==next[key]);
+    const channelChanged=this.c&&(this.c.day_channel!==next.day_channel||this.c.calendar_day!==next.calendar_day);
     this.c=next;
+    if(channelChanged&&this.isConnected)this._bindDayChannel();
     if(changed){
-      this._lastRangeKey=null;this._series={};
+      this._lastRangeKey=null;this._series={};this._retryAt=0;this._retryDelay=30000;clearTimeout(this._retryTimer);
       if(this._built&&this.h){this.e.status.hidden=false;this.e.status.textContent='Loading history…';this._hideTip();this._scheduleFetch()}
     }
   }
-  set hass(h){this.h=h;if(!this._built)this._build();this._scheduleFetch()}
-  connectedCallback(){window.addEventListener('energy-day-selector-change',this._dayListener);window.addEventListener('pointerdown',this._outside,true)}
-  disconnectedCallback(){window.removeEventListener('energy-day-selector-change',this._dayListener);window.removeEventListener('pointerdown',this._outside,true);for(const h of this._interactionHandles)h.destroy();this._interactionHandles=[];this._resizeObserver?.disconnect();clearTimeout(this._resizeTimer)}
+  set hass(h){this.h=h;if(this.c?.calendar_day&&this.c.day_channel)this._selectedDay=energyDayState.get(this.c.day_channel,h);if(!this._built)this._build();this._scheduleFetch()}
+  connectedCallback(){window.addEventListener('pointerdown',this._outside,true);window.addEventListener('ha-component-profile-change',this._profileListener);this._bindDayChannel();this._bindInteractions();if(this.e?.chart)this._resizeObserver?.observe(this.e.chart);this._scheduleFetch()}
+  disconnectedCallback(){window.removeEventListener('pointerdown',this._outside,true);window.removeEventListener('ha-component-profile-change',this._profileListener);this._dayUnsubscribe?.();this._dayUnsubscribe=null;for(const h of this._interactionHandles)h.destroy();this._interactionHandles=[];this._resizeObserver?.disconnect();clearTimeout(this._resizeTimer);clearTimeout(this._retryTimer);this._retryTimer=null;this._retryAt=0}
   getCardSize(){return 7}
   _build(){
     this._built=true;
     this.shadowRoot.innerHTML=`<style>
-:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:4px 5px 5px}.top{min-height:28px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 5px;margin:0}.meta{font-size:13px;font-weight:600;color:var(--secondary-text-color);white-space:nowrap}.legend{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}.legend button{appearance:none;border:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:12px;font-weight:600;padding:3px 0;display:flex;align-items:center;gap:6px;cursor:pointer}.legend button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:5px}.swatch{width:17px;height:3px;border-radius:999px;display:inline-block}.house-swatch{background:var(--primary-color)}.solar-swatch{background:var(--warning-color,#f5b942)}.grid-swatch{background:var(--secondary-text-color)}.chart{position:relative;width:100%;height:clamp(400px,48vw,520px)}.chart svg{display:block;width:100%;height:100%;overflow:hidden;touch-action:none}.axis{fill:var(--secondary-text-color);font-size:11px;font-weight:500;font-family:inherit}.axis-small{fill:var(--secondary-text-color);font-size:10px;font-weight:600;font-family:inherit}.gridline{stroke:var(--divider-color);stroke-width:1;opacity:.58}.zero{stroke:var(--divider-color);stroke-width:1.35;opacity:.95}.house-line{fill:none;stroke:var(--primary-color);stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.solar-line{fill:none;stroke:var(--warning-color,#f5b942);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.solar-fill{fill:color-mix(in srgb,var(--warning-color,#f5b942) 12%,transparent)}.grid-line{fill:none;stroke:var(--secondary-text-color);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.cursor{stroke:var(--secondary-text-color);stroke-width:1;stroke-dasharray:3 3;opacity:0;vector-effect:non-scaling-stroke}.cursor-dot{stroke:var(--card-background-color);stroke-width:2.4;opacity:0;vector-effect:non-scaling-stroke}.cursor-dot.house{fill:var(--primary-color)}.cursor-dot.solar{fill:var(--warning-color,#f5b942)}.cursor-dot.grid{fill:var(--secondary-text-color)}.tooltip{position:absolute;z-index:2;min-width:150px;padding:10px 11px;border-radius:11px;background:var(--card-background-color);border:1px solid var(--divider-color);box-shadow:0 7px 22px rgba(0,0,0,.2);pointer-events:none;opacity:0;transform:translate(-50%,-100%);font-size:12px;line-height:1.45}.tooltip.show{opacity:1}.tooltip-time{font-size:12.5px;font-weight:650;color:var(--primary-text-color);margin-bottom:5px}.tip-row{display:flex;justify-content:space-between;gap:16px;color:var(--secondary-text-color)}.tip-row b{font-weight:650;color:var(--primary-text-color)}.status{position:absolute;inset:0;display:grid;place-items:center;color:var(--secondary-text-color);font-size:13px;pointer-events:none}.status[hidden]{display:none}@media(max-width:700px){.wrap{padding:3px}.top{padding:0 4px}.legend{gap:9px}.legend button{font-size:10.5px}.meta{font-size:13px}.chart{height:400px}.axis{font-size:10px}.axis-small{font-size:9.5px}.tooltip{font-size:11.5px;min-width:140px;padding:9px 10px}}
+:host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}.wrap{box-sizing:border-box;padding:4px 5px 5px}.top{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 5px;margin:0}.meta{font-size:13px;font-weight:600;color:var(--secondary-text-color);white-space:nowrap}.legend{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}.legend button{appearance:none;min-height:44px;border:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:12px;font-weight:600;padding:3px 0;display:flex;align-items:center;gap:6px;cursor:pointer}.legend button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:5px}.swatch{width:17px;height:3px;border-radius:999px;display:inline-block}.house-swatch{background:var(--primary-color)}.solar-swatch{background:var(--warning-color,#f5b942)}.grid-swatch{background:var(--secondary-text-color)}.chart{position:relative;width:100%;height:clamp(400px,48vw,520px)}.chart svg{display:block;width:100%;height:100%;overflow:hidden;touch-action:none}.axis{fill:var(--secondary-text-color);font-size:11px;font-weight:500;font-family:inherit}.axis-small{fill:var(--secondary-text-color);font-size:10px;font-weight:600;font-family:inherit}.gridline{stroke:var(--divider-color);stroke-width:1;opacity:.58}.zero{stroke:var(--divider-color);stroke-width:1.35;opacity:.95}.house-line{fill:none;stroke:var(--primary-color);stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.solar-line{fill:none;stroke:var(--warning-color,#f5b942);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.solar-fill{fill:color-mix(in srgb,var(--warning-color,#f5b942) 12%,transparent)}.grid-line{fill:none;stroke:var(--secondary-text-color);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}.cursor{stroke:var(--secondary-text-color);stroke-width:1;stroke-dasharray:3 3;opacity:0;vector-effect:non-scaling-stroke}.cursor-dot{stroke:var(--card-background-color);stroke-width:2.4;opacity:0;vector-effect:non-scaling-stroke}.cursor-dot.house{fill:var(--primary-color)}.cursor-dot.solar{fill:var(--warning-color,#f5b942)}.cursor-dot.grid{fill:var(--secondary-text-color)}.tooltip{position:absolute;z-index:2;min-width:150px;padding:10px 11px;border-radius:11px;background:var(--card-background-color);border:1px solid var(--divider-color);box-shadow:0 7px 22px rgba(0,0,0,.2);pointer-events:none;opacity:0;transform:translate(-50%,-100%);font-size:12px;line-height:1.45}.tooltip.show{opacity:1}.tooltip-time{font-size:12.5px;font-weight:650;color:var(--primary-text-color);margin-bottom:5px}.tip-row{display:flex;justify-content:space-between;gap:16px;color:var(--secondary-text-color)}.tip-row b{font-weight:650;color:var(--primary-text-color)}.status{position:absolute;inset:0;display:grid;place-items:center;color:var(--secondary-text-color);font-size:13px;pointer-events:none}.status[hidden]{display:none}@media(max-width:700px){.wrap{padding:3px}.top{padding:0 4px}.legend{gap:9px}.legend button{font-size:10.5px}.meta{font-size:13px}.chart{height:400px}.axis{font-size:10px}.axis-small{font-size:9.5px}.tooltip{font-size:11.5px;min-width:140px;padding:9px 10px}}
 </style><ha-card><div class="wrap"><div class="top"><div class="meta"></div><div class="legend"><button class="house-key" type="button"><span class="swatch house-swatch"></span>House</button><button class="solar-key" type="button"><span class="swatch solar-swatch"></span>Solar</button><button class="grid-key" type="button"><span class="swatch grid-swatch"></span>Grid</button></div></div><div class="chart"><svg role="img" aria-label="Household power history"></svg><div class="tooltip"></div><div class="status">Loading history…</div></div></div></ha-card>`;
     this.e={meta:this.shadowRoot.querySelector('.meta'),svg:this.shadowRoot.querySelector('svg'),tip:this.shadowRoot.querySelector('.tooltip'),status:this.shadowRoot.querySelector('.status'),chart:this.shadowRoot.querySelector('.chart')};
-    this._interactionHandles.push(
-      interaction(this.shadowRoot.querySelector('.house-key'),{primary:()=>this._more(this.c.house_entity),feedback:true}),
-      interaction(this.shadowRoot.querySelector('.solar-key'),{primary:()=>this._more(this.c.solar_entity),feedback:true}),
-      interaction(this.shadowRoot.querySelector('.grid-key'),{primary:()=>this._more(this.c.grid_entity),feedback:true}),
-    );
+    this.e.svg.setAttribute('tabindex','0');this.e.svg.addEventListener('keydown',e=>this._key(e));
+    this._bindInteractions();
     this.e.svg.addEventListener('pointerdown',e=>this._pointerDown(e));
     this.e.svg.addEventListener('pointermove',e=>this._pointerMove(e));
     this.e.svg.addEventListener('pointerup',e=>this._pointerUp(e));
     this.e.svg.addEventListener('pointercancel',()=>{this._pointerState=null});
     this.e.svg.addEventListener('pointerleave',()=>{if(!this._pinned&&!this._pointerState)this._hideTip()});
     this._resizeObserver=new ResizeObserver(()=>{clearTimeout(this._resizeTimer);this._resizeTimer=setTimeout(()=>{this._hideTip();this._render()},40)});this._resizeObserver.observe(this.e.chart)
+  }
+  _bindInteractions(){if(!this.e||this._interactionHandles.length)return;this._interactionHandles.push(
+      interaction(this.shadowRoot.querySelector('.house-key'),{primary:()=>this._more(this.c.house_entity),feedback:true}),
+      interaction(this.shadowRoot.querySelector('.solar-key'),{primary:()=>this._more(this.c.solar_entity),feedback:true}),
+      interaction(this.shadowRoot.querySelector('.grid-key'),{primary:()=>this._more(this.c.grid_entity),feedback:true}),
+    )
   }
   _more(entityId){openMoreInfo(this,entityId)}
   _onDayChange(event){
@@ -5456,35 +6838,27 @@ class EnergyHistoryCardV3 extends HTMLElement{
     if(this.e){this.e.status.hidden=false;this.e.status.textContent='Loading history…';this._hideTip()}
     this._scheduleFetch()
   }
-  _dayStart(day){
-    const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day||''));
-    if(!match)return null;
-    const date=new Date(Number(match[1]),Number(match[2])-1,Number(match[3]));
-    if(date.getFullYear()!==Number(match[1])||date.getMonth()!==Number(match[2])-1||date.getDate()!==Number(match[3]))return null;
-    date.setHours(0,0,0,0);return date
-  }
-  _dayKey(date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`}
-  _isToday(day){const now=new Date();now.setHours(0,0,0,0);return day===this._dayKey(now)}
-  _dayLabel(time){const date=new Date(time),now=new Date();if(this._dayKey(date)===this._dayKey(now))return'Today';const options={weekday:'long',day:'numeric',month:'long'};if(date.getFullYear()!==now.getFullYear())options.year='numeric';return date.toLocaleDateString('en-AU',options)}
+  _bindDayChannel(){this._dayUnsubscribe?.();this._dayUnsubscribe=null;if(!this.c?.calendar_day||!this.c.day_channel)return;this._dayUnsubscribe=energyDayState.subscribe(this.c.day_channel,detail=>this._onDayChange({detail}),{hass:this.h})}
+  _dayLabel(day){const today=energyDayState.today(this.h);if(day===today)return'Today';const options={weekday:'long',day:'numeric',month:'long'};if(String(day).slice(0,4)!==today.slice(0,4))options.year='numeric';return formatCalendarDay(this.h,day,options)}
   _range(){
-    if(this.c.calendar_day){const today=new Date();today.setHours(0,0,0,0);let start=this._dayStart(this._selectedDay)||today;if(start>today)start=today;const end=new Date(start);end.setDate(end.getDate()+1);return{start:start.getTime(),end:end.getTime(),isToday:start.getTime()===today.getTime()}}
+    if(this.c.calendar_day){const today=energyDayState.today(this.h),day=this._selectedDay&&this._selectedDay<=today?this._selectedDay:today,bounds=calendarDayRange(this.h,day);return{...bounds,day,isToday:day===today}}
     const bucket=Math.max(5,Number(this.c.bucket_minutes)||10)*60000,end=Math.floor(Date.now()/bucket)*bucket,hours=Math.max(1,Number(this.c.hours)||24);return{start:end-hours*3600000,end,isToday:false}
   }
-  _rangeKey(r){return `${r.start}:${r.end}:${r.isToday?Math.floor(Date.now()/300000):'fixed'}:${this.c.house_entity}:${this.c.solar_entity}:${this.c.grid_entity}:${this.c.bucket_minutes}`}
-  _scheduleFetch(){const r=this._range(),key=this._rangeKey(r);if(this._loading||key===this._lastRangeKey)return;this._fetch(r,key)}
+  _rangeKey(r){return `${r.day||''}:${r.start}:${r.end}:${r.isToday?Math.floor(Date.now()/300000):'fixed'}:${this.c.profile||''}:${this.c.house_entity}:${this.c.solar_entity}:${this.c.grid_entity}:${this.c.bucket_minutes}`}
+  _scheduleFetch(){if(!this.c||Date.now()<this._retryAt)return;const r=this._range(),key=this._rangeKey(r);if(this._loading||(key===this._lastRangeKey&&!this._forceRefresh))return;this._fetch(r,key)}
   async _fetch(range,key){
-    if(!this.h)return;this._loading=true;this.e.status.hidden=false;this.e.status.textContent='Loading history…';
+    if(!this.h)return;const force=this._forceRefresh;this._forceRefresh=false;this._loading=true;this.e.status.hidden=false;this.e.status.textContent='Loading history…';
     try{
-      const result=await this.h.callWS({type:'recorder/statistics_during_period',start_time:new Date(range.start).toISOString(),end_time:new Date(range.end).toISOString(),statistic_ids:[this.c.house_entity,this.c.solar_entity,this.c.grid_entity],period:'5minute',types:['mean']});
+      const result=this.c.profile?await energyDayData.get(this.h,this.c.profile,range.day,{force}):await this.h.callWS({type:'recorder/statistics_during_period',start_time:new Date(range.start).toISOString(),end_time:new Date(range.end).toISOString(),statistic_ids:[this.c.house_entity,this.c.solar_entity,this.c.grid_entity],period:'5minute',types:['mean']});
       if(key!==this._rangeKey(this._range()))return;
-      this._series={house:this._bucket(result?.[this.c.house_entity]||[]),solar:this._bucket(result?.[this.c.solar_entity]||[]),grid:this._bucket(result?.[this.c.grid_entity]||[])};
-      this._start=range.start;this._end=range.end;this._lastRangeKey=key;
+      this._series=this.c.profile?{house:this._bucket(result?.series?.house||[]),solar:this._bucket(result?.series?.solar||[]),grid:this._bucket(result?.series?.grid||[])}:{house:this._bucket(result?.[this.c.house_entity]||[]),solar:this._bucket(result?.[this.c.solar_entity]||[]),grid:this._bucket(result?.[this.c.grid_entity]||[])};
+      this._start=Number(result?.range?.start)||range.start;this._end=Number(result?.range?.end)||range.end;this._selectedRangeDay=range.day||null;this._lastRangeKey=key;this._retryAt=0;this._retryDelay=30000;clearTimeout(this._retryTimer);
       const hasData=Object.values(this._series).some(series=>series.length);
       this.e.status.hidden=hasData;
       if(!hasData)this.e.status.textContent='No recorded data for this day'
     }catch(err){
       if(key!==this._rangeKey(this._range()))return;
-      this._series={};this.e.status.hidden=false;this.e.status.textContent='History unavailable'
+      this.e.status.hidden=false;this.e.status.textContent=this._series.house?.length||this._series.solar?.length||this._series.grid?.length?'History update unavailable':'History unavailable';this._retryAt=Date.now()+this._retryDelay;clearTimeout(this._retryTimer);this._retryTimer=setTimeout(()=>{this._retryAt=0;this._lastRangeKey=null;this._scheduleFetch()},this._retryDelay);this._retryDelay=Math.min(120000,this._retryDelay*2)
     }finally{
       const current=key===this._rangeKey(this._range());
       this._loading=false;if(current)this._render();this._scheduleFetch()
@@ -5492,13 +6866,13 @@ class EnergyHistoryCardV3 extends HTMLElement{
   }
   _bucket(rows){
     const ms=Math.max(5,Number(this.c.bucket_minutes)||10)*60000,m=new Map();
-    for(const row of rows){const t=Number(row.start),v=Number(row.mean);if(!Number.isFinite(t)||!Number.isFinite(v))continue;const b=Math.floor(t/ms)*ms,x=m.get(b)||{sum:0,count:0};x.sum+=v;x.count+=1;m.set(b,x)}
+    for(const row of rows){const t=Number(row.t??row.start),v=Number(row.v??row.mean);if(!Number.isFinite(t)||!Number.isFinite(v))continue;const b=Math.floor(t/ms)*ms,x=m.get(b)||{sum:0,count:0};x.sum+=v;x.count+=1;m.set(b,x)}
     return [...m.entries()].map(([t,x])=>({t,v:x.sum/x.count})).sort((a,b)=>a.t-b.t)
   }
-  _fmt(v){const a=Math.abs(v);if(a>=10000)return`${(v/1000).toFixed(0)} kW`;if(a>=1000)return`${(v/1000).toFixed(a>=5000?0:1)} kW`;return`${Math.round(v)} W`}
-  _fmtExact(v){return Number.isFinite(v)?`${Math.round(v).toLocaleString('en-AU')} W`:'—'}
-  _time(t){return new Date(t).toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})}
-  _tickTime(t){const d=new Date(t);return d.getMinutes()===0?d.toLocaleTimeString('en-AU',{hour:'numeric'}):this._time(t)}
+  _fmt(v){return formatPower(this.h,v)}
+  _fmtExact(v){return formatPower(this.h,v)}
+  _time(t){return formatTime(this.h,t)}
+  _tickTime(t){const d=new Date(t);return d.getMinutes()===0?formatTime(this.h,t,{minute:undefined}):this._time(t)}
   _niceMax(v){if(v<=0)return1000;const mag=10**Math.floor(Math.log10(v)),n=v/mag;const nice=n<=1?1:n<=2?2:n<=5?5:10;return nice*mag}
   _seriesValue(series,t){if(!series?.length)return null;let best=null,dist=Infinity;for(const p of series){const d=Math.abs(p.t-t);if(d<dist){dist=d;best=p}}return dist<=6*60000?best.v:null}
   _paths(series,x,y,baseline=null){
@@ -5509,7 +6883,7 @@ class EnergyHistoryCardV3 extends HTMLElement{
     if(!this.e||!this._end)return;
     const house=this._series.house||[],solar=this._series.solar||[],grid=this._series.grid||[];
     if(!house.length&&!solar.length&&!grid.length)return;
-    const dayLabel=this.c.calendar_day?this._dayLabel(this._start):null;
+    const dayLabel=this.c.calendar_day?this._dayLabel(this._selectedRangeDay||this._selectedDay):null;
     this.e.meta.textContent=dayLabel?`${dayLabel} · ${this.c.bucket_minutes}-minute average`:`${this.c.bucket_minutes}-minute average`;
     this.e.svg.setAttribute('aria-label',dayLabel?`${dayLabel} household power history from midnight to midnight`:'Household power history');
     const rect=this.e.chart.getBoundingClientRect(),W=Math.max(320,Math.round(rect.width||800)),H=Math.max(340,Math.round(rect.height||420));
@@ -5534,6 +6908,7 @@ class EnergyHistoryCardV3 extends HTMLElement{
   _pointerDown(ev){this._pointerState={id:ev.pointerId,x:ev.clientX,y:ev.clientY,moved:false};this._pointer(ev)}
   _pointerMove(ev){if(this._pointerState?.id===ev.pointerId){if(Math.hypot(ev.clientX-this._pointerState.x,ev.clientY-this._pointerState.y)>6)this._pointerState.moved=true;this._pointer(ev);return}if(!this._pinned&&ev.pointerType!=='touch')this._pointer(ev)}
   _pointerUp(ev){const state=this._pointerState;if(!state||state.id!==ev.pointerId)return;this._pointerState=null;if(!state.moved){if(this._pinned){this._pinned=false;this._hideTip()}else{this._pointer(ev);this._pinned=true}}else{this._pinned=false;if(ev.pointerType==='touch')this._hideTip()}}
+  _key(ev){if(!['ArrowLeft','ArrowRight','Home','End'].includes(ev.key)||!this._geometry)return;ev.preventDefault();const bucket=Math.max(5,Number(this.c.bucket_minutes)||10)*60000;if(ev.key==='Home')this._keyboardTime=this._start;else if(ev.key==='End')this._keyboardTime=this._end-bucket;else this._keyboardTime=Math.max(this._start,Math.min(this._end-bucket,(this._keyboardTime??this._start)+(ev.key==='ArrowRight'?bucket:-bucket)));const rect=this.e.svg.getBoundingClientRect(),ratio=(this._keyboardTime-this._start)/(this._end-this._start);this._pointer({clientX:rect.left+ratio*rect.width});this._pinned=true}
   _pointer(ev){
     if(!this._geometry||!this._end)return;
     const rect=this.e.svg.getBoundingClientRect(),g=this._geometry,px=(ev.clientX-rect.left)*(g.W/rect.width),clamped=Math.max(g.x0,Math.min(g.x1,px)),ratio=(clamped-g.x0)/(g.x1-g.x0),rawT=g.start+ratio*(g.end-g.start),bucket=Math.max(5,Number(this.c.bucket_minutes)||10)*60000,t=Math.round(rawT/bucket)*bucket;
@@ -5541,11 +6916,73 @@ class EnergyHistoryCardV3 extends HTMLElement{
     const setDot=(cls,v,yy)=>{const d=this.e.svg.querySelector(`.cursor-dot.${cls}`);if(v===null){d.style.opacity='0';return}d.setAttribute('cx',xx);d.setAttribute('cy',yy(v));d.style.opacity='1'};setDot('house',hv,g.y);setDot('solar',sv,g.y);setDot('grid',gv,g.yg);
     const gridLabel=gv===null?'Grid':gv>=0?'Imported':'Exported';
     this.e.tip.innerHTML=`<div class="tooltip-time">${this._time(t)}</div><div class="tip-row"><span>House</span><b>${this._fmtExact(hv)}</b></div><div class="tip-row"><span>Solar</span><b>${this._fmtExact(sv)}</b></div><div class="tip-row"><span>${gridLabel}</span><b>${this._fmtExact(gv===null?null:Math.abs(gv))}</b></div>`;
-    const localX=(xx/g.W)*rect.width,peak=Math.min(hv===null?Infinity:g.y(hv),sv===null?Infinity:g.y(sv),g.mainB),localY=(Math.max(g.T,peak-8)/g.H)*rect.height;this.e.tip.style.left=`${localX}px`;this.e.tip.style.top=`${Math.max(66,localY)}px`;this.e.tip.classList.add('show')
+    const localX=(xx/g.W)*rect.width,peak=Math.min(hv===null?Infinity:g.y(hv),sv===null?Infinity:g.y(sv),g.mainB),localY=(Math.max(g.T,peak-8)/g.H)*rect.height,tipHalf=Math.min(90,rect.width*.24);this.e.tip.style.left=`${Math.max(tipHalf,Math.min(rect.width-tipHalf,localX))}px`;this.e.tip.style.top=`${Math.max(66,localY)}px`;this.e.tip.classList.add('show')
   }
   _hideTip(){if(!this.e)return;this.e.tip.classList.remove('show');for(const el of this.e.svg.querySelectorAll('.cursor,.cursor-dot'))el.style.opacity='0'}
 }
 registerCard({ type: "energy-history-card-v3", element: EnergyHistoryCardV3, name: "Energy History", description: "Dense readable power history supporting rolling or local calendar-day ranges using completed 10-minute averages and a signed grid strip." });
+}
+
+// Module: src/components/energy-dashboard.js
+{
+/** ComponentEnergyDashboardV1 — thin composition wrapper preserving Energy styling. */
+const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentEnergyDashboardV1 extends HTMLElement {
+  static stubConfig = { profile: "household-energy", day_channel: "energy-day" };
+  static getGridOptions() { return { columns: 12, rows: "auto" }; }
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.children = new Map();
+    this.shadowRoot.innerHTML = `<style>:host{display:block;min-width:0}.layout{display:grid;gap:8px;grid-template-columns:minmax(0,1fr)}.context{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}@media(min-width:900px){.context{grid-template-columns:minmax(0,1fr)}}</style><div class="layout"><div class="selector"></div><div class="summary"></div><div class="context"><div class="daylight"></div></div><div class="history"></div></div>`;
+  }
+  setConfig(config) {
+    this.config = {
+      profile: "household-energy",
+      day_channel: "energy-day",
+      weather_entity: "weather.forecast_home",
+      sun_entity: "sun.sun",
+      ...config,
+    };
+    this.ensure();
+  }
+  set hass(hass) {
+    this._hass = hass;
+    for (const child of this.children.values()) child.hass = hass;
+  }
+  connectedCallback() { this.ensure(); }
+  getCardSize() { return 12; }
+  ensure() {
+    if (!this.config) return;
+    const definitions = [
+      ["selector", "component-energy-day-selector-v1", { channel: this.config.day_channel }],
+      ["summary", "component-energy-summary-v1", { profile: this.config.profile, day_channel: this.config.day_channel }],
+      ["daylight", "solar-daylight-card-v7", { weather_entity: this.config.weather_entity, sun_entity: this.config.sun_entity }],
+      ["history", "energy-history-card-v3", {
+        profile: this.config.profile,
+        calendar_day: true,
+        day_channel: this.config.day_channel,
+        bucket_minutes: 10,
+        house_entity: "sensor.ha_component_house_power",
+        solar_entity: "sensor.ha_component_solar_power",
+        grid_entity: "sensor.ha_component_grid_power",
+      }],
+    ];
+    for (const [slot, type, childConfig] of definitions) {
+      let child = this.children.get(slot);
+      if (!child) {
+        child = document.createElement(type);
+        this.shadowRoot.querySelector(`.${slot}`).append(child);
+        this.children.set(slot, child);
+      }
+      child.setConfig(childConfig);
+      if (this._hass) child.hass = this._hass;
+    }
+  }
+}
+
+registerCard({ type: "component-energy-dashboard-v1", element: ComponentEnergyDashboardV1, name: "Energy Dashboard V1", description: "Single-card Energy composition using shared day state and one backend data contract." });
 }
 
 // Module: src/patches/split-profiles-core.js
@@ -5896,7 +7333,6 @@ customElements.whenDefined("component-camera-controller-v1").then(() => {
 
   const retainedLocalFields = new Map([
     ["component-context-strip-v3", ["_interaction"]],
-    ["metric-pair-card-v3", ["_interactions"]],
     ["component-history-graph-v2", ["interactions"]],
     ["component-single-kpi-v2", ["_interaction"]],
     ["component-three-stat-v2", ["_interactions"]],
@@ -5920,9 +7356,6 @@ customElements.whenDefined("component-camera-controller-v1").then(() => {
     ["component-welcome-header-v1", ["_interaction"]],
     ["component-wled-controller-v1", ["_interactionHandles"]],
     ["component-garage-door-controller-v1", ["interactions"]],
-    ["component-camera-controller-v1", ["interactionHandles", "controlInteractions"]],
-    ["solar-daylight-card-v7", ["_interaction"]],
-    ["energy-history-card-v3", ["_interactionHandles"]],
   ]);
   for (const [type, fields] of retainedLocalFields) {
     patch(type, (prototype) => preserveLocalInteractionFields(prototype, fields));
@@ -6526,4 +7959,33 @@ customElements.whenDefined("component-smart-collection-v3").then(() => {
 });
 }
 
-globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "9.0.0", components: 38 });
+// Module: src/patches/home-favourites-backend-only.js
+{
+/** Keep Home Favourites backend-only once the preference contract is present. */
+customElements.whenDefined("component-home-overview-v4").then(() => {
+  const prototype = customElements.get("component-home-overview-v4")?.prototype;
+  if (!prototype || prototype.__backendOnlyFavouritesV1) return;
+  prototype.__backendOnlyFavouritesV1 = true;
+  const originalSetConfig = prototype.setConfig;
+  prototype.setConfig = function setBackendOnlyHomeConfig(config) {
+    return originalSetConfig.call(this, { ...config, favourites_helpers: [] });
+  };
+});
+}
+
+// Module: src/patches/config-contracts.js
+{
+/** Install editor/stub support on legacy cards that predate registerCard. */
+(() => {
+  const install = globalThis.__HA_COMPONENT_LIBRARY_SHARED__?.installConfigContract;
+  if (!install) return;
+  for (const card of window.customCards || []) {
+    const type = String(card?.type || "");
+    if (!type) continue;
+    const element = customElements.get(type);
+    if (element) install(type, element);
+  }
+})();
+}
+
+globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "10.0.0", components: 45 });

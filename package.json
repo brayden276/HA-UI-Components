@@ -1,6 +1,6 @@
 {
   "name": "ha-component-library",
-  "version": "9.0.0",
+  "version": "10.0.0",
   "private": true,
   "type": "module",
   "description": "HACS Dashboard bundle for the reusable cards from the Home Assistant Components dashboard.",

@@ -28,13 +28,19 @@ Every public component:
 4. Keeps its existing Home Assistant card type and configuration contract.
 5. Keeps its existing CSS and visual behaviour.
 
-The 38 public card registrations are asserted by `scripts/check-inventory.mjs`.
+The 45 public card registrations are asserted by `scripts/check-inventory.mjs`.
 
 ## Shared ownership
 
 - `shared/core.js` owns HTML escaping, custom-card registration, navigation/more-info events, shared presentational CSS and the common base card.
+- `shared/interaction.js` and `shared/lifecycle.js` own press/pending/error feedback, reconnect-safe listeners, focus restoration, overlay dismissal and scroll locking.
+- `shared/async-broker.js` owns coalescing, stale-while-refresh, last-successful data and bounded retry backoff.
+- `shared/localisation.js` owns Home Assistant locale, timezone, number, power, energy, date and time presentation.
 - `shared/registry-cache.js` owns reusable, read-only Home Assistant area/device/entity registry loading.
+- `shared/registry-health.js` distinguishes a genuine empty registry from a failed registry request.
 - `shared/dashboard-style-tokens.js` owns the existing global dashboard CSS custom properties.
+- `shared/apple-tv-runtime.js` owns Apple TV discovery and supported-capability modelling; the public card owns only interaction and rendering.
+- `shared/security-runtime.js` owns capability-driven Security discovery shared by summary, camera wall and entry-point cards.
 - `shared/split-system-registry.js` owns split-system discovery and subscriptions used by the split controller and favourites.
 - `shared/dashboard-runtime.js` owns the existing entity-aware dashboard registry runtime used by split-system, garage-door, WLED and camera collection integration.
 - `shared/wled-runtime.js` owns WLED names, domain checks and registry access used by both the card and its integration patch.
@@ -48,19 +54,20 @@ Internal elements under `support/` are bundled before public cards. Compatibilit
 
 Do not hand-edit the generated distributable. Change source modules, update the manifest if needed, and regenerate it.
 
-## Style invariance
+## Style preservation
 
-This migration intentionally does not restyle components. `src/provenance/style-fingerprints.json` contains fingerprints of every original style fragment. `scripts/check-style-preservation.mjs` verifies those fragments remain present after source reorganisation.
+This work does not redesign components. `src/provenance/style-fingerprints.json` records the accepted presentation baseline after intentional micro-polish such as 44 px targets and stable control rows. `scripts/check-style-preservation.mjs` blocks unreviewed drift from that baseline.
 
 ## Validation
 
 `npm run check` performs the source, runtime and release-contract checks:
 
 - JavaScript syntax for the distributable.
-- Exactly one descriptively named registration for each of the 38 public card types.
+- Exactly one descriptively named registration for each of the 45 public card types.
 - Preservation of all original style fingerprints.
 - Isolated bundle loading with mocked browser/Home Assistant primitives, including dependency and patch order.
 - Bundle version, public component count, manifest coverage and HACS filename validation.
+- Reconnect activation, request coalescing/backoff, Security discovery, Apple TV capability modelling and editor/stub contracts.
 
 The isolated loader does not connect to or modify Home Assistant.
 

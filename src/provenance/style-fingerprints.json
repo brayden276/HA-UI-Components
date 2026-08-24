@@ -11,7 +11,7 @@
     },
     {
       "kind": "shared-style",
-      "hash": "671fc2d6d66c5513",
+      "hash": "48617553de317243",
       "count": 1,
       "example_source": "dashboard-style-tokens"
     },
@@ -41,7 +41,7 @@
     },
     {
       "kind": "style-tag",
-      "hash": "201be47e655577ce",
+      "hash": "c89db70592238f8b",
       "count": 1,
       "example_source": "03-home-components.js"
     },
@@ -71,9 +71,9 @@
     },
     {
       "kind": "style-tag",
-      "hash": "4f7e4834f1ba4ec0",
+      "hash": "f11201f272ff4771",
       "count": 1,
-      "example_source": "07-energy-day-selector.js"
+      "example_source": "src/components/energy-day-selector.js"
     },
     {
       "kind": "style-tag",
@@ -173,7 +173,7 @@
     },
     {
       "kind": "style-tag",
-      "hash": "e06198a2e2bb1734",
+      "hash": "6c6c6e9d40d7afc6",
       "count": 1,
       "example_source": "13-welcome-header.js"
     },
@@ -209,15 +209,15 @@
     },
     {
       "kind": "style-tag",
-      "hash": "fa69efc5101f1f3e",
+      "hash": "e7cd4ac3893a1287",
       "count": 1,
       "example_source": "01-history-graph.js"
     },
     {
       "kind": "style-tag",
-      "hash": "fce4212d7ac8c825",
+      "hash": "4c0874bd2854db0b",
       "count": 1,
-      "example_source": "05-metric-pair.js"
+      "example_source": "src/components/metric-pair.js"
     },
     {
       "kind": "style-tag",
@@ -239,7 +239,7 @@
     },
     {
       "kind": "style-tag",
-      "hash": "4da8df6f34d44673",
+      "hash": "9b46e00761504b11",
       "count": 1,
       "example_source": "dashboard-preference-editor-v3"
     },
@@ -269,7 +269,7 @@
     },
     {
       "kind": "style-tag",
-      "hash": "c0485d663bf4162d",
+      "hash": "a7bb8c7607b8791b",
       "count": 1,
       "example_source": "component-home-overview-v4"
     },
@@ -281,7 +281,7 @@
     },
     {
       "kind": "style-tag",
-      "hash": "afe9113f4772ab8c",
+      "hash": "caccef5204c518f7",
       "count": 1,
       "example_source": "energy-history-card-v3"
     }

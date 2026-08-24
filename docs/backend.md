@@ -33,6 +33,24 @@ ha_component_backend.remove_room
 
 The split-system components should not read or write retired `input_text`, `input_number`, `input_select`, `input_boolean`, timer-script, or room-specific helper state.
 
+Energy and Security dashboard profiles use:
+
+```text
+ha_component_backend.configure_dashboard_profile
+ha_component_backend.remove_dashboard_profile
+ha_component_backend/profile/get
+ha_component_backend/profile/update
+ha_component_backend/profile/remove
+ha_component_backend/energy/day
+```
+
+The Energy endpoint is the sole source for selected-day totals and chart series;
+parallel cards do not issue independent Recorder queries. Canonical live sensors
+are `sensor.ha_component_house_power`, `sensor.ha_component_solar_power` and
+`sensor.ha_component_grid_power`. Security profiles store scope and exceptions,
+while the frontend discovers actual device capabilities from Home Assistant's
+registries.
+
 Shared room/directory preferences use the backend WebSocket contract:
 
 ```text
@@ -55,9 +73,10 @@ editor revision valid again.
 Home Favourites use `home-control.favourites.v1`. On the first backend-backed
 load, `component-favourites-v3` converts the existing helper slots into its
 stable registry-reference array and saves that array as one atomic preference.
-After that acknowledgement, the component no longer reads or writes those four
-`input_text` helpers. Keep them during rollout for rollback, then remove them
-only after the backend preference has been verified on the target instance.
+The production Home composition then uses the backend preference exclusively
+and never reads or writes those four `input_text` helpers. Keep them during
+rollout for rollback, then remove them only after the backend preference has
+been verified on the target instance.
 Overlapping loads are coalesced and the latest key or backend event is always
 re-read after an in-flight request settles.
 
