@@ -20,6 +20,7 @@ class MockNode {
     this.dataset = {};
     this.attributes = new Map();
     this.children = [];
+    this.listeners = new Map();
     this.classNames = [];
     this.classList = {
       [Symbol.iterator]: () => this.classNames[Symbol.iterator](),
@@ -47,8 +48,17 @@ class MockNode {
     }
   }
   get innerHTML() { return this._innerHTML ?? ""; }
-  addEventListener() {}
-  removeEventListener() {}
+  addEventListener(type, listener) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+  removeEventListener(type, listener) {
+    this.listeners.set(type, (this.listeners.get(type) ?? []).filter((item) => item !== listener));
+  }
+  dispatch(type, data = {}) {
+    const event = { type, button: 0, pointerId: 1, clientX: 0, clientY: 0, key: "", repeat: false, preventDefault() {}, stopImmediatePropagation() {}, ...data };
+    for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event);
+    return event;
+  }
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = [...nodes]; }
   contains(node) { return node === this || this.children.includes(node); }
@@ -63,6 +73,7 @@ class MockNode {
     return enabled;
   }
   focus() {}
+  setPointerCapture() {}
   getBoundingClientRect() { return { width: 800, height: 420, left: 0, top: 0 }; }
   showModal() { this.open = true; }
   close() { this.open = false; }
@@ -85,9 +96,9 @@ class MockNode {
 }
 
 class MockHTMLElement extends MockNode {
-  constructor() { super("host"); this.isConnected = true; }
+  constructor() { super("host"); this.isConnected = true; this.dispatchedEvents = []; }
   attachShadow() { this.shadowRoot = new MockNode("shadow-root"); return this.shadowRoot; }
-  dispatchEvent() { return true; }
+  dispatchEvent(event) { this.dispatchedEvents.push(event); return true; }
 }
 
 const definitions = new Map();
@@ -100,16 +111,19 @@ const document = {
   head: new MockNode("head"),
   createElement: (name) => definitions.has(name) ? new (definitions.get(name))() : new MockNode(name),
   getElementById: () => null,
+  activeElement: null,
+  visibilityState: "visible",
 };
 class MockResizeObserver { observe() {} disconnect() {} }
 class MockEvent { constructor(type, options = {}) { this.type = type; Object.assign(this, options); } }
 
 const context = {
-  CSS: { escape: String }, CustomEvent: MockEvent, Event: MockEvent,
+  AbortController, CSS: { escape: String }, CustomEvent: MockEvent, Event: MockEvent,
   HTMLElement: MockHTMLElement, ResizeObserver: MockResizeObserver,
   clearInterval, clearTimeout, console, customElements, document,
   history: { pushState() {}, replaceState() {} }, location: { hash: "", pathname: "/", search: "" }, navigator: { language: "en-AU" },
   queueMicrotask, setInterval, setTimeout,
+  sessionStorage: { values: new Map(), getItem(key) { return this.values.get(key) ?? null; }, setItem(key, value) { this.values.set(key, String(value)); } },
 };
 context.window = context;
 context.globalThis = context;
@@ -125,6 +139,7 @@ const configurations = {
   "component-context-strip-v3": {},
   "component-energy-day-selector-v1": { channel: "smoke" },
   "metric-pair-card-v3": {},
+  "component-energy-summary-v1": { profile: "household-energy", day_channel: "smoke" },
   "component-history-graph-v2": {},
   "component-single-kpi-v2": {},
   "component-three-stat-v2": {},
@@ -153,6 +168,11 @@ const configurations = {
   "component-wled-controller-v1": { entity: "light.smoke" },
   "component-garage-door-controller-v1": { entity: "binary_sensor.smoke_garage_door", control_entity: "button.smoke_garage_door_trigger" },
   "component-camera-controller-v1": { entity: "camera.smoke_main_stream" },
+  "component-camera-controller-v2": { entity: "camera.smoke_main_stream" },
+  "component-security-summary-v1": { profile: "household-security" },
+  "component-security-camera-wall-v3": { profile: "household-security" },
+  "component-security-entry-points-v1": { profile: "household-security" },
+  "component-security-dashboard-v1": { profile: "household-security" },
   "component-smart-collection-v3": {},
   "component-household-directory-v3": {},
   "component-favourites-minimal-v1": { items: [{ title: "Smoke" }] },
@@ -160,6 +180,7 @@ const configurations = {
   "component-home-overview-v4": {},
   "solar-daylight-card-v7": { sun_entity: "sun.smoke", weather_entity: "weather.smoke" },
   "energy-history-card-v3": { house_entity: "sensor.smoke_house", solar_entity: "sensor.smoke_solar", grid_entity: "sensor.smoke_grid", day_channel: "smoke" },
+  "component-energy-dashboard-v1": { profile: "household-energy", day_channel: "smoke" },
 };
 
 const failures = [];
@@ -181,4 +202,63 @@ for (const [type, config] of Object.entries(configurations)) {
 }
 
 if (failures.length) throw new Error(`Runtime contract failures:\n${failures.join("\n")}`);
-console.log(`Runtime contract check passed: ${Object.keys(configurations).length} public components instantiated across two connect/disconnect cycles`);
+
+{
+  const Selector = definitions.get("component-energy-day-selector-v1");
+  const selector = new Selector();
+  selector.setConfig({ channel: "reconnect-action" });
+  selector.connectedCallback();
+  const previous = selector.shadowRoot.querySelector(".previous");
+  const firstDay = selector.selected;
+  previous.dispatch("pointerdown");
+  previous.dispatch("pointerup");
+  const secondDay = selector.selected;
+  selector.disconnectedCallback();
+  selector.connectedCallback();
+  previous.dispatch("pointerdown");
+  previous.dispatch("pointerup");
+  const thirdDay = selector.selected;
+  selector.disconnectedCallback();
+  if (firstDay === secondDay || secondDay === thirdDay) {
+    throw new Error("Energy day selector actions must remain live after reconnect");
+  }
+}
+
+{
+  const Metric = definitions.get("metric-pair-card-v3");
+  const metric = new Metric();
+  metric.setConfig({ left_more_info_entity: "sensor.smoke" });
+  metric.hass = { states: { "sensor.smoke": { entity_id: "sensor.smoke", state: "1", attributes: {} } } };
+  metric.connectedCallback();
+  metric.disconnectedCallback();
+  metric.connectedCallback();
+  const left = metric.shadowRoot.querySelector(".left");
+  left.dispatch("pointerdown");
+  left.dispatch("pointerup");
+  metric.disconnectedCallback();
+  if (!metric.dispatchedEvents.some((event) => event.type === "hass-more-info")) {
+    throw new Error("Metric Pair More Info action must remain live after reconnect");
+  }
+}
+
+{
+  const Energy = definitions.get("component-energy-dashboard-v1");
+  const energy = new Energy();
+  energy.setConfig({ profile: "first-energy", day_channel: "first-day" });
+  energy.setConfig({ profile: "second-energy", day_channel: "second-day" });
+  if (energy.children.get("summary")?.config?.profile !== "second-energy" ||
+      energy.children.get("selector")?.config?.channel !== "second-day") {
+    throw new Error("Energy wrapper must propagate edited configuration to retained child cards");
+  }
+
+  const Security = definitions.get("component-security-dashboard-v1");
+  const security = new Security();
+  security.setConfig({ profile: "first-security", camera_columns: 1 });
+  security.setConfig({ profile: "second-security", camera_columns: 3 });
+  if (security.children.get("summary")?.config?.profile !== "second-security" ||
+      security.children.get("wall")?.config?.columns !== 3) {
+    throw new Error("Security wrapper must propagate edited configuration to retained child cards");
+  }
+}
+
+console.log(`Runtime contract check passed: ${Object.keys(configurations).length} public components plus live actions across reconnect cycles`);

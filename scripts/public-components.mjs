@@ -2,6 +2,7 @@ export const publicComponents = Object.freeze([
   ["src/components/context-strip.js", "component-context-strip-v3", "ComponentContextStripV3"],
   ["src/components/energy-day-selector.js", "component-energy-day-selector-v1", "ComponentEnergyDaySelectorV1"],
   ["src/components/metric-pair.js", "metric-pair-card-v3", "ComponentMetricPairCardV3"],
+  ["src/components/energy-summary.js", "component-energy-summary-v1", "ComponentEnergySummaryV1"],
   ["src/components/history-graph.js", "component-history-graph-v2", "ComponentHistoryGraphV2"],
   ["src/components/single-kpi.js", "component-single-kpi-v2", "ComponentSingleKpiV2"],
   ["src/components/three-stat-summary.js", "component-three-stat-v2", "ComponentThreeStatV2"],
@@ -30,6 +31,11 @@ export const publicComponents = Object.freeze([
   ["src/components/wled-controller.js", "component-wled-controller-v1", "ComponentWledControllerV1"],
   ["src/components/garage-door-controller.js", "component-garage-door-controller-v1", "ComponentGarageDoorControllerV1"],
   ["src/components/camera-controller.js", "component-camera-controller-v1", "ComponentCameraControllerV1"],
+  ["src/components/camera-controller-v2.js", "component-camera-controller-v2", "ComponentCameraControllerV2"],
+  ["src/components/security-summary.js", "component-security-summary-v1", "ComponentSecuritySummaryV1"],
+  ["src/components/security-camera-wall.js", "component-security-camera-wall-v3", "ComponentSecurityCameraWallV3"],
+  ["src/components/security-entry-points.js", "component-security-entry-points-v1", "ComponentSecurityEntryPointsV1"],
+  ["src/components/security-dashboard.js", "component-security-dashboard-v1", "ComponentSecurityDashboardV1"],
   ["src/components/smart-collection.js", "component-smart-collection-v3", "ComponentSmartCollectionV3"],
   ["src/components/household-directory.js", "component-household-directory-v3", "ComponentHouseholdDirectoryV3"],
   ["src/components/favourites-minimal.js", "component-favourites-minimal-v1", "ComponentFavouritesMinimalV1"],
@@ -37,6 +43,7 @@ export const publicComponents = Object.freeze([
   ["src/components/home-overview.js", "component-home-overview-v4", "ComponentHomeOverviewV4"],
   ["src/components/solar-daylight-card.js", "solar-daylight-card-v7", "SolarDaylightCardV7"],
   ["src/components/energy-history-card.js", "energy-history-card-v3", "EnergyHistoryCardV3"],
+  ["src/components/energy-dashboard.js", "component-energy-dashboard-v1", "ComponentEnergyDashboardV1"],
 ]);
 
 const contract = (category, interaction) => Object.freeze({ category, interaction });
@@ -45,6 +52,7 @@ export const publicComponentContracts = Object.freeze({
   "src/components/context-strip.js": contract("presentational", "shared-optional"),
   "src/components/energy-day-selector.js": contract("direct-controller", "shared"),
   "src/components/metric-pair.js": contract("async-visualisation", "shared"),
+  "src/components/energy-summary.js": contract("async-visualisation", "shared"),
   "src/components/history-graph.js": contract("async-visualisation", "native-continuous"),
   "src/components/single-kpi.js": contract("presentational", "shared-optional"),
   "src/components/three-stat-summary.js": contract("presentational", "shared-optional"),
@@ -73,6 +81,11 @@ export const publicComponentContracts = Object.freeze({
   "src/components/wled-controller.js": contract("direct-controller", "native-continuous"),
   "src/components/garage-door-controller.js": contract("direct-controller", "shared"),
   "src/components/camera-controller.js": contract("direct-controller", "shared"),
+  "src/components/camera-controller-v2.js": contract("direct-controller", "shared"),
+  "src/components/security-summary.js": contract("registry-driven", "shared"),
+  "src/components/security-camera-wall.js": contract("async-visualisation", "shared"),
+  "src/components/security-entry-points.js": contract("registry-driven", "shared"),
+  "src/components/security-dashboard.js": contract("composition-wrapper", "shared"),
   "src/components/smart-collection.js": contract("registry-driven", "delegated"),
   "src/components/household-directory.js": contract("registry-driven", "delegated"),
   "src/components/favourites-minimal.js": contract("composition-wrapper", "delegated"),
@@ -80,6 +93,7 @@ export const publicComponentContracts = Object.freeze({
   "src/components/home-overview.js": contract("composition-wrapper", "shared"),
   "src/components/solar-daylight-card.js": contract("async-visualisation", "shared"),
   "src/components/energy-history-card.js": contract("async-visualisation", "native-continuous"),
+  "src/components/energy-dashboard.js": contract("composition-wrapper", "delegated"),
 });
 
 export const supportedComponentCategories = Object.freeze([

@@ -1,6 +1,6 @@
 # Component catalogue
 
-This catalogue covers all 38 public custom cards in the library. Configuration examples use placeholder entity IDs and paths; replace them with values from the target Home Assistant instance.
+This catalogue covers all 45 public custom cards in the library. Configuration examples use placeholder entity IDs and paths; replace them with values from the target Home Assistant instance.
 
 The interaction rules described here are the actual source behaviour. Components that have no meaningful action render non-interactive semantics rather than inert button affordances. Shared tap/hold/repeat semantics are documented in `docs/INTERACTION_MODEL.md`.
 
@@ -106,7 +106,30 @@ type: custom:component-energy-day-selector-v1
 channel: energy-dashboard
 ```
 
-Interaction: previous/next update the selected local date immediately. Holding either step button repeats after 350 ms and accelerates; movement into a scroll cancels the press. Today/date input remain directly accessible. Cards on the same channel receive `energy-day-selector-change`.
+Interaction: previous/next update the selected Home Assistant-local calendar date immediately. Holding either step button repeats after 350 ms and accelerates; movement into a scroll cancels the press. Today/date input remain directly accessible. Cards on the same channel receive replayable state even when they connect after the selector.
+
+### `component-energy-summary-v1`
+
+```yaml
+type: custom:component-energy-summary-v1
+profile: household-energy
+day_channel: energy-day
+title: Energy
+```
+
+Shows canonical live House/Solar/Grid power plus imported, exported, generated and consumed energy for the replayable selected day. One backend request supplies all values; previous data remains visible while refreshing. Partial source coverage, stale data and backend errors are explicitly differentiated.
+
+### `component-energy-dashboard-v1`
+
+```yaml
+type: custom:component-energy-dashboard-v1
+profile: household-energy
+day_channel: energy-day
+weather_entity: weather.forecast_home
+sun_entity: sun.sun
+```
+
+Thin Energy composition for production dashboards. It combines the day selector, backend summary, existing daylight presentation and history chart without duplicating state or Recorder requests in dashboard YAML.
 
 ### `component-history-graph-v2`
 
@@ -281,11 +304,6 @@ type: custom:component-home-overview-v4
 weather_entity: weather.forecast_home
 base_path: /home-control
 current_dashboard: home-control
-favourites_helpers:
-  - input_text.dashboard_favourite_1
-  - input_text.dashboard_favourite_2
-  - input_text.dashboard_favourite_3
-  - input_text.dashboard_favourite_4
 ```
 
 Interaction: no global card action. The header weather target opens native details through the shared interaction layer; Favourites, Active Now, Rooms and Household delegate to their canonical child components. Child components are retained across ordinary Home Assistant state refreshes.
@@ -332,11 +350,7 @@ Interaction: delegated to the generated Bubble Card destinations/entity controls
 
 ```yaml
 type: custom:component-favourites-minimal-v1
-helpers:
-  - input_text.dashboard_favourite_1
-  - input_text.dashboard_favourite_2
-  - input_text.dashboard_favourite_3
-  - input_text.dashboard_favourite_4
+preference_key: home-control.favourites.v1
 max: 4
 title: Favourites
 ```
@@ -349,11 +363,7 @@ Interaction: exactly the canonical `component-favourites-v3` behaviour. The wrap
 
 ```yaml
 type: custom:component-favourites-v3
-helpers:
-  - input_text.dashboard_favourite_1
-  - input_text.dashboard_favourite_2
-  - input_text.dashboard_favourite_3
-  - input_text.dashboard_favourite_4
+preference_key: home-control.favourites.v1
 max: 4
 ```
 
@@ -464,6 +474,54 @@ device_id: replace_with_camera_device_registry_id
 ```
 
 Interaction: camera/view/control launchers use shared activation. Discovered switch controls render optimistic on/off state, hold for native details and wait for reported state confirmation; failures roll back. Maintenance buttons keep the existing two-step confirmation and never claim optimistic completion. Preferred main/sub stream selection continues to use the existing stored camera viewer preference.
+
+### `component-camera-controller-v2`
+
+```yaml
+type: custom:component-camera-controller-v2
+entity: camera.front_yard
+profile: household-security
+```
+
+Expanded Security camera controller with capability-derived Recording, Detection, Alerts, maintenance and PTZ controls. On/Off labels remain explicit; turning off disruptive capabilities and running maintenance actions require confirmation. The modal traps focus, supports Escape/click-outside dismissal when safe and restores focus to its opener.
+
+## Security composition
+
+### `component-security-dashboard-v1`
+
+```yaml
+type: custom:component-security-dashboard-v1
+profile: household-security
+```
+
+Single-card Security dashboard composition. It is exception-first and omits alarm, lock, siren, PTZ or entry-point sections that the Home Assistant registries do not actually expose.
+
+### `component-security-summary-v1`
+
+```yaml
+type: custom:component-security-summary-v1
+profile: household-security
+```
+
+Shows a calm all-clear state or up to four actionable exceptions such as an unavailable camera, active detection or open entry point. A registry/API failure is rendered as unavailable rather than as a false all-clear.
+
+### `component-security-camera-wall-v3`
+
+```yaml
+type: custom:component-security-camera-wall-v3
+profile: household-security
+```
+
+Snapshot-first, capability-driven camera wall. It retains the last successful image, starts live streaming only on request while visible and moves secondary camera controls into an overflow menu so content remains primary.
+
+### `component-security-entry-points-v1`
+
+```yaml
+type: custom:component-security-entry-points-v1
+profile: household-security
+```
+
+Renders only real doors, windows, locks and garage entries. Compatible garage entries reuse the established state-confirmed garage-door controller instead of duplicating physical-control logic.
 
 ## System and household state
 

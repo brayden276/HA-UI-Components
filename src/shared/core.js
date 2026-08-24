@@ -18,6 +18,7 @@ const escapeHtml = (value) =>
   );
 
 const registerCard = ({ type, element, name, description, preview = true }) => {
+  componentLibraryShared.installConfigContract?.(type, element);
   if (!customElements.get(type)) customElements.define(type, element);
   window.customCards ??= [];
   if (!window.customCards.some((card) => card.type === type)) {
@@ -68,4 +69,3 @@ Object.assign(componentLibraryShared, {
   registerCard,
   toText,
 });
-

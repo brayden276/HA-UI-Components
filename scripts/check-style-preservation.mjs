@@ -85,5 +85,5 @@ if (drift.length) {
   if (strict) throw new Error(message);
   console.warn(`${message}. Advisory only; run with --strict to make it blocking.`);
 } else {
-  console.log(`Style preservation check passed: ${baseline.fragment_count} original fragments`);
+  console.log(`Style preservation check passed: ${baseline.fragment_count} accepted fragments`);
 }

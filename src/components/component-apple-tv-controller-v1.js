@@ -1,39 +1,14 @@
 /** Live, registry-aware Apple TV controller. */
-const { createRequestCoalescer, interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-const INVALID = new Set(["unknown", "unavailable", "none", ""]);
-const F = {
-  PAUSE: 1,
-  MUTE: 8,
-  PREVIOUS: 16,
-  NEXT: 32,
-  PLAY: 512,
-  STEP_VOLUME: 1024,
-  SOURCE: 2048,
-  STOP: 4096,
-};
-const NAV = [
-  ["up", "Up", "mdi:chevron-up"],
-  ["left", "Left", "mdi:chevron-left"],
-  ["select", "Select", "mdi:circle-outline"],
-  ["right", "Right", "mdi:chevron-right"],
-  ["down", "Down", "mdi:chevron-down"],
-  ["menu", "Menu", "mdi:keyboard-return"],
-  ["home", "Home", "mdi:home-variant-outline"],
-  ["top_menu", "Top menu", "mdi:format-list-bulleted"],
-];
-const APP_ICONS = [
-  [/netflix/i, "mdi:netflix"],
-  [/youtube/i, "mdi:youtube"],
-  [/spotify/i, "mdi:spotify"],
-  [/prime video|amazon/i, "mdi:amazon"],
-  [/plex/i, "mdi:plex"],
-  [/twitch/i, "mdi:twitch"],
-  [/vlc/i, "mdi:vlc"],
-  [/apple tv|apple music|music/i, "mdi:apple"],
-  [/disney/i, "mdi:castle"],
-  [/kayo|sport/i, "mdi:soccer"],
-  [/binge|stan|paramount|movie/i, "mdi:movie-open-play-outline"],
-];
+const {
+  APPLE_TV_NAV: NAV,
+  appleTvAppIcon,
+  appleTvModel,
+  createOverlayController,
+  createRequestCoalescer,
+  interaction,
+  openMoreInfo,
+  registerCard,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 
 class ComponentAppleTvControllerV1 extends HTMLElement {
   static getGridOptions() {
@@ -45,22 +20,17 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this.pending = new Set();
     this.panelMode = null;
-    this.panelTrigger = null;
+    this.panelController = null;
     this.registry = null;
     this.unsubscribe = null;
     this.message = "";
     this.messageType = "info";
     this.messageTimer = null;
-    this.scrollLocks = [];
     this.interactionHandles = [];
     this.dynamicInteractions = [];
     this.volumeCoalescer = null;
     this.volumeGestureActive = false;
     this.optimisticVolume = null;
-    this.focusGuard = (event) => {
-      if (!this.panelMode || event.composedPath().includes(this)) return;
-      queueMicrotask(() => this.el?.close?.focus());
-    };
   }
 
   setConfig(config) {
@@ -96,8 +66,10 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.unsubscribe?.();
     this.unsubscribe = null;
     clearTimeout(this.messageTimer);
-    this.unlockBackground();
-    document.removeEventListener?.("focusin", this.focusGuard, true);
+    this.panelMode = null;
+    this.volumeGestureActive = false;
+    this.optimisticVolume = null;
+    this.panelController?.close(false);
   }
 
   getCardSize() {
@@ -120,231 +92,8 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     });
   }
 
-  state(id) {
-    return id ? (this._hass?.states?.[id] ?? this.demoState(id)) : null;
-  }
-
-  demoState(id) {
-    if (!this.config?.demo) return null;
-    if (id === "remote.demo_apple_tv") {
-      return {
-        state: "on",
-        attributes: {
-          supported_commands: NAV.map((entry) => entry[0]).concat([
-            "wakeup",
-            "suspend",
-          ]),
-        },
-      };
-    }
-    if (id === "binary_sensor.demo_apple_tv_keyboard_focus") {
-      return { state: "off", attributes: {} };
-    }
-    return {
-      state: "playing",
-      attributes: {
-        friendly_name: "Apple TV 4K",
-        source: "Netflix",
-        source_list: [
-          "Netflix",
-          "YouTube",
-          "Apple TV",
-          "Disney+",
-          "Prime Video",
-          "Spotify",
-        ],
-        volume_level: 0.42,
-        supported_features:
-          F.PAUSE |
-          F.PLAY |
-          F.MUTE |
-          F.STEP_VOLUME |
-          F.SOURCE |
-          F.PREVIOUS |
-          F.NEXT |
-          F.STOP,
-      },
-    };
-  }
-
-  valid(state) {
-    return Boolean(
-      state && !INVALID.has(String(state.state).toLowerCase()),
-    );
-  }
-
-  supported(state, feature) {
-    return Boolean(
-      (Number(state?.attributes?.supported_features) || 0) & feature,
-    );
-  }
-
-  domain(id) {
-    return String(id || "").split(".")[0];
-  }
-
-  discovery() {
-    if (this.config?.demo) {
-      return {
-        media: this.config.entity,
-        remote: "remote.demo_apple_tv",
-        keyboard: "binary_sensor.demo_apple_tv_keyboard_focus",
-        configEntryId: "demo",
-      };
-    }
-
-    const shared = globalThis.__homeDashboardV2?.appleTvRegistry?.(
-      this.config?.entity,
-      this.registry,
-      this._hass,
-      { deviceId: this.config?.device_id },
-    );
-    if (shared) {
-      return {
-        media: this.config?.entity,
-        remote: shared.remoteEntityId,
-        keyboard: shared.keyboardEntityId,
-        configEntryId: shared.configEntryId,
-      };
-    }
-
-    const all = this.registry?.entities || [];
-    const mediaEntry = all.find(
-      (entry) => entry.entity_id === this.config?.entity,
-    );
-    const siblings = mediaEntry?.device_id
-      ? this.registry?.byDevice?.get(mediaEntry.device_id) || []
-      : [];
-    const usable = (entry) =>
-      entry &&
-      !entry.disabled_by &&
-      !entry.hidden_by &&
-      (entry.platform === "apple_tv" ||
-        entry.config_entry_id === mediaEntry?.config_entry_id);
-    const remote = siblings.find(
-      (entry) => usable(entry) && this.domain(entry.entity_id) === "remote",
-    );
-    const keyboard = siblings.find(
-      (entry) =>
-        usable(entry) &&
-        this.domain(entry.entity_id) === "binary_sensor" &&
-        /keyboard.*focus|focus.*keyboard/i.test(
-          `${entry.entity_id} ${entry.name || ""} ${entry.original_name || ""}`,
-        ),
-    );
-
-    return {
-      media: this.config?.entity,
-      remote: remote?.entity_id || null,
-      keyboard: keyboard?.entity_id || null,
-      configEntryId:
-        mediaEntry?.config_entry_id ||
-        remote?.config_entry_id ||
-        keyboard?.config_entry_id ||
-        null,
-    };
-  }
-
   model() {
-    const entities = this.discovery();
-    const media = this.state(entities.media);
-    const remote = this.state(entities.remote);
-    const keyboard = this.state(entities.keyboard);
-    const raw = String(media?.state || "unknown").toLowerCase();
-    const available = this.valid(media);
-    const sleeping = available && ["off", "standby"].includes(raw);
-    const awake = available && !sleeping;
-    const attrs = media?.attributes || {};
-    const commands = Array.isArray(remote?.attributes?.supported_commands)
-      ? new Set(remote.attributes.supported_commands)
-      : null;
-    const remoteUsable = this.valid(remote);
-    const remoteCan = (command) =>
-      remoteUsable && (!commands || commands.has(command));
-    const level = Number(attrs.volume_level);
-    const hasLevel = Number.isFinite(level) && level >= 0 && level <= 1;
-    const playing = awake && raw === "playing";
-    const paused = awake && raw === "paused";
-    const idle = awake && ["idle", "on", "buffering"].includes(raw);
-    const sources = Array.isArray(attrs.source_list)
-      ? [
-          ...new Set(
-            attrs.source_list
-              .filter((source) => typeof source === "string")
-              .map((source) => source.trim())
-              .filter(Boolean),
-          ),
-        ]
-      : [];
-    const keyboardFocused =
-      awake &&
-      this.valid(keyboard) &&
-      String(keyboard.state).toLowerCase() === "on";
-
-    return {
-      entities,
-      media,
-      remote,
-      available,
-      awake,
-      sleeping,
-      playing,
-      paused,
-      idle,
-      sources,
-      currentSource: attrs.app_name || attrs.source || null,
-      level: hasLevel ? level : null,
-      muted: attrs.is_volume_muted === true,
-      canWake: sleeping && remoteCan("wakeup"),
-      canSleep: awake && remoteCan("suspend"),
-      canNavigate:
-        awake && remoteUsable && NAV.some(([command]) => remoteCan(command)),
-      canPlay:
-        awake && (paused || idle) && this.supported(media, F.PLAY),
-      canPause: playing && this.supported(media, F.PAUSE),
-      canStop:
-        (playing || paused) && this.supported(media, F.STOP),
-      canPrevious:
-        (playing || paused) && this.supported(media, F.PREVIOUS),
-      canNext:
-        (playing || paused) && this.supported(media, F.NEXT),
-      canVolumeUp: awake && this.supported(media, F.STEP_VOLUME),
-      canVolumeDown: awake && this.supported(media, F.STEP_VOLUME),
-      canMute: awake && this.supported(media, F.MUTE),
-      canSelectSource:
-        awake && sources.length > 0 && this.supported(media, F.SOURCE),
-      keyboardFocused,
-      canSetKeyboardText:
-        keyboardFocused && Boolean(entities.configEntryId),
-      canAppendKeyboardText:
-        keyboardFocused && Boolean(entities.configEntryId),
-      canClearKeyboardText:
-        keyboardFocused && Boolean(entities.configEntryId),
-      status: !available
-        ? raw === "unknown"
-          ? "Status unknown"
-          : "Apple TV unavailable"
-        : [
-            sleeping
-              ? "Sleeping"
-              : playing
-                ? "Playing"
-                : paused
-                  ? "Paused"
-                  : idle
-                    ? "Idle"
-                    : this.label(raw),
-            attrs.app_name || attrs.source,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-    };
-  }
-
-  label(value) {
-    return String(value || "")
-      .replaceAll("_", " ")
-      .replace(/^./, (letter) => letter.toUpperCase());
+    return appleTvModel(this._hass, this.config, this.registry);
   }
 
   name(model) {
@@ -436,7 +185,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         .volume-value{display:block;font-size:18px;line-height:1.1;font-weight:700;font-variant-numeric:tabular-nums}
         .volume-status{display:block;margin-top:3px;color:var(--secondary-text-color);font-size:11px;line-height:1.1;white-space:nowrap}
         .keyboard{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px}
-        .keyboard-input{width:100%;min-height:42px;padding:0 11px;border:1px solid var(--divider-color);border-radius:12px;background:transparent}
+        .keyboard-input{width:100%;min-height:44px;padding:0 11px;border:1px solid var(--divider-color);border-radius:12px;background:transparent}
         .keyboard .utility{width:44px;padding:0}
         .keyboard .utility span{display:none}
         .apps-summary{font-size:12px;color:var(--secondary-text-color)}
@@ -515,9 +264,10 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       interaction(this.el.appsLaunch, { primary: () => this.openPanel("apps", this.el.appsLaunch), feedback: true }),
       interaction(this.el.close, { primary: () => this.closePanel(true), feedback: true }),
     );
-    this.el.panel.onclick = (event) => {
-      if (event.target === this.el.panel) this.closePanel(true);
-    };
+    this.panelController = createOverlayController(this, this.el.panel, {
+      initialFocus: () => this.el.close,
+      onDismiss: () => this.closePanel(true),
+    });
     this.el.panel.addEventListener("wheel", (event) => event.stopPropagation(), {
       passive: true,
     });
@@ -526,14 +276,6 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       (event) => event.stopPropagation(),
       { passive: true },
     );
-    this.shadowRoot.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && this.panelMode) {
-        event.preventDefault();
-        this.closePanel(true);
-      } else if (event.key === "Tab" && this.panelMode) {
-        this.trapFocus(event);
-      }
-    });
   }
 
   icon(name) {
@@ -930,14 +672,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   appIcon(source) {
-    const configured = this.config?.app_icons?.[source];
-    if (typeof configured === "string" && configured.trim()) {
-      return configured.trim();
-    }
-    return (
-      APP_ICONS.find(([pattern]) => pattern.test(source))?.[1] ||
-      "mdi:application-outline"
-    );
+    return appleTvAppIcon(source, this.config?.app_icons);
   }
 
   async invoke(action, request, success) {
@@ -1100,90 +835,16 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       return;
     }
     this.panelMode = mode;
-    this.panelTrigger = trigger;
-    this.el.panel.hidden = false;
-    this.lockBackground();
-    document.addEventListener?.("focusin", this.focusGuard, true);
+    this.panelController.open(trigger);
     this.render();
-    queueMicrotask(() => this.el.close.focus());
   }
 
   closePanel(restore) {
     this.volumeGestureActive = false;
     this.optimisticVolume = null;
     this.panelMode = null;
-    this.el.panel.hidden = true;
-    this.unlockBackground();
-    document.removeEventListener?.("focusin", this.focusGuard, true);
-    const trigger = this.panelTrigger;
-    this.panelTrigger = null;
+    this.panelController.close(restore);
     this.render();
-    if (restore) {
-      queueMicrotask(() => {
-        const fallback = trigger === this.el.appsLaunch
-          ? this.el.appsLaunch
-          : this.el.remoteLaunch;
-        (trigger?.isConnected ? trigger : fallback)?.focus();
-      });
-    }
-  }
-
-  composedParent(node) {
-    if (!node) return null;
-    return node.parentElement || node.getRootNode?.()?.host || null;
-  }
-
-  lockBackground() {
-    if (this.scrollLocks.length) return;
-    const candidates = new Set([document.documentElement, document.body]);
-    let node = this;
-    while ((node = this.composedParent(node))) {
-      const style = getComputedStyle(node);
-      if (/auto|scroll|overlay/.test(`${style.overflow} ${style.overflowY}`)) {
-        candidates.add(node);
-      }
-    }
-    this.scrollLocks = [...candidates]
-      .filter(Boolean)
-      .map((element) => ({
-        element,
-        overflow: element.style.overflow,
-        overflowY: element.style.overflowY,
-        overscrollBehavior: element.style.overscrollBehavior,
-      }));
-    for (const lock of this.scrollLocks) {
-      lock.element.style.overflow = "hidden";
-      lock.element.style.overflowY = "hidden";
-      lock.element.style.overscrollBehavior = "none";
-    }
-  }
-
-  unlockBackground() {
-    for (const lock of this.scrollLocks) {
-      lock.element.style.overflow = lock.overflow;
-      lock.element.style.overflowY = lock.overflowY;
-      lock.element.style.overscrollBehavior = lock.overscrollBehavior;
-    }
-    this.scrollLocks = [];
-  }
-
-  trapFocus(event) {
-    const focusable = [
-      ...this.el.panel.querySelectorAll(
-        "button:not([disabled]),input:not([disabled])",
-      ),
-    ];
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    const active = this.shadowRoot.activeElement;
-    if (event.shiftKey && active === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && active === last) {
-      event.preventDefault();
-      first.focus();
-    }
   }
 }
 

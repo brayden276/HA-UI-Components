@@ -69,8 +69,16 @@ const pickerTypes = new Set(context.customCards.map((card) => card.type));
 const missingPickerEntries = publicComponentTypes.filter((type) => !pickerTypes.has(type));
 if (missingPickerEntries.length) throw new Error("Missing card-picker entries: " + missingPickerEntries.join(", "));
 
+const missingConfigContracts = publicComponentTypes.filter((type) => {
+  const element = definitions.get(type);
+  return typeof element?.getConfigElement !== "function" || typeof element?.getStubConfig !== "function";
+});
+if (missingConfigContracts.length) {
+  throw new Error("Missing config editor/stub contracts: " + missingConfigContracts.join(", "));
+}
+
 if (context.__HA_COMPONENT_LIBRARY__?.components !== publicComponentTypes.length) {
   throw new Error("Bundle metadata was not initialised");
 }
 
-console.log("Isolated load-order check passed: " + publicComponentTypes.length + " public components");
+console.log("Isolated load-order/editor check passed: " + publicComponentTypes.length + " public components");

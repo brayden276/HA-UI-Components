@@ -8,10 +8,10 @@ The library turns the dashboard's inline JavaScript resources into one reusable 
 
 ## Scope
 
-- All 38 public `custom:` card types are included: the 28 original Components cards, three specialised device controllers, five Home dashboard composition cards and two Solar dashboard cards.
+- All 45 public `custom:` card types are included, including the backend-driven Energy composition and the rebuilt Security composition.
 - Every public card has its own descriptively named source module.
-- Shared registration, escaping, navigation, registry, Update, split-system and WLED logic is centralised under `src/shared/`.
-- The original component CSS and visual behaviour are preserved. No component was restyled.
+- Shared registration, escaping, navigation, lifecycle ownership, request coalescing, localisation, registry health, Apple TV, Security, Update, split-system and WLED logic is centralised under `src/shared/`.
+- The established component CSS and visual direction are preserved. Intentional micro-polish is limited to shared tokens, stable state feedback, focus treatment and undersized interaction targets.
 - Required supporting runtime modules and the current WLED, garage-door, camera and room-navigation patches are bundled.
 - Native Home Assistant `heading` cards are not duplicated because they are built into Home Assistant and require no custom resource.
 - Creating this repository did not change Home Assistant, its dashboards, entities or registered resources.
@@ -29,7 +29,7 @@ HACS reads `hacs.json`, finds `dist/ha-component-library.js`, downloads it under
 
 ## Split System backend
 
-Split System Components also require the companion [**HA Component Backend**](https://github.com/brayden276/HA-UI-Backend) integration. Install it once from HACS as an **Integration**, restart Home Assistant when prompted, then add **HA Component Backend** in **Settings → Devices & services**. The card detects `sensor.ha_component_backend` automatically; no legacy split helpers are used after the backend migration is complete.
+Split System, Energy and Security Components also require the companion [**HA Component Backend**](https://github.com/brayden276/HA-UI-Backend) integration. Install it once from HACS as an **Integration**, restart Home Assistant when prompted, then add **HA Component Backend** in **Settings → Devices & services**. The cards detect the backend automatically; no dashboard-specific helpers or automations are required.
 
 ## Use a component
 
@@ -50,21 +50,22 @@ See [docs/components.md](docs/components.md) for a configured example of every c
 | Group | Card types |
 | --- | --- |
 | Context and metrics | `component-context-strip-v3`, `metric-pair-card-v3`, `component-single-kpi-v2`, `component-three-stat-v2`, `component-status-row-v2`, `component-progress-v2` |
-| Charts and time | `component-energy-day-selector-v1`, `component-history-graph-v2`, `solar-daylight-card-v7`, `energy-history-card-v3` |
+| Energy | `component-energy-dashboard-v1`, `component-energy-summary-v1`, `component-energy-day-selector-v1`, `solar-daylight-card-v7`, `energy-history-card-v3`, `component-history-graph-v2` |
 | Actions and lists | `component-action-v2`, `component-list-v2`, `component-notice-v2`, `component-text-effect-v1` |
 | Home composition | `component-home-overview-v4`, `component-favourites-minimal-v1`, `component-smart-collection-v3`, `component-room-directory-v4`, `component-household-directory-v3` |
 | Home navigation | `component-quick-nav-v2`, `component-nav-tile-v2`, `component-room-navigation-v1`, `component-section-separator-v2`, `component-room-sheet-v2` |
 | Home controls | `component-favourites-v3`, `component-control-row-v2`, `component-split-controller-v4`, `component-media-row-v2`, `component-apple-tv-controller-v1`, `component-wled-controller-v1`, `component-garage-door-controller-v1`, `component-camera-controller-v1` |
+| Security | `component-security-dashboard-v1`, `component-security-summary-v1`, `component-security-camera-wall-v3`, `component-security-entry-points-v1`, `component-camera-controller-v2` |
 | System state | `component-update-summary-v3`, `component-update-row-v3`, `component-empty-state-v3`, `component-device-discovery-v2`, `component-household-attention-v1`, `component-welcome-header-v1` |
 
-## Existing inline resources
+## Dashboard cutover
 
-The bundle guards custom-element registration, so it can be loaded while the current inline resources still exist. To complete a later migration, verify the HACS resource first, then remove the replaced inline resources from Home Assistant yourself. This repository deliberately does not automate or perform that cutover.
+The bundle guards custom-element registration, so it can be loaded while older inline resources still exist. Follow [docs/DASHBOARD_COMPOSITION.md](docs/DASHBOARD_COMPOSITION.md) for the dependency order, backend profiles, thin dashboard YAML and rollback-safe removal of replaced inline resources and helpers.
 
 ## Repository structure
 
 - `dist/ha-component-library.js` — the single file HACS installs.
-- `src/components/` — one descriptively named module for each of the 38 public cards.
+- `src/components/` — one descriptively named module for each of the 45 public cards.
 - `src/shared/` — shared primitives, registry caches, CSS tokens and controller runtimes.
 - `src/support/` — internal elements required by the public cards, including the Home preference editor.
 - `src/patches/` — the current WLED, garage-door, camera and room-navigation integration/compatibility patches.

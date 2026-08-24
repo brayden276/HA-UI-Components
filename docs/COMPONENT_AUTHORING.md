@@ -382,7 +382,7 @@ Before adding a patch, ask:
 
 If 1 or 2 is yes, do not add the patch.
 
-## Adding public component 39+
+## Adding a public component
 
 The public inventory is centralised in `scripts/public-components.mjs`; there is no separate hard-coded component count to update.
 
