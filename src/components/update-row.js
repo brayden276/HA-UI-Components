@@ -43,6 +43,11 @@ class ComponentUpdateRowV3 extends HTMLElement {
     return 1;
   }
 
+  connectedCallback() {
+    this._renderSignature = null;
+    this._render();
+  }
+
   disconnectedCallback() {
     window.clearTimeout(this.startTimer);
     window.clearTimeout(this.errorTimer);

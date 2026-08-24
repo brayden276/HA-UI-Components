@@ -242,6 +242,25 @@ if (failures.length) throw new Error(`Runtime contract failures:\n${failures.joi
 }
 
 {
+  const AppleTv = definitions.get("component-apple-tv-controller-v1");
+  const appleTv = new AppleTv();
+  appleTv.setConfig({ demo: true });
+  appleTv.connectedCallback();
+  appleTv.disconnectedCallback();
+  appleTv.connectedCallback();
+  const remote = appleTv.el?.remoteLaunch;
+  const apps = appleTv.el?.appsLaunch;
+  if (
+    appleTv.interactionHandles.length !== 4 ||
+    remote?.listeners.get("pointerdown")?.length !== 1 ||
+    apps?.listeners.get("pointerdown")?.length !== 1
+  ) {
+    throw new Error("Apple TV Remote and Apps launchers must rebind after reconnect");
+  }
+  appleTv.disconnectedCallback();
+}
+
+{
   const Energy = definitions.get("component-energy-dashboard-v1");
   const energy = new Energy();
   energy.setConfig({ profile: "first-energy", day_channel: "first-day" });

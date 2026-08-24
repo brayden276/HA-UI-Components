@@ -2068,14 +2068,19 @@ const securityModel = (hass, registry, profile = {}) => {
   const include = new Set(profile.include_entities || []);
   const exclude = new Set(profile.exclude_entities || []);
   const areas = new Set(profile.area_ids || []);
-  const entities = (registry?.entities || []).filter((entity) => {
-    if (!securityHD?.uiEntry?.(entity) || !hass?.states?.[entity.entity_id]) return false;
+  // Visible entities choose what becomes a dashboard card.  Capability
+  // siblings are deliberately broader: camera integrations commonly classify
+  // recording/detection switches as config entities even though they are safe,
+  // contextual controls for an already-visible camera.
+  const candidates = (registry?.entities || []).filter((entity) => {
+    if (!entity?.entity_id || entity.disabled_by || entity.hidden_by || !hass?.states?.[entity.entity_id]) return false;
     if (exclude.has(entity.entity_id)) return false;
     if (include.has(entity.entity_id)) return true;
     return !areas.size || areas.has(securityHD.areaOf(entity, registry));
   });
+  const entities = candidates.filter((entity) => securityHD?.uiEntry?.(entity));
   const byDevice = new Map();
-  for (const entity of entities) {
+  for (const entity of candidates) {
     const owner = entity.device_id || entity.entity_id;
     const siblings = byDevice.get(owner) || [];
     siblings.push(entity);
@@ -2084,7 +2089,9 @@ const securityModel = (hass, registry, profile = {}) => {
 
   const cameras = [];
   for (const [owner, siblings] of byDevice) {
-    const cameraEntities = siblings.filter((entity) => securityDomain(entity.entity_id) === "camera");
+    const cameraEntities = siblings.filter((entity) =>
+      securityDomain(entity.entity_id) === "camera" && securityHD?.uiEntry?.(entity),
+    );
     if (!cameraEntities.length) continue;
     cameraEntities.sort((left, right) => {
       const score = (entity) => {
@@ -2100,15 +2107,15 @@ const securityModel = (hass, registry, profile = {}) => {
     const areaId = securityHD.areaOf(entity, registry);
     const areaName = registry.areaMap?.get(areaId)?.name || "";
     const switches = siblings
-      .filter((item) => securityDomain(item.entity_id) === "switch")
-      .map((item) => ({ entity: item, role: switchRole(item) || entityLabel(hass, item) }));
+      .filter((item) => securityDomain(item.entity_id) === "switch" && switchRole(item))
+      .map((item) => ({ entity: item, role: switchRole(item) }));
     const detections = siblings.filter((item) => {
       if (securityDomain(item.entity_id) !== "binary_sensor") return false;
       const deviceClass = hass.states[item.entity_id]?.attributes?.device_class || "";
       return /^(motion|occupancy|presence|sound)$/.test(deviceClass) || /detect|motion|person|human/.test(capabilityText(item));
     });
     const actions = siblings
-      .filter((item) => securityDomain(item.entity_id) === "button")
+      .filter((item) => securityDomain(item.entity_id) === "button" && actionRole(item) !== "action")
       .map((item) => ({ entity: item, role: actionRole(item) }));
     const ptz = siblings.filter((item) => ["button", "number", "select"].includes(securityDomain(item.entity_id)) && ptzRole(item));
     const online = Boolean(state && !badSecurityState.has(String(state.state).toLowerCase()));
@@ -2210,7 +2217,7 @@ Object.assign(securityShared, {
 /** ComponentSingleKpiV2 — reusable Home Assistant dashboard card. */
 const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentSingleKpiV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={value:'00',label:'Primary metric',support_value:'00',support_label:'Supporting context',interactive:true,entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
+ constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={value:'00',label:'Primary metric',support_value:'00',support_label:'Supporting context',interactive:true,entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
  action(){if(this.c.interactive===false)return null;if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}
  r(){this._interaction?.destroy();this._interaction=null;const action=this.action(),tag=action?'button':'div',className=action?'demo':'demo-static',attrs=action?' type="button"':'';this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:flex;align-items:flex-end;justify-content:space-between;gap:16px;min-height:70px}.value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em;white-space:nowrap}.label{margin-top:4px;font-size:11px;color:var(--secondary-text-color);white-space:nowrap}.support{text-align:right;font-size:11.5px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap}.support b{font-weight:600;color:var(--primary-text-color)}@media(max-width:700px){.wrap{padding:12px}.value{font-size:25px}.support{font-size:11px}}</style><style>.demo-static{width:100%;border:0;background:transparent;text-align:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><div><div class="value">${escapeHtml(this.c.value)}</div><div class="label">${escapeHtml(this.c.label)}</div></div><div class="support"><b>${escapeHtml(this.c.support_value)}</b> ${escapeHtml(this.c.support_label)}</div></div></${tag}></ha-card>`;if(action)this._interaction=interaction(this.shadowRoot.querySelector('button.demo'),{primary:action,feedback:true})}}
 registerCard({ type: "component-single-kpi-v2", element: ComponentSingleKpiV2, name: "Single KPI", description: "Reusable single KPI component." });
@@ -2221,7 +2228,7 @@ registerCard({ type: "component-single-kpi-v2", element: ComponentSingleKpiV2, n
 /** ComponentThreeStatV2 — reusable Home Assistant dashboard card. */
 const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentThreeStatV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interactions=[]} setConfig(c){this.c={metric_1_value:'00',metric_1_label:'Metric one',metric_2_value:'00',metric_2_label:'Metric two',metric_3_value:'00',metric_3_label:'Metric three',interactive:true,...c};this.r()} set hass(h){this.h=h} disconnectedCallback(){this._clear()} getCardSize(){return 2}
+ constructor(){super();this.attachShadow({mode:'open'});this._interactions=[]} setConfig(c){this.c={metric_1_value:'00',metric_1_label:'Metric one',metric_2_value:'00',metric_2_label:'Metric two',metric_3_value:'00',metric_3_label:'Metric three',interactive:true,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._clear()} getCardSize(){return 2}
  _clear(){for(const handle of this._interactions)handle.destroy();this._interactions=[]}
  _action(i){if(this.c.interactive===false)return null;const custom=this.c[`metric_${i}_action`];if(typeof custom==='function')return()=>custom({host:this,hass:this.h,index:i});const path=this.c[`metric_${i}_navigation_path`];if(path)return()=>navigateTo(path);const entity=this.c[`metric_${i}_entity`];if(entity)return()=>openMoreInfo(this,entity);return null}
  r(){this._clear();const rows=[1,2,3].map(i=>{const action=this._action(i),tag=action?'button':'div',attrs=action?' type="button"':'';return`<${tag} class="stat" data-index="${i}"${attrs}><div class="value">${escapeHtml(this.c[`metric_${i}_value`])}</div><div class="label">${escapeHtml(this.c[`metric_${i}_label`])}</div></${tag}>`}).join('');this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;min-height:70px;align-items:center}.stat{appearance:none;border:0;background:transparent;color:inherit;font:inherit;padding:0;text-align:center;min-width:0;cursor:pointer}.stat:first-child{text-align:left}.stat:last-child{text-align:right}.stat:active{transform:scale(.98)}.stat:focus-visible{outline:2px solid var(--primary-color);outline-offset:3px;border-radius:8px}.value{font-size:22px;line-height:1;font-weight:650;letter-spacing:-.025em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.label{margin-top:5px;font-size:10.5px;line-height:1.2;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}@media(max-width:700px){.wrap{padding:12px;gap:8px}.value{font-size:20px}.label{font-size:10px}}</style><style>.stat:not(button){cursor:default}.stat:not(button):active{transform:none}.stat:not(button):focus-visible{outline:none}</style><ha-card><div class="wrap">${rows}</div></ha-card>`;for(const el of this.shadowRoot.querySelectorAll('button.stat')){const i=Number(el.dataset.index),action=this._action(i);this._interactions.push(interaction(el,{primary:action,feedback:true}))}}}
@@ -2233,7 +2240,7 @@ registerCard({ type: "component-three-stat-v2", element: ComponentThreeStatV2, n
 /** ComponentStatusRowV2 — reusable Home Assistant dashboard card. */
 const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentStatusRowV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={title:'Status title',description:'Supporting description',status_value:'Active',status_label:'Current state',icon:'mdi:information-outline',interactive:true,entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
+ constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={title:'Status title',description:'Supporting description',status_value:'Active',status_label:'Current state',icon:'mdi:information-outline',interactive:true,entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
  action(){if(this.c.interactive===false)return null;if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}
  r(){this._interaction?.destroy();this._interaction=null;const action=this.action(),tag=action?'button':'div',className=action?'demo':'demo-static',attrs=action?' type="button"':'';this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:3px;font-size:10.5px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status{text-align:right;white-space:nowrap}.status b{display:block;font-size:12px;font-weight:650}.status span{display:block;margin-top:3px;font-size:10.5px;color:var(--secondary-text-color)}@media(max-width:700px){.wrap{padding:12px}}</style><style>.demo-static{width:100%;border:0;background:transparent;text-align:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><div><div class="title">${escapeHtml(this.c.title)}</div><div class="desc">${escapeHtml(this.c.description)}</div></div><div class="status"><b>${escapeHtml(this.c.status_value)}</b><span>${escapeHtml(this.c.status_label)}</span></div></div></${tag}></ha-card>`;if(action)this._interaction=interaction(this.shadowRoot.querySelector('button.demo'),{primary:action,feedback:true})}}
 registerCard({ type: "component-status-row-v2", element: ComponentStatusRowV2, name: "Status Row", description: "Reusable status row component." });
@@ -2244,7 +2251,7 @@ registerCard({ type: "component-status-row-v2", element: ComponentStatusRowV2, n
 /** ComponentProgressV2 — reusable Home Assistant dashboard card. */
 const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentProgressV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={value:'68%',label:'Progress metric',progress:68,target_value:'100%',target_label:'Target',entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
+ constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={value:'68%',label:'Progress metric',progress:68,target_value:'100%',target_label:'Target',entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
  action(){if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}
  r(){this._interaction?.destroy();this._interaction=null;let p=Math.min(100,Math.max(0,Number(this.c.progress)||0));const action=this.action();this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;min-height:78px}.head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px}.value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em}.label{margin-top:4px;font-size:11px;color:var(--secondary-text-color)}.target{text-align:right;font-size:11.5px;color:var(--secondary-text-color);white-space:nowrap}.target b{font-weight:600;color:var(--primary-text-color)}.track{height:5px;margin-top:11px;border-radius:999px;background:var(--secondary-background-color);overflow:hidden}.fill{height:100%;border-radius:inherit;background:var(--primary-color)}@media(max-width:700px){.wrap{padding:12px}.value{font-size:25px}.target{font-size:11px}}</style><style>.wrap.actionable{cursor:pointer}.wrap.actionable:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:var(--ha-card-border-radius,16px)}</style><ha-card><div class="wrap ${action?'actionable':''}" ${action?'role="button" tabindex="0"':''}><div class="head"><div><div class="value">${escapeHtml(this.c.value)}</div><div class="label">${escapeHtml(this.c.label)}</div></div><div class="target"><b>${escapeHtml(this.c.target_value)}</b> ${escapeHtml(this.c.target_label)}</div></div><div class="track"><div class="fill" style="width:${p}%"></div></div></div></ha-card>`;if(action)this._interaction=interaction(this.shadowRoot.querySelector('.wrap'),{primary:action,feedback:true})}}
 registerCard({ type: "component-progress-v2", element: ComponentProgressV2, name: "Progress / Target", description: "Reusable progress and target component." });
@@ -2255,7 +2262,7 @@ registerCard({ type: "component-progress-v2", element: ComponentProgressV2, name
 /** ComponentActionV2 — reusable Home Assistant dashboard card. */
 const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentActionV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={title:'Action title',description:'What this action will do',action_text:'Open',icon:'mdi:gesture-tap-button',...c};this.r()} set hass(h){this.h=h} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
+ constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={title:'Action title',description:'What this action will do',action_text:'Open',icon:'mdi:gesture-tap-button',...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
  actions(){const entity=this.c.more_info_entity||this.c.entity||null,path=this.c.navigation_path||null;return{primary:path?()=>navigateTo(path):entity?()=>openMoreInfo(this,entity):null,hold:path&&entity?()=>openMoreInfo(this,entity):null}}
  r(){this._interaction?.destroy();this._interaction=null;const actions=this.actions(),tag=actions.primary?'button':'div',attrs=actions.primary?' type="button"':'',className=actions.primary?'demo':'demo-static';this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:3px;font-size:10.5px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.action{min-height:32px;padding:0 10px;border-radius:11px;display:flex;align-items:center;background:var(--secondary-background-color);color:var(--primary-color);font-size:11.5px;font-weight:650;white-space:nowrap}@media(max-width:700px){.wrap{padding:12px}}</style><style>.demo-static{width:100%;border:0;background:transparent;text-align:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${escapeHtml(this.c.title)}</div><div class="desc">${escapeHtml(this.c.description)}</div></span><span class="action">${escapeHtml(this.c.action_text)}</span></div></${tag}></ha-card>`;if(actions.primary)this._interaction=interaction(this.shadowRoot.querySelector('button.demo'),{primary:actions.primary,hold:actions.hold,optimistic:false,repeat:false,feedback:true})}}
 registerCard({ type: "component-action-v2", element: ComponentActionV2, name: "Action Card", description: "Reusable navigation and more-info action card." });
@@ -2266,7 +2273,7 @@ registerCard({ type: "component-action-v2", element: ComponentActionV2, name: "A
 /** ComponentListV2 — reusable Home Assistant dashboard card. */
 const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentListV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interactions=[]} setConfig(c){this.c={rows:[{title:'First item',description:'Supporting detail',value:'00',label:'Metric'},{title:'Second item',description:'Supporting detail',value:'00',label:'Metric'},{title:'Third item',description:'Supporting detail',value:'00',label:'Metric'}],interactive:true,...c};this.r()} set hass(h){this.h=h} disconnectedCallback(){this._clear()} getCardSize(){return 3}
+ constructor(){super();this.attachShadow({mode:'open'});this._interactions=[]} setConfig(c){this.c={rows:[{title:'First item',description:'Supporting detail',value:'00',label:'Metric'},{title:'Second item',description:'Supporting detail',value:'00',label:'Metric'},{title:'Third item',description:'Supporting detail',value:'00',label:'Metric'}],interactive:true,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._clear()} getCardSize(){return 3}
  _clear(){for(const handle of this._interactions)handle.destroy();this._interactions=[]}
  _actions(row){if(this.c.interactive===false)return{primary:null,hold:null};const custom=typeof row.action==='function'?()=>row.action({host:this,hass:this.h,row}):null,path=row.navigation_path||row.path||null,entity=row.entity||row.more_info_entity||null;return{primary:custom||(path?()=>navigateTo(path):entity?()=>openMoreInfo(this,entity):null),hold:!custom&&path&&entity?()=>openMoreInfo(this,entity):null}}
  r(){this._clear();let rows=Array.isArray(this.c.rows)?this.c.rows.slice(0,6):[];const markup=rows.map((row,index)=>{const actions=this._actions(row),tag=actions.primary?'button':'div',attrs=actions.primary?' type="button"':'';return`<${tag} class="row" data-index="${index}"${attrs}><span><div class="title">${escapeHtml(row.title)}</div><div class="desc">${escapeHtml(row.description)}</div></span><span class="metric"><b>${escapeHtml(row.value)}</b>${escapeHtml(row.label)}</span></${tag}>`}).join('');this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:2px 14px}.row{appearance:none;width:100%;border:0;border-top:1px solid var(--divider-color);background:transparent;color:inherit;font:inherit;min-height:54px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:0;text-align:left;cursor:pointer}.row:first-child{border-top:0}.row:active{background:var(--secondary-background-color)}.row:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:8px}.title{font-size:12.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:2px;font-size:10.5px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metric{text-align:right;white-space:nowrap;font-size:11px;color:var(--secondary-text-color)}.metric b{font-size:12px;font-weight:650;color:var(--primary-text-color);margin-right:4px}@media(max-width:700px){.wrap{padding:2px 12px}}</style><style>.row:not(button){cursor:default}.row:not(button):active{background:transparent}.row:not(button):focus-visible{outline:none}</style><ha-card><div class="wrap">${markup}</div></ha-card>`;for(const element of this.shadowRoot.querySelectorAll('button.row')){const row=rows[Number(element.dataset.index)],actions=this._actions(row);this._interactions.push(interaction(element,{primary:actions.primary,hold:actions.hold,feedback:true}))}}}
@@ -2278,7 +2285,7 @@ registerCard({ type: "component-list-v2", element: ComponentListV2, name: "List 
 /** ComponentNoticeV2 — reusable Home Assistant dashboard card. */
 const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentNoticeV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={title:'Notice title',message:'Important supporting information appears here.',tone:'info',icon:'mdi:information-outline',entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
+ constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={title:'Notice title',message:'Important supporting information appears here.',tone:'info',icon:'mdi:information-outline',entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
  action(){if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}
  r(){this._interaction?.destroy();this._interaction=null;let tone=['warning','error','success'].includes(this.c.tone)?this.c.tone:'';const action=this.action();this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}.warning .icon{color:var(--warning-color,var(--primary-color))}.error .icon{color:var(--error-color,var(--primary-color))}.success .icon{color:var(--success-color,var(--primary-color))}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650}.message{margin-top:3px;font-size:10.5px;line-height:1.35;color:var(--secondary-text-color)}</style><style>.wrap.actionable{cursor:pointer}.wrap.actionable:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:var(--ha-card-border-radius,16px)}</style><ha-card><div class="wrap ${tone} ${action?'actionable':''}" ${action?'role="button" tabindex="0"':''}><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><div><div class="title">${escapeHtml(this.c.title)}</div><div class="message">${escapeHtml(this.c.message)}</div></div></div></ha-card>`;if(action)this._interaction=interaction(this.shadowRoot.querySelector('.wrap'),{primary:action,feedback:true})}}
 registerCard({ type: "component-notice-v2", element: ComponentNoticeV2, name: "Alert / Notice", description: "Reusable alert and notice component." });
@@ -2767,6 +2774,10 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
     this._clearInteractions();
   }
 
+  connectedCallback() {
+    if (this.c) this.r();
+  }
+
   _clearInteractions() {
     for (const handle of this._interactions) handle.destroy();
     this._interactions = [];
@@ -2841,7 +2852,7 @@ registerCard({ type: "component-quick-nav-v2", element: ComponentQuickNavigation
 /** ComponentNavigationTileV2 — reusable Home Assistant dashboard card. */
 const { DashboardBaseCard, interaction, navigateTo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentNavigationTileV2 extends DashboardBaseCard{
- constructor(){super();this._interaction=null} setConfig(c){this.c={icon:'mdi:door-open',title:'Destination',context:'Navigation',navigation_path:null,...c};this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 1}
+ constructor(){super();this._interaction=null} setConfig(c){this.c={icon:'mdi:door-open',title:'Destination',context:'Navigation',navigation_path:null,...c};this.r()} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 1}
  r(){this._interaction?.destroy();this._interaction=null;const path=this.c.navigation_path,tag=path?'button':'div',attrs=path?' type="button"':'',className=path?'i nav':'nav nav-static';this.shadowRoot.innerHTML=`<style>${this.cardStyles()}.nav{width:100%;text-align:left}.wrap{min-height:58px;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:10px}.icon{width:36px;height:36px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--primary-color)}</style><style>.nav-static{border:0;background:transparent;color:inherit;font:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><span class="icon"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${this.escapeHtml(this.c.title)}</div><div class="desc">${this.escapeHtml(this.c.context)}</div></span></div></${tag}></ha-card>`;if(path)this._interaction=interaction(this.shadowRoot.querySelector('button.nav'),{primary:()=>navigateTo(path),feedback:true})}}
 registerCard({ type: "component-nav-tile-v2", element: ComponentNavigationTileV2, name: "Navigation Tile", description: "Reusable navigation tile component." });
 }
@@ -2869,6 +2880,9 @@ class ComponentControlRowV2 extends DashboardBaseCard {
   set hass(hass) {
     this._hass = hass;
     this.r();
+  }
+  connectedCallback() {
+    if (this.c) this.r();
   }
   disconnectedCallback() {
     for (const handle of this._interactions) handle.destroy();
@@ -3046,6 +3060,9 @@ class ComponentMediaRowV2 extends DashboardBaseCard {
   set hass(hass) {
     this._hass = hass;
     this.r();
+  }
+  connectedCallback() {
+    if (this.c) this.r();
   }
   disconnectedCallback() {
     for (const handle of this._interactions) handle.destroy();
@@ -3409,16 +3426,11 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       panelNotice: q(".panel-notice"),
     };
 
-    this.interactionHandles.push(
-      interaction(this.el.identity, { primary: () => openMoreInfo(this, this.config.entity), feedback: true }),
-      interaction(this.el.remoteLaunch, { primary: () => this.openPanel("remote", this.el.remoteLaunch), feedback: true }),
-      interaction(this.el.appsLaunch, { primary: () => this.openPanel("apps", this.el.appsLaunch), feedback: true }),
-      interaction(this.el.close, { primary: () => this.closePanel(true), feedback: true }),
-    );
     this.panelController = createOverlayController(this, this.el.panel, {
       initialFocus: () => this.el.close,
       onDismiss: () => this.closePanel(true),
     });
+    this.bindInteractions();
     this.el.panel.addEventListener("wheel", (event) => event.stopPropagation(), {
       passive: true,
     });
@@ -3426,6 +3438,16 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       "touchmove",
       (event) => event.stopPropagation(),
       { passive: true },
+    );
+  }
+
+  bindInteractions() {
+    if (!this.el || this.interactionHandles.length) return;
+    this.interactionHandles.push(
+      interaction(this.el.identity, { primary: () => openMoreInfo(this, this.config.entity), feedback: true }),
+      interaction(this.el.remoteLaunch, { primary: () => this.openPanel("remote", this.el.remoteLaunch), feedback: true }),
+      interaction(this.el.appsLaunch, { primary: () => this.openPanel("apps", this.el.appsLaunch), feedback: true }),
+      interaction(this.el.close, { primary: () => this.closePanel(true), feedback: true }),
     );
   }
 
@@ -3470,6 +3492,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   render() {
     if (!this.config) return;
     this.build();
+    this.bindInteractions();
     const model = this.model();
     this.el.name.textContent = this.name(model);
     this.el.status.textContent = model.status;
@@ -4026,6 +4049,7 @@ class ComponentRoomSheetV2 extends DashboardBaseCard{
  constructor(){super();this._hass=null;this._interactions=[]}
  setConfig(c){this.c={icon:'mdi:bed-king-outline',title:'Room name',rows:null,...c};this.r()}
  set hass(h){this._hass=h;this.r()}
+ connectedCallback(){if(this.c)this.r()}
  disconnectedCallback(){for(const handle of this._interactions)handle.destroy();this._interactions=[]}
  getCardSize(){return 5}
  _defaults(){return[
@@ -4068,7 +4092,7 @@ class ComponentHouseholdAttentionV1 extends HTMLElement{
     if(this._connection!==connection){this._unsubscribe();this._connection=connection;this._registry=null;this._loading=null}
     this._hass=h;this._subscribe();this._load();this._render();
   }
-  connectedCallback(){this._subscribe();this._load();this._render()}
+  connectedCallback(){this._subscribe();this._load();this._renderSignature=null;this._render()}
   disconnectedCallback(){for(const handle of this._interactionHandles)handle.destroy();this._interactionHandles=[];clearTimeout(this._refreshTimer);this._refreshTimer=null;this._unsubscribe()}
   getCardSize(){return this.c?.demo?2:1}
   _subscribe(){
@@ -4363,6 +4387,7 @@ class ComponentContextStripV3 extends HTMLElement{
   constructor(){super();this.attachShadow({mode:'open'});this._interaction=null;this._hass=null}
   setConfig(c){this.c={left_text:'Left context',center_1_label:'Primary metric',center_1_value:'00%',center_2_label:'Secondary metric',center_2_value:'00%',center_3_label:'Tertiary metric',center_3_value:'00%',right_text:'Right context',navigation_path:null,entity:null,...(c||{})};this._render()}
   set hass(h){this._hass=h}
+  connectedCallback(){if(this.c)this._render()}
   disconnectedCallback(){this._interaction?.destroy();this._interaction=null}
   getCardSize(){return 1}
   _action(){if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}
@@ -4629,6 +4654,11 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
     return 1;
   }
 
+  connectedCallback() {
+    this._renderSignature = null;
+    this._render();
+  }
+
   disconnectedCallback() {
     window.clearTimeout(this.messageTimer);
     this.messageTimer = null;
@@ -4827,6 +4857,11 @@ class ComponentUpdateRowV3 extends HTMLElement {
 
   getCardSize() {
     return 1;
+  }
+
+  connectedCallback() {
+    this._renderSignature = null;
+    this._render();
   }
 
   disconnectedCallback() {
@@ -5434,6 +5469,18 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
       this.signature = signature;
       this.render();
     }
+  }
+
+  connectedCallback() {
+    if (!this.config) return;
+    // Lovelace may retain the element while disconnecting it. Recreate the
+    // fixed button bindings instead of showing a visually intact dead card.
+    for (const handle of this.interactions) handle.destroy();
+    this.interactions = [];
+    this.built = false;
+    this.build();
+    this.signature = "";
+    this.render();
   }
 
   disconnectedCallback() {
@@ -7354,14 +7401,12 @@ customElements.whenDefined("component-camera-controller-v1").then(() => {
     ["component-control-row-v2", ["_interactions"]],
     ["component-split-controller-v4", ["_interactionHandles"]],
     ["component-media-row-v2", ["_interactions"]],
-    ["component-apple-tv-controller-v1", ["interactionHandles"]],
     ["component-room-sheet-v2", ["_interactions"]],
     ["component-update-summary-v3", ["_interaction"]],
     ["component-update-row-v3", ["_interactions"]],
     ["component-household-attention-v1", ["_interactionHandles"]],
     ["component-welcome-header-v1", ["_interaction"]],
     ["component-wled-controller-v1", ["_interactionHandles"]],
-    ["component-garage-door-controller-v1", ["interactions"]],
   ]);
   for (const [type, fields] of retainedLocalFields) {
     patch(type, (prototype) => preserveLocalInteractionFields(prototype, fields));

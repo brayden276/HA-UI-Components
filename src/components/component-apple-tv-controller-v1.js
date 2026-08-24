@@ -258,16 +258,11 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       panelNotice: q(".panel-notice"),
     };
 
-    this.interactionHandles.push(
-      interaction(this.el.identity, { primary: () => openMoreInfo(this, this.config.entity), feedback: true }),
-      interaction(this.el.remoteLaunch, { primary: () => this.openPanel("remote", this.el.remoteLaunch), feedback: true }),
-      interaction(this.el.appsLaunch, { primary: () => this.openPanel("apps", this.el.appsLaunch), feedback: true }),
-      interaction(this.el.close, { primary: () => this.closePanel(true), feedback: true }),
-    );
     this.panelController = createOverlayController(this, this.el.panel, {
       initialFocus: () => this.el.close,
       onDismiss: () => this.closePanel(true),
     });
+    this.bindInteractions();
     this.el.panel.addEventListener("wheel", (event) => event.stopPropagation(), {
       passive: true,
     });
@@ -275,6 +270,16 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       "touchmove",
       (event) => event.stopPropagation(),
       { passive: true },
+    );
+  }
+
+  bindInteractions() {
+    if (!this.el || this.interactionHandles.length) return;
+    this.interactionHandles.push(
+      interaction(this.el.identity, { primary: () => openMoreInfo(this, this.config.entity), feedback: true }),
+      interaction(this.el.remoteLaunch, { primary: () => this.openPanel("remote", this.el.remoteLaunch), feedback: true }),
+      interaction(this.el.appsLaunch, { primary: () => this.openPanel("apps", this.el.appsLaunch), feedback: true }),
+      interaction(this.el.close, { primary: () => this.closePanel(true), feedback: true }),
     );
   }
 
@@ -319,6 +324,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   render() {
     if (!this.config) return;
     this.build();
+    this.bindInteractions();
     const model = this.model();
     this.el.name.textContent = this.name(model);
     this.el.status.textContent = model.status;

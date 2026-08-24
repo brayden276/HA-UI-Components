@@ -49,6 +49,18 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
     }
   }
 
+  connectedCallback() {
+    if (!this.config) return;
+    // Lovelace may retain the element while disconnecting it. Recreate the
+    // fixed button bindings instead of showing a visually intact dead card.
+    for (const handle of this.interactions) handle.destroy();
+    this.interactions = [];
+    this.built = false;
+    this.build();
+    this.signature = "";
+    this.render();
+  }
+
   disconnectedCallback() {
     clearTimeout(this.messageTimer);
     this.messageTimer = null;

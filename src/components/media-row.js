@@ -21,6 +21,9 @@ class ComponentMediaRowV2 extends DashboardBaseCard {
     this._hass = hass;
     this.r();
   }
+  connectedCallback() {
+    if (this.c) this.r();
+  }
   disconnectedCallback() {
     for (const handle of this._interactions) handle.destroy();
     this._interactions = [];

@@ -4,6 +4,7 @@ class ComponentContextStripV3 extends HTMLElement{
   constructor(){super();this.attachShadow({mode:'open'});this._interaction=null;this._hass=null}
   setConfig(c){this.c={left_text:'Left context',center_1_label:'Primary metric',center_1_value:'00%',center_2_label:'Secondary metric',center_2_value:'00%',center_3_label:'Tertiary metric',center_3_value:'00%',right_text:'Right context',navigation_path:null,entity:null,...(c||{})};this._render()}
   set hass(h){this._hass=h}
+  connectedCallback(){if(this.c)this._render()}
   disconnectedCallback(){this._interaction?.destroy();this._interaction=null}
   getCardSize(){return 1}
   _action(){if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}

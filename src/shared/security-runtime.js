@@ -35,14 +35,19 @@ const securityModel = (hass, registry, profile = {}) => {
   const include = new Set(profile.include_entities || []);
   const exclude = new Set(profile.exclude_entities || []);
   const areas = new Set(profile.area_ids || []);
-  const entities = (registry?.entities || []).filter((entity) => {
-    if (!securityHD?.uiEntry?.(entity) || !hass?.states?.[entity.entity_id]) return false;
+  // Visible entities choose what becomes a dashboard card.  Capability
+  // siblings are deliberately broader: camera integrations commonly classify
+  // recording/detection switches as config entities even though they are safe,
+  // contextual controls for an already-visible camera.
+  const candidates = (registry?.entities || []).filter((entity) => {
+    if (!entity?.entity_id || entity.disabled_by || entity.hidden_by || !hass?.states?.[entity.entity_id]) return false;
     if (exclude.has(entity.entity_id)) return false;
     if (include.has(entity.entity_id)) return true;
     return !areas.size || areas.has(securityHD.areaOf(entity, registry));
   });
+  const entities = candidates.filter((entity) => securityHD?.uiEntry?.(entity));
   const byDevice = new Map();
-  for (const entity of entities) {
+  for (const entity of candidates) {
     const owner = entity.device_id || entity.entity_id;
     const siblings = byDevice.get(owner) || [];
     siblings.push(entity);
@@ -51,7 +56,9 @@ const securityModel = (hass, registry, profile = {}) => {
 
   const cameras = [];
   for (const [owner, siblings] of byDevice) {
-    const cameraEntities = siblings.filter((entity) => securityDomain(entity.entity_id) === "camera");
+    const cameraEntities = siblings.filter((entity) =>
+      securityDomain(entity.entity_id) === "camera" && securityHD?.uiEntry?.(entity),
+    );
     if (!cameraEntities.length) continue;
     cameraEntities.sort((left, right) => {
       const score = (entity) => {
@@ -67,15 +74,15 @@ const securityModel = (hass, registry, profile = {}) => {
     const areaId = securityHD.areaOf(entity, registry);
     const areaName = registry.areaMap?.get(areaId)?.name || "";
     const switches = siblings
-      .filter((item) => securityDomain(item.entity_id) === "switch")
-      .map((item) => ({ entity: item, role: switchRole(item) || entityLabel(hass, item) }));
+      .filter((item) => securityDomain(item.entity_id) === "switch" && switchRole(item))
+      .map((item) => ({ entity: item, role: switchRole(item) }));
     const detections = siblings.filter((item) => {
       if (securityDomain(item.entity_id) !== "binary_sensor") return false;
       const deviceClass = hass.states[item.entity_id]?.attributes?.device_class || "";
       return /^(motion|occupancy|presence|sound)$/.test(deviceClass) || /detect|motion|person|human/.test(capabilityText(item));
     });
     const actions = siblings
-      .filter((item) => securityDomain(item.entity_id) === "button")
+      .filter((item) => securityDomain(item.entity_id) === "button" && actionRole(item) !== "action")
       .map((item) => ({ entity: item, role: actionRole(item) }));
     const ptz = siblings.filter((item) => ["button", "number", "select"].includes(securityDomain(item.entity_id)) && ptzRole(item));
     const online = Boolean(state && !badSecurityState.has(String(state.state).toLowerCase()));

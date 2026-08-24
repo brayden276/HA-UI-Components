@@ -4,6 +4,7 @@ class ComponentRoomSheetV2 extends DashboardBaseCard{
  constructor(){super();this._hass=null;this._interactions=[]}
  setConfig(c){this.c={icon:'mdi:bed-king-outline',title:'Room name',rows:null,...c};this.r()}
  set hass(h){this._hass=h;this.r()}
+ connectedCallback(){if(this.c)this.r()}
  disconnectedCallback(){for(const handle of this._interactions)handle.destroy();this._interactions=[]}
  getCardSize(){return 5}
  _defaults(){return[
