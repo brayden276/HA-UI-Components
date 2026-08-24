@@ -10,6 +10,8 @@ const sources = Object.fromEntries(await Promise.all([
   "src/components/history-graph.js",
   "src/components/energy-history-card.js",
   "src/components/camera-controller-v2.js",
+  "src/components/security-camera-wall.js",
+  "src/components/security-dashboard.js",
   "src/components/camera-controller.js",
   "src/components/component-apple-tv-controller-v1.js",
   "src/components/room-directory.js",
@@ -36,6 +38,9 @@ requireText("src/support/dashboard-preference-editor.js", ".cancel,.save{min-hei
 requireText("src/shared/security-runtime.js", "is not configured", "Missing Security profiles must remain explicit configuration errors");
 requireText("src/components/camera-controller-v2.js", 'wasOn ? "turn_off" : "turn_on"', "Camera controls must call explicit switch on/off services");
 requireText("src/components/camera-controller-v2.js", "dialogController.setBusy(true)", "Camera controls must expose pending state semantics");
+requireText("src/components/security-camera-wall.js", ">Settings</span>", "Security camera tiles must expose a labelled Settings action");
+requireText("src/components/security-dashboard.js", 'document.createElement("ha-camera-stream")', "Security camera imagery must open a dedicated live viewer");
+requireText("src/components/security-dashboard.js", "createOverlayController", "Security camera overlays must use the shared resilient overlay controller");
 requireText("src/components/camera-controller.js", ".switchbtn{min-width:58px;height:44px", "Camera V1 switch controls must retain 44px targets");
 requireText("src/components/component-apple-tv-controller-v1.js", ".keyboard-input{width:100%;min-height:44px", "Apple TV keyboard input must retain a 44px target");
 requireText("src/components/room-directory.js", ".metric{appearance:none;border:0;background:transparent;min-height:44px", "Room sheet metrics must retain 44px targets");
