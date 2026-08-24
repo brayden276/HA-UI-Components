@@ -7,7 +7,9 @@ class ComponentEnergyDashboardV1 extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this.children = new Map();
+    // `children` is a read-only HTMLElement API. Keep composed cards in a
+    // private map so construction works in every supported browser.
+    this._children = new Map();
     this.shadowRoot.innerHTML = `<style>:host{display:block;min-width:0}.layout{display:grid;gap:8px;grid-template-columns:minmax(0,1fr)}.context{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}@media(min-width:900px){.context{grid-template-columns:minmax(0,1fr)}}</style><div class="layout"><div class="selector"></div><div class="summary"></div><div class="context"><div class="daylight"></div></div><div class="history"></div></div>`;
   }
   setConfig(config) {
@@ -22,7 +24,7 @@ class ComponentEnergyDashboardV1 extends HTMLElement {
   }
   set hass(hass) {
     this._hass = hass;
-    for (const child of this.children.values()) child.hass = hass;
+    for (const child of this._children.values()) child.hass = hass;
   }
   connectedCallback() { this.ensure(); }
   getCardSize() { return 12; }
@@ -43,11 +45,11 @@ class ComponentEnergyDashboardV1 extends HTMLElement {
       }],
     ];
     for (const [slot, type, childConfig] of definitions) {
-      let child = this.children.get(slot);
+      let child = this._children.get(slot);
       if (!child) {
         child = document.createElement(type);
         this.shadowRoot.querySelector(`.${slot}`).append(child);
-        this.children.set(slot, child);
+        this._children.set(slot, child);
       }
       child.setConfig(childConfig);
       if (this._hass) child.hass = this._hass;
