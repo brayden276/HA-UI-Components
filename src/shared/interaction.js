@@ -84,6 +84,25 @@ const ensureInteractionFeedback = (element) => {
   return status;
 };
 
+const NESTED_INTERACTIVE_SELECTOR = [
+  "button",
+  "a[href]",
+  "input",
+  "select",
+  "textarea",
+  "summary",
+  "[contenteditable='true']",
+  "[role='button']",
+  "[role='link']",
+  "[role='checkbox']",
+  "[role='menuitem']",
+  "[role='option']",
+  "[role='radio']",
+  "[role='slider']",
+  "[role='switch']",
+  "[tabindex]",
+].join(",");
+
 const interaction = (element, options = {}) => {
   if (!element?.addEventListener) {
     throw new TypeError("interaction requires an EventTarget element");
@@ -117,6 +136,20 @@ const interaction = (element, options = {}) => {
   let errorTimer = null;
   let destroyed = false;
   let pressedState = false;
+
+  const fromNestedInteractive = (event) => {
+    const path = event?.composedPath?.();
+    if (Array.isArray(path) && path.length) {
+      for (const node of path) {
+        if (node === element) return false;
+        if (node?.matches?.(NESTED_INTERACTIVE_SELECTOR)) return true;
+      }
+    }
+    const target = event?.target;
+    if (!target || target === element) return false;
+    const nested = target.closest?.(NESTED_INTERACTIVE_SELECTOR);
+    return Boolean(nested && nested !== element && element.contains?.(nested));
+  };
 
   const disabled = () =>
     destroyed ||
@@ -261,7 +294,7 @@ const interaction = (element, options = {}) => {
   };
 
   const onPointerDown = (event) => {
-    if (!primary || disabled() || event.button > 0) return;
+    if (!primary || disabled() || event.button > 0 || fromNestedInteractive(event)) return;
     pointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
     gestureConsumed = false;
     clearClickSuppression();
@@ -291,6 +324,12 @@ const interaction = (element, options = {}) => {
 
   const onPointerUp = (event) => {
     if (!pointer || event.pointerId !== pointer.id) return;
+    if (fromNestedInteractive(event)) {
+      gestureConsumed = true;
+      suppressNextClick();
+      cancelPointer();
+      return;
+    }
     const wasConsumed = gestureConsumed;
     const wasRepeating = repeat && (repeatTimer === null || repeatInterval !== null);
     clearGestureTimers();
@@ -308,6 +347,7 @@ const interaction = (element, options = {}) => {
   };
 
   const onClick = (event) => {
+    if (fromNestedInteractive(event)) return;
     if (suppressClick) {
       event.preventDefault();
       event.stopImmediatePropagation?.();
@@ -322,14 +362,14 @@ const interaction = (element, options = {}) => {
   };
 
   const onKeyDown = (event) => {
-    if (!primary || disabled() || event.repeat) return;
+    if (!primary || disabled() || event.repeat || fromNestedInteractive(event)) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     setPressed(true);
   };
 
   const onKeyUp = (event) => {
-    if (!primary || disabled()) return;
+    if (!primary || disabled() || fromNestedInteractive(event)) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     setPressed(false);
