@@ -105,6 +105,7 @@ const createOverlayController = (host, overlay, options = {}) => {
   let trigger = null;
   let locks = [];
   let opened = false;
+  let backdropPointerStarted = false;
   const focusable = () => [...overlay.querySelectorAll?.(
     'button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
   ) || []].filter((element) => !element.hidden);
@@ -160,8 +161,16 @@ const createOverlayController = (host, overlay, options = {}) => {
     if (!opened || event.composedPath?.().includes(host)) return;
     queueMicrotask(() => (options.initialFocus?.() || focusable()[0] || overlay).focus?.());
   };
+  const onPointerDown = (event) => {
+    backdropPointerStarted = event.target === overlay;
+  };
+  const onPointerCancel = () => {
+    backdropPointerStarted = false;
+  };
   const onClick = (event) => {
-    if (event.target === overlay && options.clickOutside !== false) requestClose("outside");
+    const shouldClose = backdropPointerStarted && event.target === overlay && options.clickOutside !== false;
+    backdropPointerStarted = false;
+    if (shouldClose) requestClose("outside");
   };
   const onKeyDown = (event) => {
     if (event.key === "Escape" && options.dismissible !== false) {
@@ -176,12 +185,16 @@ const createOverlayController = (host, overlay, options = {}) => {
     if (event.shiftKey && active === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
   };
+  overlay.addEventListener("pointerdown", onPointerDown);
+  overlay.addEventListener("pointercancel", onPointerCancel);
   overlay.addEventListener("click", onClick);
   host.shadowRoot?.addEventListener("keydown", onKeyDown);
   return Object.freeze({
     close,
     destroy() {
       close(false);
+      overlay.removeEventListener("pointerdown", onPointerDown);
+      overlay.removeEventListener("pointercancel", onPointerCancel);
       overlay.removeEventListener("click", onClick);
       host.shadowRoot?.removeEventListener("keydown", onKeyDown);
     },
