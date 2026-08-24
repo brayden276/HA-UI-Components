@@ -7,7 +7,9 @@ class ComponentSecurityDashboardV1 extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this.children = new Map();
+    // `children` is a read-only HTMLElement API. Keep composed cards in a
+    // private map so construction works in every supported browser.
+    this._children = new Map();
     this.interactions = [];
     this.shadowRoot.innerHTML = `<style>
       :host{display:block;min-width:0}.layout{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}.entries:has(> [hidden]){display:none}
@@ -21,7 +23,7 @@ class ComponentSecurityDashboardV1 extends HTMLElement {
     this.config = { profile: "household-security", camera_columns: 2, ...(config || {}) };
     this.ensure();
   }
-  set hass(hass) { this._hass = hass; for (const child of this.children.values()) child.hass = hass; }
+  set hass(hass) { this._hass = hass; for (const child of this._children.values()) child.hass = hass; }
   connectedCallback() { this.bind(); this.ensure(); }
   disconnectedCallback() { for (const handle of this.interactions) handle.destroy(); this.interactions = []; if (this.dialog.open) this.dialog.close(); }
   getCardSize() { return 12; }
@@ -31,26 +33,26 @@ class ComponentSecurityDashboardV1 extends HTMLElement {
   }
   ensure() {
     if (!this.config) return;
-    let summary = this.children.get("summary");
+    let summary = this._children.get("summary");
     if (!summary) {
       summary = document.createElement("component-security-summary-v1");
       this.shadowRoot.querySelector(".summary").append(summary);
-      this.children.set("summary", summary);
+      this._children.set("summary", summary);
     }
     summary.setConfig({ profile: this.config.profile });
-    let wall = this.children.get("wall");
+    let wall = this._children.get("wall");
     if (!wall) {
       wall = document.createElement("component-security-camera-wall-v3");
       wall.addEventListener("security-camera-control-request", (event) => this.openCameraControls(event.detail));
       this.shadowRoot.querySelector(".wall").append(wall);
-      this.children.set("wall", wall);
+      this._children.set("wall", wall);
     }
     wall.setConfig({ profile: this.config.profile, columns: this.config.camera_columns });
-    let entries = this.children.get("entries");
+    let entries = this._children.get("entries");
     if (!entries) {
       entries = document.createElement("component-security-entry-points-v1");
       this.shadowRoot.querySelector(".entries").append(entries);
-      this.children.set("entries", entries);
+      this._children.set("entries", entries);
     }
     entries.setConfig({ profile: this.config.profile });
     for (const child of [summary, wall, entries]) if (this._hass) child.hass = this._hass;
@@ -58,10 +60,10 @@ class ComponentSecurityDashboardV1 extends HTMLElement {
   openCameraControls(detail) {
     const camera = detail?.camera;
     if (!camera) return;
-    let controller = this.children.get("camera-controller");
+    let controller = this._children.get("camera-controller");
     if (!controller) {
       controller = document.createElement("component-camera-controller-v2");
-      this.children.set("camera-controller", controller);
+      this._children.set("camera-controller", controller);
       this.shadowRoot.querySelector(".body").append(controller);
     }
     controller.setConfig({ profile: this.config.profile, entity: camera.entityId, device_id: camera.deviceId, expanded: true, title: camera.name });
