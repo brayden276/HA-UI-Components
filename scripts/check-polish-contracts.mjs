@@ -7,6 +7,7 @@ const sources = Object.fromEntries(await Promise.all([
   "src/components/media-row.js",
   "src/components/welcome-header.js",
   "src/components/home-overview.js",
+  "src/components/household-directory.js",
   "src/components/history-graph.js",
   "src/components/energy-history-card.js",
   "src/components/camera-controller-v2.js",
@@ -32,6 +33,9 @@ requireText("src/shared/dashboard-style-tokens.js", "prefers-reduced-motion:redu
 requireText("src/components/media-row.js", ".btn{position:relative;width:44px;height:44px", "Media transport controls must retain 44px targets");
 requireText("src/components/welcome-header.js", ".row{min-height:44px", "Welcome header must retain a stable 44px row");
 requireText("src/components/home-overview.js", ".weather{appearance:none;border:0;min-height:44px", "Overview weather control must retain a 44px target");
+requireText("src/components/home-overview.js", 'quick_action_label: "dashboard_quick_action"', "Home must configure reusable labelled quick actions");
+requireText("src/components/household-directory.js", 'action: "perform-action"', "Labelled Home quick actions must execute native Home Assistant actions");
+requireText("src/components/household-directory.js", "labels.includes(this.c.quick_action_label)", "Home quick actions must be discovered by registry label");
 requireText("src/components/history-graph.js", ".legend button{appearance:none;min-height:44px", "Reusable graph legend controls must retain 44px targets");
 requireText("src/components/energy-history-card.js", ".legend button{appearance:none;min-height:44px", "Energy legend controls must retain 44px targets");
 requireText("src/components/energy-history-card.js", "if(next.profile)next.calendar_day=true", "Profile-backed Energy history must use the backend calendar-day contract");
