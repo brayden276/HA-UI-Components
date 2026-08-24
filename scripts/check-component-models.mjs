@@ -23,7 +23,9 @@ const { APPLE_TV_FEATURES: F, appleTvModel, securityModel } = context.__HA_COMPO
 const securityRegistry = registryFixture({
   areas: [{ id: "front", name: "Front Yard" }, { id: "garage", name: "Garage" }],
   devices: [
-    { id: "camera-device", area_id: "front", name_by_user: "Front camera" },
+    // Frigate commonly leaves the device and capability siblings unassigned
+    // even when the visible camera entity itself has an area.
+    { id: "camera-device", area_id: null, name_by_user: "Front camera" },
     { id: "garage-device", area_id: "garage", name_by_user: "Garage door" },
   ],
   entities: [
@@ -62,8 +64,8 @@ assert.equal(security.cameras.length, 1, "camera streams belonging to one device
 assert.equal(security.cameras[0].entityId, "camera.front_main", "snapshot-capable stream must be preferred");
 assert.equal(security.cameras[0].streamEntityId, "camera.front_hd", "backend profile must select the full-resolution stream");
 assert.equal(security.cameras[0].name, "Front camera", "camera device names must remain distinguishable");
-assert.deepEqual([...security.cameras[0].switches.map((item) => item.role)], ["Recording", "Detection"]);
-assert.deepEqual([...security.cameras[0].classifications.map((item) => item.name)].sort(), ["Car", "Person"], "Frigate image entities must provide classification snapshots");
+assert.deepEqual([...security.cameras[0].switches.map((item) => item.role)], ["Recording", "Detection"], "unassigned config siblings must stay attached to an area-selected camera");
+assert.deepEqual([...security.cameras[0].classifications.map((item) => item.name)].sort(), ["Car", "Person"], "unassigned Frigate image entities must provide classification snapshots");
 assert.equal(security.cameras[0].ptz.length, 0, "PTZ must not be invented when no PTZ capability exists");
 assert.deepEqual(security.quickActions.map((item) => [item.name, item.domain, item.service]), [["Muster Dogs", "script", "turn_on"]], "profile-mapped quick actions must remain backend driven");
 assert.equal(security.entries.length, 1, "one physical entry must render once");
