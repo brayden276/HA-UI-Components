@@ -41,14 +41,12 @@
     ["component-control-row-v2", ["_interactions"]],
     ["component-split-controller-v4", ["_interactionHandles"]],
     ["component-media-row-v2", ["_interactions"]],
-    ["component-apple-tv-controller-v1", ["interactionHandles"]],
     ["component-room-sheet-v2", ["_interactions"]],
     ["component-update-summary-v3", ["_interaction"]],
     ["component-update-row-v3", ["_interactions"]],
     ["component-household-attention-v1", ["_interactionHandles"]],
     ["component-welcome-header-v1", ["_interaction"]],
     ["component-wled-controller-v1", ["_interactionHandles"]],
-    ["component-garage-door-controller-v1", ["interactions"]],
   ]);
   for (const [type, fields] of retainedLocalFields) {
     patch(type, (prototype) => preserveLocalInteractionFields(prototype, fields));
