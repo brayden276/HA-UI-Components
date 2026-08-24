@@ -9,7 +9,9 @@ class ComponentSecurityEntryPointsV1 extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this.sequence = 0;
     this.interactions = [];
-    this.children = [];
+    // `children` is a read-only HTMLElement API. Only nested custom cards
+    // need to be retained here, so use a private collection.
+    this._children = [];
     this.profileListener = (event) => {
       if (event.detail?.kind === "security" && event.detail?.profileId === this.config?.profile) this.refresh(true);
     };
@@ -19,14 +21,14 @@ class ComponentSecurityEntryPointsV1 extends HTMLElement {
     this.list = this.shadowRoot.querySelector(".list");
   }
   setConfig(config) { this.config = { profile: "household-security", title: "Entry points", ...(config || {}) }; this.shadowRoot.querySelector("h2").textContent = this.config.title; this.refresh(); }
-  set hass(hass) { this._hass = hass; for (const child of this.children) child.hass = hass; this.refresh(); }
+  set hass(hass) { this._hass = hass; for (const child of this._children) child.hass = hass; this.refresh(); }
   connectedCallback() { window.addEventListener("ha-component-profile-change", this.profileListener); this.refresh(); }
   disconnectedCallback() { window.removeEventListener("ha-component-profile-change", this.profileListener); this.clear(); }
   getCardSize() { return this.hidden ? 0 : 3; }
   clear() {
     for (const handle of this.interactions) handle.destroy();
     this.interactions = [];
-    this.children = [];
+    this._children = [];
     this.list.replaceChildren();
   }
   async refresh(force = false) {
@@ -48,7 +50,7 @@ class ComponentSecurityEntryPointsV1 extends HTMLElement {
         const controller = document.createElement("component-garage-door-controller-v1");
         controller.setConfig({ entity: entry.entityId, control_entity: entry.controlEntityId, title: entry.name });
         controller.hass = this._hass;
-        this.children.push(controller);
+        this._children.push(controller);
         this.list.append(controller);
         continue;
       }
