@@ -141,6 +141,21 @@ vm.runInContext(bundle, vm.createContext(context), { filename: "dist/ha-componen
 await Promise.resolve();
 await Promise.resolve();
 
+{
+  const host = new MockHTMLElement();
+  host.attachShadow();
+  const overlay = new MockNode("section");
+  overlay.hidden = true;
+  const controller = context.__HA_COMPONENT_LIBRARY_SHARED__.createOverlayController(host, overlay);
+  controller.open(new MockNode("button"));
+  overlay.dispatch("click", { target: overlay });
+  if (!controller.isOpen) throw new Error("An opening pointer sequence must not immediately dismiss its overlay");
+  overlay.dispatch("pointerdown", { target: overlay });
+  overlay.dispatch("click", { target: overlay });
+  if (controller.isOpen) throw new Error("A deliberate backdrop press must dismiss its overlay");
+  controller.destroy();
+}
+
 const configurations = {
   "component-context-strip-v3": {},
   "component-energy-day-selector-v1": { channel: "smoke" },
@@ -297,6 +312,7 @@ if (!bundle.includes("cardHead.append(actions)") || bundle.includes('querySelect
     online: true,
     switches: [],
     detections: [],
+    classifications: [],
     actions: [],
     ptz: [],
   };

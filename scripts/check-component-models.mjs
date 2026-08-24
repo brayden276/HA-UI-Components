@@ -32,6 +32,8 @@ const securityRegistry = registryFixture({
     { entity_id: "switch.front_recordings", device_id: "camera-device", platform: "frigate", translation_key: "recordings", entity_category: "config" },
     { entity_id: "switch.front_detect", device_id: "camera-device", platform: "frigate", translation_key: "detect", entity_category: "config" },
     { entity_id: "binary_sensor.front_motion", device_id: "camera-device", platform: "frigate", translation_key: "motion" },
+    { entity_id: "image.front_person", device_id: "camera-device", platform: "frigate", name: "Person" },
+    { entity_id: "image.front_car", device_id: "camera-device", platform: "frigate", name: "Car" },
     { entity_id: "binary_sensor.garage_open", device_id: "garage-device", platform: "meross", area_id: "garage" },
     { entity_id: "button.garage_trigger", device_id: "garage-device", platform: "meross", translation_key: "trigger" },
     { entity_id: "camera.hidden", device_id: "hidden-device", platform: "demo", hidden_by: "user" },
@@ -44,6 +46,8 @@ const securityHass = hassFixture({
   "switch.front_recordings": entityState("switch.front_recordings", "on"),
   "switch.front_detect": entityState("switch.front_detect", "on"),
   "binary_sensor.front_motion": entityState("binary_sensor.front_motion", "on", { device_class: "motion" }),
+  "image.front_person": entityState("image.front_person", "2026-08-24T10:00:00Z", { entity_picture: "/api/image_proxy/image.front_person" }),
+  "image.front_car": entityState("image.front_car", "2026-08-24T09:00:00Z", { entity_picture: "/api/image_proxy/image.front_car" }),
   "binary_sensor.garage_open": entityState("binary_sensor.garage_open", "on", { device_class: "garage_door" }),
   "button.garage_trigger": entityState("button.garage_trigger", "unknown"),
   "camera.hidden": entityState("camera.hidden", "streaming"),
@@ -57,6 +61,7 @@ assert.equal(security.cameras[0].entityId, "camera.front_main", "snapshot-capabl
 assert.equal(security.cameras[0].streamEntityId, "camera.front_hd", "backend profile must select the full-resolution stream");
 assert.equal(security.cameras[0].name, "Front camera", "camera device names must remain distinguishable");
 assert.deepEqual([...security.cameras[0].switches.map((item) => item.role)], ["Recording", "Detection"]);
+assert.deepEqual([...security.cameras[0].classifications.map((item) => item.name)].sort(), ["Car", "Person"], "Frigate image entities must provide classification snapshots");
 assert.equal(security.cameras[0].ptz.length, 0, "PTZ must not be invented when no PTZ capability exists");
 assert.equal(security.entries.length, 1, "one physical entry must render once");
 assert.equal(security.entries[0].controlEntityId, "button.garage_trigger");
