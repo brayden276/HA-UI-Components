@@ -185,7 +185,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         .volume-value{display:block;font-size:18px;line-height:1.1;font-weight:700;font-variant-numeric:tabular-nums}
         .volume-status{display:block;margin-top:3px;color:var(--secondary-text-color);font-size:11px;line-height:1.1;white-space:nowrap}
         .keyboard{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px}
-        .keyboard-input{width:100%;min-height:42px;padding:0 11px;border:1px solid var(--divider-color);border-radius:12px;background:transparent}
+        .keyboard-input{width:100%;min-height:44px;padding:0 11px;border:1px solid var(--divider-color);border-radius:12px;background:transparent}
         .keyboard .utility{width:44px;padding:0}
         .keyboard .utility span{display:none}
         .apps-summary{font-size:12px;color:var(--secondary-text-color)}

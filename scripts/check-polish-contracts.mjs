@@ -10,6 +10,10 @@ const sources = Object.fromEntries(await Promise.all([
   "src/components/history-graph.js",
   "src/components/energy-history-card.js",
   "src/components/camera-controller-v2.js",
+  "src/components/camera-controller.js",
+  "src/components/component-apple-tv-controller-v1.js",
+  "src/components/room-directory.js",
+  "src/components/wled-controller.js",
   "src/shared/dashboard-style-tokens.js",
   "src/shared/security-runtime.js",
   "src/support/dashboard-preference-editor.js",
@@ -32,6 +36,10 @@ requireText("src/support/dashboard-preference-editor.js", ".cancel,.save{min-hei
 requireText("src/shared/security-runtime.js", "is not configured", "Missing Security profiles must remain explicit configuration errors");
 requireText("src/components/camera-controller-v2.js", 'wasOn ? "turn_off" : "turn_on"', "Camera controls must call explicit switch on/off services");
 requireText("src/components/camera-controller-v2.js", "dialogController.setBusy(true)", "Camera controls must expose pending state semantics");
+requireText("src/components/camera-controller.js", ".switchbtn{min-width:58px;height:44px", "Camera V1 switch controls must retain 44px targets");
+requireText("src/components/component-apple-tv-controller-v1.js", ".keyboard-input{width:100%;min-height:44px", "Apple TV keyboard input must retain a 44px target");
+requireText("src/components/room-directory.js", ".metric{appearance:none;border:0;background:transparent;min-height:44px", "Room sheet metrics must retain 44px targets");
+requireText("src/components/wled-controller.js", ".preset-btn{appearance:none;min-height:44px", "WLED presets must retain 44px targets");
 
 if (failures.length) throw new Error(`Polish contract failures:\n${failures.join("\n")}`);
 console.log("Polish contracts passed: targets, motion, profile errors and deterministic controls");
