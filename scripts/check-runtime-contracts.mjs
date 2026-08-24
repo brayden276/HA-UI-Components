@@ -117,6 +117,8 @@ const document = {
   head: new MockNode("head"),
   createElement: (name) => definitions.has(name) ? new (definitions.get(name))() : new MockNode(name),
   getElementById: () => null,
+  addEventListener() {},
+  removeEventListener() {},
   activeElement: null,
   visibilityState: "visible",
 };
@@ -299,9 +301,8 @@ if (!bundle.includes("cardHead.append(actions)") || bundle.includes('querySelect
   const security = new Security();
   security.setConfig({ profile: "first-security", camera_columns: 1 });
   security.setConfig({ profile: "second-security", camera_columns: 3 });
-  if (security._children.get("summary")?.config?.profile !== "second-security" ||
-      security._children.get("wall")?.config?.columns !== 3) {
-    throw new Error("Security wrapper must propagate edited configuration to retained child cards");
+  if (security.config.profile !== "second-security" || security.config.camera_columns !== 3) {
+    throw new Error("Security dashboard must retain edited configuration without rebuilding child compositions");
   }
 
   const camera = {
@@ -323,22 +324,14 @@ if (!bundle.includes("cardHead.append(actions)") || bundle.includes('querySelect
     },
   };
   security.connectedCallback();
-  const wall = security._children.get("wall");
-  wall.dispatchEvent(new MockEvent("security-camera-control-request", {
-    bubbles: true,
-    composed: true,
-    detail: { camera, trigger: new MockNode("button") },
-  }));
-  if (!security.controlsController.isOpen || security._children.get("camera-controller")?.config?.expanded !== true) {
-    throw new Error("Security camera Settings must open the capability controller");
+  security.openSettings(camera, new MockNode("button"), "controls");
+  if (!security.settingsController.isOpen) {
+    throw new Error("Security camera Settings must open the dashboard-owned native dialog");
   }
-  wall.dispatchEvent(new MockEvent("security-camera-view-request", {
-    bubbles: true,
-    composed: true,
-    detail: { camera, trigger: new MockNode("button") },
-  }));
-  if (!security.viewerController.isOpen || security.controlsController.isOpen || security.viewerEntityId !== "camera.security_hd") {
-    throw new Error("Security camera imagery must open the mapped full-resolution stream");
+  security.settingsController.close();
+  security.openViewer(camera, new MockNode("button"));
+  if (!security.viewerController.isOpen || security.settingsController.isOpen || security.viewerEntityId !== "camera.security_hd") {
+    throw new Error("Security camera live view must open the mapped full-resolution stream in its own native dialog");
   }
   security.disconnectedCallback();
 }
