@@ -246,8 +246,8 @@ if (failures.length) throw new Error(`Runtime contract failures:\n${failures.joi
   const energy = new Energy();
   energy.setConfig({ profile: "first-energy", day_channel: "first-day" });
   energy.setConfig({ profile: "second-energy", day_channel: "second-day" });
-  if (energy.children.get("summary")?.config?.profile !== "second-energy" ||
-      energy.children.get("selector")?.config?.channel !== "second-day") {
+  if (energy._children.get("summary")?.config?.profile !== "second-energy" ||
+      energy._children.get("selector")?.config?.channel !== "second-day") {
     throw new Error("Energy wrapper must propagate edited configuration to retained child cards");
   }
 
@@ -255,8 +255,8 @@ if (failures.length) throw new Error(`Runtime contract failures:\n${failures.joi
   const security = new Security();
   security.setConfig({ profile: "first-security", camera_columns: 1 });
   security.setConfig({ profile: "second-security", camera_columns: 3 });
-  if (security.children.get("summary")?.config?.profile !== "second-security" ||
-      security.children.get("wall")?.config?.columns !== 3) {
+  if (security._children.get("summary")?.config?.profile !== "second-security" ||
+      security._children.get("wall")?.config?.columns !== 3) {
     throw new Error("Security wrapper must propagate edited configuration to retained child cards");
   }
 }
