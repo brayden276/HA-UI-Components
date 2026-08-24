@@ -68,6 +68,8 @@ class MockElement {
     return enabled;
   }
   setPointerCapture(pointerId) { this.capturedPointer = pointerId; }
+  contains(element) { return element === this; }
+  matches() { return false; }
 }
 
 const context = {
@@ -94,6 +96,38 @@ const { interaction, createRequestCoalescer, waitForEntityState } = context.__HA
   assert.equal(calls, 1, "pointer tap should invoke the primary action exactly once");
   assert.equal(element.capturedPointer, 1, "pointer gestures should retain capture until completion");
   assert.equal(click.defaultPrevented, true, "the follow-up native click should be consumed");
+}
+
+{
+  const parent = new MockElement();
+  const nestedButton = { matches: (selector) => selector.includes("button") };
+  const ordinaryChild = { matches: () => false };
+  let parentCalls = 0;
+  interaction(parent, { primary: () => { parentCalls += 1; } });
+
+  parent.dispatch("pointerdown", {
+    target: nestedButton,
+    composedPath: () => [nestedButton, parent],
+  });
+  parent.dispatch("pointerup", {
+    target: nestedButton,
+    composedPath: () => [nestedButton, parent],
+  });
+  parent.dispatch("click", {
+    target: nestedButton,
+    composedPath: () => [nestedButton, parent],
+  });
+  assert.equal(parentCalls, 0, "nested controls must not activate an interactive ancestor");
+
+  parent.dispatch("pointerdown", {
+    target: ordinaryChild,
+    composedPath: () => [ordinaryChild, parent],
+  });
+  parent.dispatch("pointerup", {
+    target: ordinaryChild,
+    composedPath: () => [ordinaryChild, parent],
+  });
+  assert.equal(parentCalls, 1, "ordinary descendants must retain the ancestor action");
 }
 
 {
@@ -280,4 +314,4 @@ const { interaction, createRequestCoalescer, waitForEntityState } = context.__HA
   );
 }
 
-console.log("Interaction runtime check passed: pointer, assistive click, keyboard, disabled, hold, repeat lifecycle, single-flight, drag cancellation, rollback, coalescing and state confirmation");
+console.log("Interaction runtime check passed: pointer, nested-control isolation, assistive click, keyboard, disabled, hold, repeat lifecycle, single-flight, drag cancellation, rollback, coalescing and state confirmation");
