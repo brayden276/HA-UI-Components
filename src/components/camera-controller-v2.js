@@ -90,7 +90,14 @@ class ComponentCameraControllerV2 extends HTMLElement {
     this.elements.sheetTitle.textContent = `${camera?.name || "Camera"} controls`;
     if (this.config.expanded || this.dialog.open) this.renderControls();
   }
-  openCamera() { if (this.camera?.online) openMoreInfo(this, this.camera.entityId); }
+  openCamera() {
+    if (!this.camera?.online) return;
+    this.dispatchEvent(new CustomEvent("security-camera-view-request", {
+      bubbles: true,
+      composed: true,
+      detail: { camera: this.camera, trigger: this.elements.view },
+    }));
+  }
   openControls(trigger) {
     if (!this.camera) return;
     this.renderControls();

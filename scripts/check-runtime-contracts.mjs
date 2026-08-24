@@ -99,7 +99,12 @@ class MockNode {
 class MockHTMLElement extends MockNode {
   constructor() { super("host"); this.isConnected = true; this.dispatchedEvents = []; }
   attachShadow() { this.shadowRoot = new MockNode("shadow-root"); return this.shadowRoot; }
-  dispatchEvent(event) { this.dispatchedEvents.push(event); return true; }
+  dispatchEvent(event) {
+    this.dispatchedEvents.push(event);
+    event.currentTarget = this;
+    for (const listener of [...(this.listeners.get(event.type) ?? [])]) listener(event);
+    return true;
+  }
 }
 
 const definitions = new Map();
@@ -283,6 +288,43 @@ if (!bundle.includes("cardHead.append(actions)") || bundle.includes('querySelect
       security._children.get("wall")?.config?.columns !== 3) {
     throw new Error("Security wrapper must propagate edited configuration to retained child cards");
   }
+
+  const camera = {
+    entityId: "camera.security_preview",
+    streamEntityId: "camera.security_hd",
+    deviceId: "security-device",
+    name: "Front camera",
+    online: true,
+    switches: [],
+    detections: [],
+    actions: [],
+    ptz: [],
+  };
+  security.hass = {
+    states: {
+      "camera.security_preview": { entity_id: "camera.security_preview", state: "recording", attributes: {} },
+      "camera.security_hd": { entity_id: "camera.security_hd", state: "idle", attributes: {} },
+    },
+  };
+  security.connectedCallback();
+  const wall = security._children.get("wall");
+  wall.dispatchEvent(new MockEvent("security-camera-control-request", {
+    bubbles: true,
+    composed: true,
+    detail: { camera, trigger: new MockNode("button") },
+  }));
+  if (!security.controlsController.isOpen || security._children.get("camera-controller")?.config?.expanded !== true) {
+    throw new Error("Security camera Settings must open the capability controller");
+  }
+  wall.dispatchEvent(new MockEvent("security-camera-view-request", {
+    bubbles: true,
+    composed: true,
+    detail: { camera, trigger: new MockNode("button") },
+  }));
+  if (!security.viewerController.isOpen || security.controlsController.isOpen || security.viewerEntityId !== "camera.security_hd") {
+    throw new Error("Security camera imagery must open the mapped full-resolution stream");
+  }
+  security.disconnectedCallback();
 }
 
 console.log(`Runtime contract check passed: ${Object.keys(configurations).length} public components plus live actions across reconnect cycles`);

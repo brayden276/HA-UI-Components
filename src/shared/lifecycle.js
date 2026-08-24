@@ -185,7 +185,7 @@ const createOverlayController = (host, overlay, options = {}) => {
       overlay.removeEventListener("click", onClick);
       host.shadowRoot?.removeEventListener("keydown", onKeyDown);
     },
-    get open() { return opened; },
+    get isOpen() { return opened; },
     open(from) {
       if (opened) return;
       trigger = from || host.shadowRoot?.activeElement || document.activeElement;
