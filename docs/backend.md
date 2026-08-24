@@ -48,7 +48,9 @@ remain visible; they must not silently create a second source of truth.
 
 Preference writes include the last acknowledged per-key revision. A conflict
 keeps the editor open and asks the user to reopen it, while other save failures
-keep the unsaved ordering/visibility choices in place for retry.
+keep the unsaved ordering/visibility choices in place for retry. Missing-key
+revision tombstones are retained so a delete/recreate cycle cannot make a stale
+editor revision valid again.
 
 Home Favourites use `home-control.favourites.v1`. On the first backend-backed
 load, `component-favourites-v3` converts the existing helper slots into its
@@ -56,6 +58,8 @@ stable registry-reference array and saves that array as one atomic preference.
 After that acknowledgement, the component no longer reads or writes those four
 `input_text` helpers. Keep them during rollout for rollback, then remove them
 only after the backend preference has been verified on the target instance.
+Overlapping loads are coalesced and the latest key or backend event is always
+re-read after an in-flight request settles.
 
 ## Release dependency
 

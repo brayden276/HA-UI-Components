@@ -54,10 +54,21 @@ if (backendFavouritesRuntime && BackendFavourites && !BackendFavourites.prototyp
 
   prototype._loadBackendFavourites = async function loadBackendFavourites(force = false) {
     if (!this._hass || !this.config?.preference_key) return;
-    if (this._preferencePromise) return this._preferencePromise;
-    if (this._preferenceLoaded && !force) return;
     const hass = this._hass;
     const key = this.config.preference_key;
+    if (this._preferencePromise) {
+      if (
+        force ||
+        this._preferenceRequestHass !== hass ||
+        this._preferenceRequestKey !== key
+      ) {
+        this._preferenceReloadPending = true;
+      }
+      return this._preferencePromise;
+    }
+    if (this._preferenceLoaded && !force) return;
+    this._preferenceRequestHass = hass;
+    this._preferenceRequestKey = key;
     this._preferencePromise = backendFavouritesRuntime
       .prefs(hass, key)
       .then(async (stored) => {
@@ -93,6 +104,14 @@ if (backendFavouritesRuntime && BackendFavourites && !BackendFavourites.prototyp
       })
       .finally(() => {
         this._preferencePromise = null;
+        this._preferenceRequestHass = null;
+        this._preferenceRequestKey = null;
+        if (this._preferenceReloadPending) {
+          this._preferenceReloadPending = false;
+          if (this._hass && this.config?.preference_key) {
+            void this._loadBackendFavourites(true);
+          }
+        }
       });
     return this._preferencePromise;
   };

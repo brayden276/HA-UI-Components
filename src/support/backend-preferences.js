@@ -44,6 +44,7 @@ preferenceRuntime.prefs = async (hass, key) => {
     });
     if (connection) backendAvailability.set(connection, true);
     if (response?.found) return rememberPreference(key, response);
+    rememberPreference(key, response);
 
     // Migrate the existing frontend preference once. This keeps upgrades
     // lossless while making the backend the canonical shared store afterwards.
@@ -63,7 +64,8 @@ preferenceRuntime.prefs = async (hass, key) => {
           type: "ha_component_backend/preferences/get",
           key,
         });
-        return latest?.found ? rememberPreference(key, latest) : legacy;
+        const latestValue = rememberPreference(key, latest);
+        return latest?.found ? latestValue : legacy;
       }
       throw error;
     }
