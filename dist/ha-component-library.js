@@ -6831,8 +6831,205 @@ globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2;class C
 
 // Module: src/components/household-directory.js
 {
-(()=>{
-globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2;class ComponentHouseholdDirectoryV3 extends HTMLElement{static getGridOptions(){return{columns:12,rows:'auto'}}constructor(){super();this.attachShadow({mode:'open'});this.c=null;this.h=null;this.d=null;this.prefs={order:[],hidden:[]};this.prefsLoaded=false;this.unsub=null;this.gen=0;this.cards=new Map;this.structureSig='';this.editor=document.createElement('dashboard-preference-editor-v3');this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}*{box-sizing:border-box}ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}.head{min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;padding:0 2px}.heading{display:flex;align-items:center;gap:7px}.heading ha-icon{color:var(--secondary-text-color);--mdc-icon-size:17px}.heading h2{margin:0;font-size:15px;line-height:1.2;font-weight:500}.edit{appearance:none;width:44px;height:44px;border:0;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center;cursor:pointer}.edit ha-icon{--mdc-icon-size:16px}.edit:hover,.edit:focus-visible{background:var(--dashboard-card-muted-surface,var(--secondary-background-color));color:var(--primary-text-color)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}</style><ha-card><div class="head"><span class="heading"><ha-icon icon="mdi:home-heart"></ha-icon><h2>Household</h2></span><button class="edit" type="button" aria-label="Edit household"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button></div><div class="grid"></div></ha-card>`;this.grid=this.shadowRoot.querySelector('.grid');this.shadowRoot.append(this.editor);this.shadowRoot.querySelector('.edit').onclick=()=>this.openEditor()}setConfig(c){this.c={pref_key:'home-control.household.v2',base_path:'/home-control',current_dashboard:'home-control',...c};this.loadPrefs();this.schedule()}set hass(h){this.h=h;for(const x of this.cards.values())x.hass=h;this.unsub||this.subscribe();if(!this.prefsLoaded)this.loadPrefs();if(!this.d)this.schedule()}connectedCallback(){this.subscribe();this.schedule()}disconnectedCallback(){this.unsub?.();this.unsub=null;this.gen++}getCardSize(){return 2}subscribe(){if(this.unsub||!this.h||!HD2.REG?.subscribe)return;this.unsub=HD2.REG.subscribe(this.h,d=>{this.d=d;this.structureSig='';this.schedule()})}async loadPrefs(){if(!this.h||!this.c?.pref_key||!HD2.prefs)return;this.prefs=await HD2.prefs(this.h,this.c.pref_key);this.prefsLoaded=true;this.structureSig='';this.schedule()}items(){if(!this.d||!this.h)return[];const out=[],hasMedia=this.d.entities.some(e=>HD2.uiEntry(e)&&HD2.domain(e.entity_id)==='media_player'&&this.h.states[e.entity_id]),hasControls=this.d.entities.some(e=>HD2.uiEntry(e)&&HD2.controlDomains.has(HD2.domain(e.entity_id))&&this.h.states[e.entity_id]);if(hasMedia)out.push({id:'view:media',name:'Media',icon:'mdi:speaker-multiple',kind:'nav',path:`${this.c.base_path}/media`,meta:'Dashboard view'});if(hasControls)out.push({id:'view:all-controls',name:'Controls',icon:'mdi:tune-variant',kind:'nav',path:`${this.c.base_path}/all-controls`,meta:'Dashboard view'});for(const d of this.d.dashboards||[]){const path=d.url_path;if(!path||path===this.c.current_dashboard||path==='home-control-fix'||d.require_admin===true||d.show_in_sidebar===false)continue;out.push({id:`dashboard:${path}`,name:d.title||HD2.label(path),icon:d.icon||'mdi:view-dashboard-outline',kind:'nav',path:`/${path}`,meta:'Dashboard'})}for(const e of this.d.entities.filter(e=>HD2.uiEntry(e)&&HD2.domain(e.entity_id)==='todo'&&this.h.states[e.entity_id]))out.push({id:`entity:${e.entity_id}`,name:HD2.stateName(this.h,e,this.h.states[e.entity_id]).replace(/ List$/i,''),icon:'mdi:cart-outline',kind:'entity',entity:e.entity_id,meta:'List'});const seen=new Set;return out.filter(x=>!seen.has(x.id)&&seen.add(x.id))}schedule(){if(!this.h||!this.c||!HD2.REG?.load)return;const g=++this.gen;queueMicrotask(()=>this.sync(g))}async sync(g){this.d=this.d||await HD2.REG.load(this.h);if(g!==this.gen)return;const p=HD2.applyPrefs(this.items(),this.prefs),sig=JSON.stringify(p.visible.map(x=>[x.id,x.name,x.icon,x.path,x.entity]));if(sig===this.structureSig){for(const x of this.cards.values())x.hass=this.h;return}this.structureSig=sig;const keep=new Set(p.visible.map(x=>x.id));for(const[id,el]of[...this.cards])if(!keep.has(id)){el.remove();this.cards.delete(id)}for(const x of p.visible){let el=this.cards.get(x.id);if(!el){const cfg=x.kind==='entity'?{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:x.entity,name:x.name,icon:x.icon,show_state:true,button_action:{tap_action:{action:'more-info'}},scrolling_effect:false}:{type:'custom:bubble-card',card_type:'button',button_type:'name',name:x.name,icon:x.icon,show_icon:true,button_action:{tap_action:{action:'navigate',navigation_path:x.path}},scrolling_effect:false};try{el=await HD2.card(this.h,cfg);if(g!==this.gen)return;this.cards.set(x.id,el)}catch{continue}}el.hass=this.h;if(this.grid.lastElementChild!==el)this.grid.append(el)}}async openEditor(){if(!this.h||!HD2.REG?.load)return;await customElements.whenDefined('dashboard-preference-editor-v3');this.d=this.d||await HD2.REG.load(this.h);const p=HD2.applyPrefs(this.items(),this.prefs);this.editor.open({title:'Edit household',description:'Reorder or hide discovered destinations without changing the underlying dashboard or entity.',items:p.all,hidden:[...p.hidden],onSave:async v=>{this.prefs=v;await HD2.savePrefs(this.h,this.c.pref_key,v);this.structureSig='';this.schedule()}})}}if(!customElements.get('component-household-directory-v3'))customElements.define('component-household-directory-v3',ComponentHouseholdDirectoryV3);window.customCards=window.customCards||[];if(!window.customCards.some(x=>x.type==='component-household-directory-v3'))window.customCards.push({type:'component-household-directory-v3',name:'Household Directory V3',description:'Stable auto-discovered household destinations.'});
+(() => {
+  globalThis.__homeDashboardV2 ??= {};
+  const HD2 = globalThis.__homeDashboardV2;
+  const ACTION_SERVICES = new Map([
+    ["automation", "trigger"],
+    ["scene", "turn_on"],
+    ["script", "turn_on"],
+    ["button", "press"],
+    ["input_button", "press"],
+  ]);
+
+  class ComponentHouseholdDirectoryV3 extends HTMLElement {
+    static getGridOptions() { return { columns: 12, rows: "auto" }; }
+
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" });
+      this.c = null;
+      this.h = null;
+      this.d = null;
+      this.prefs = { order: [], hidden: [] };
+      this.prefsLoaded = false;
+      this.unsub = null;
+      this.gen = 0;
+      this.cards = new Map();
+      this.structureSig = "";
+      this.editor = document.createElement("dashboard-preference-editor-v3");
+      this.shadowRoot.innerHTML = `<style>
+        :host{display:block;min-width:0}*{box-sizing:border-box}
+        ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}
+        .head{min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;padding:0 2px}
+        .heading{display:flex;align-items:center;gap:7px}.heading ha-icon{color:var(--secondary-text-color);--mdc-icon-size:17px}
+        .heading h2{margin:0;font-size:15px;line-height:1.2;font-weight:500}
+        .edit{appearance:none;width:44px;height:44px;border:0;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center;cursor:pointer}
+        .edit ha-icon{--mdc-icon-size:16px}.edit:hover,.edit:focus-visible{background:var(--dashboard-card-muted-surface,var(--secondary-background-color));color:var(--primary-text-color)}
+        .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+        .empty{display:none;margin:0;padding:9px 2px;color:var(--secondary-text-color);font-size:13px;line-height:1.35}
+        @media(max-width:340px){.grid{grid-template-columns:minmax(0,1fr)}}
+      </style><ha-card><div class="head"><span class="heading"><ha-icon></ha-icon><h2></h2></span><button class="edit" type="button"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button></div><div class="grid"></div><p class="empty">No quick actions available</p></ha-card>`;
+      this.grid = this.shadowRoot.querySelector(".grid");
+      this.empty = this.shadowRoot.querySelector(".empty");
+      this.shadowRoot.append(this.editor);
+      this.shadowRoot.querySelector(".edit").onclick = () => this.openEditor();
+    }
+
+    setConfig(c) {
+      this.c = {
+        pref_key: "home-control.household.v2",
+        base_path: "/home-control",
+        current_dashboard: "home-control",
+        title: "Quick actions",
+        icon: "mdi:gesture-tap-button",
+        quick_action_label: "dashboard_quick_action",
+        ...c,
+      };
+      this.shadowRoot.querySelector(".heading h2").textContent = this.c.title;
+      this.shadowRoot.querySelector(".heading ha-icon").setAttribute("icon", this.c.icon);
+      this.shadowRoot.querySelector(".edit").setAttribute("aria-label", `Edit ${this.c.title.toLowerCase()}`);
+      this.loadPrefs();
+      this.schedule();
+    }
+
+    set hass(h) {
+      this.h = h;
+      for (const card of this.cards.values()) card.hass = h;
+      this.unsub || this.subscribe();
+      if (!this.prefsLoaded) this.loadPrefs();
+      if (!this.d) this.schedule();
+    }
+
+    connectedCallback() { this.subscribe(); this.schedule(); }
+    disconnectedCallback() { this.unsub?.(); this.unsub = null; this.gen++; }
+    getCardSize() { return 2; }
+
+    subscribe() {
+      if (this.unsub || !this.h || !HD2.REG?.subscribe) return;
+      this.unsub = HD2.REG.subscribe(this.h, (d) => {
+        this.d = d;
+        this.structureSig = "";
+        this.schedule();
+      });
+    }
+
+    async loadPrefs() {
+      if (!this.h || !this.c?.pref_key || !HD2.prefs) return;
+      this.prefs = await HD2.prefs(this.h, this.c.pref_key);
+      this.prefsLoaded = true;
+      this.structureSig = "";
+      this.schedule();
+    }
+
+    items() {
+      if (!this.d || !this.h) return [];
+      const out = [];
+      const hasMedia = this.d.entities.some((e) => HD2.uiEntry(e) && HD2.domain(e.entity_id) === "media_player" && this.h.states[e.entity_id]);
+      const hasControls = this.d.entities.some((e) => HD2.uiEntry(e) && HD2.controlDomains.has(HD2.domain(e.entity_id)) && this.h.states[e.entity_id]);
+      if (hasMedia) out.push({ id: "view:media", name: "Media", icon: "mdi:speaker-multiple", kind: "nav", path: `${this.c.base_path}/media`, meta: "Dashboard view" });
+      if (hasControls) out.push({ id: "view:all-controls", name: "Controls", icon: "mdi:tune-variant", kind: "nav", path: `${this.c.base_path}/all-controls`, meta: "Dashboard view" });
+
+      for (const dashboard of this.d.dashboards || []) {
+        const path = dashboard.url_path;
+        if (!path || path === this.c.current_dashboard || path === "home-control-fix" || dashboard.require_admin === true || dashboard.show_in_sidebar === false) continue;
+        out.push({ id: `dashboard:${path}`, name: dashboard.title || HD2.label(path), icon: dashboard.icon || "mdi:view-dashboard-outline", kind: "nav", path: `/${path}`, meta: "Dashboard" });
+      }
+
+      for (const entry of this.d.entities) {
+        if (!HD2.uiEntry(entry) || !this.h.states[entry.entity_id]) continue;
+        const domain = HD2.domain(entry.entity_id);
+        const labels = Array.isArray(entry.labels) ? entry.labels : [];
+        if (ACTION_SERVICES.has(domain) && labels.includes(this.c.quick_action_label)) {
+          out.push({
+            id: `action:${entry.entity_id}`,
+            name: HD2.stateName(this.h, entry, this.h.states[entry.entity_id]),
+            icon: this.h.states[entry.entity_id].attributes?.icon || entry.icon || "mdi:gesture-tap-button",
+            kind: "action",
+            entity: entry.entity_id,
+            domain,
+            service: ACTION_SERVICES.get(domain),
+            meta: "Quick action",
+          });
+        }
+        if (domain === "todo") {
+          out.push({ id: `entity:${entry.entity_id}`, name: HD2.stateName(this.h, entry, this.h.states[entry.entity_id]).replace(/ List$/i, ""), icon: "mdi:cart-outline", kind: "entity", entity: entry.entity_id, meta: "List" });
+        }
+      }
+
+      const seen = new Set();
+      return out.filter((item) => !seen.has(item.id) && seen.add(item.id));
+    }
+
+    cardConfig(item) {
+      if (item.kind === "entity") {
+        return { type: "custom:bubble-card", card_type: "button", button_type: "state", entity: item.entity, name: item.name, icon: item.icon, show_state: true, button_action: { tap_action: { action: "more-info" } }, scrolling_effect: false };
+      }
+      if (item.kind === "action") {
+        const tapAction = { action: "perform-action", perform_action: `${item.domain}.${item.service}`, target: { entity_id: item.entity } };
+        if (item.domain === "button" || item.domain === "input_button") tapAction.confirmation = { text: `Run ${item.name}?` };
+        return { type: "custom:bubble-card", card_type: "button", button_type: "name", name: item.name, icon: item.icon, show_icon: true, button_action: { tap_action: tapAction }, scrolling_effect: false };
+      }
+      return { type: "custom:bubble-card", card_type: "button", button_type: "name", name: item.name, icon: item.icon, show_icon: true, button_action: { tap_action: { action: "navigate", navigation_path: item.path } }, scrolling_effect: false };
+    }
+
+    schedule() {
+      if (!this.h || !this.c || !HD2.REG?.load) return;
+      const generation = ++this.gen;
+      queueMicrotask(() => this.sync(generation));
+    }
+
+    async sync(generation) {
+      this.d = this.d || await HD2.REG.load(this.h);
+      if (generation !== this.gen) return;
+      const presentation = HD2.applyPrefs(this.items(), this.prefs);
+      const sig = JSON.stringify(presentation.visible.map((item) => [item.id, item.name, item.icon, item.path, item.entity, item.service]));
+      this.empty.style.display = presentation.visible.length ? "none" : "block";
+      if (sig === this.structureSig) {
+        for (const card of this.cards.values()) card.hass = this.h;
+        return;
+      }
+      this.structureSig = sig;
+      const keep = new Set(presentation.visible.map((item) => item.id));
+      for (const [id, element] of [...this.cards]) {
+        if (!keep.has(id)) { element.remove(); this.cards.delete(id); }
+      }
+      for (const item of presentation.visible) {
+        let element = this.cards.get(item.id);
+        if (!element) {
+          try {
+            element = await HD2.card(this.h, this.cardConfig(item));
+            if (generation !== this.gen) return;
+            this.cards.set(item.id, element);
+          } catch { continue; }
+        }
+        element.hass = this.h;
+        if (this.grid.lastElementChild !== element) this.grid.append(element);
+      }
+    }
+
+    async openEditor() {
+      if (!this.h || !HD2.REG?.load) return;
+      await customElements.whenDefined("dashboard-preference-editor-v3");
+      this.d = this.d || await HD2.REG.load(this.h);
+      const presentation = HD2.applyPrefs(this.items(), this.prefs);
+      this.editor.open({
+        title: `Edit ${this.c.title.toLowerCase()}`,
+        description: "Reorder or hide discovered actions and destinations without changing their Home Assistant configuration.",
+        items: presentation.all,
+        hidden: [...presentation.hidden],
+        onSave: async (value) => {
+          this.prefs = value;
+          await HD2.savePrefs(this.h, this.c.pref_key, value);
+          this.structureSig = "";
+          this.schedule();
+        },
+      });
+    }
+  }
+
+  if(!customElements.get('component-household-directory-v3'))customElements.define('component-household-directory-v3',ComponentHouseholdDirectoryV3);window.customCards=window.customCards||[];
+  if (!window.customCards.some((x) => x.type === "component-household-directory-v3")) window.customCards.push({ type: "component-household-directory-v3", name: "Quick Actions Directory V3", description: "Stable auto-discovered labelled actions and household destinations." });
 })();
 }
 
@@ -7085,7 +7282,141 @@ globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2,{intera
 
 // Module: src/components/home-overview.js
 {
-const {interaction,openMoreInfo}=globalThis.__HA_COMPONENT_LIBRARY_SHARED__;class ComponentHomeOverviewV4 extends HTMLElement{static getGridOptions(){return{columns:12,rows:'auto'}}constructor(){super();this.attachShadow({mode:'open'});this.c=null;this.h=null;this._children=new Map;this.built=false;this.building=false;this.timer=null;this._weatherInteraction=null;this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}*{box-sizing:border-box}ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}.top{min-height:44px;padding:0 2px;display:flex;align-items:center;justify-content:space-between;gap:12px}.time{min-width:0;white-space:nowrap;color:var(--secondary-text-color);font-size:14px;line-height:1.2;font-weight:400}.weather{appearance:none;border:0;min-height:44px;padding:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:13px;line-height:1.2;font-weight:400;white-space:nowrap;cursor:pointer}.weather:hover{text-decoration:underline}.weather:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:6px}.sections{margin-top:8px}.section+.section{margin-top:16px}@media(max-width:520px){.time{font-size:13px}.weather{font-size:12px}}@media(max-width:350px){.time{font-size:12px}.weather{font-size:11px}}</style><ha-card><div class="top"><span class="time"></span><button class="weather" type="button"></button></div><div class="sections"></div></ha-card>`;this.sections=this.shadowRoot.querySelector('.sections');this._bindWeather()}setConfig(c){this.c={weather_entity:'weather.forecast_home',base_path:'/home-control',current_dashboard:'home-control',favourites_helpers:['input_text.dashboard_favourite_1','input_text.dashboard_favourite_2','input_text.dashboard_favourite_3','input_text.dashboard_favourite_4'],...c};this.renderHeader();this.ensure();this.tick()}set hass(h){this.h=h;for(const x of this._children.values())x.hass=h;this.renderHeader();if(!this.built)this.ensure()}connectedCallback(){this._bindWeather();this.tick();this.ensure()}disconnectedCallback(){this._weatherInteraction?.destroy();this._weatherInteraction=null;clearTimeout(this.timer)}getCardSize(){return 12}_bindWeather(){if(this._weatherInteraction)return;this._weatherInteraction=interaction(this.shadowRoot.querySelector('.weather'),{primary:()=>this.moreWeather(),feedback:true})}tick(){clearTimeout(this.timer);this.renderHeader();this.timer=setTimeout(()=>this.tick(),60000-Date.now()%60000+100)}renderHeader(){if(!this.c)return;const now=new Date(),zone=this.h?.config?.time_zone,loc=this.h?.locale?.language||navigator.language||'en-AU',locale=loc==='en'?'en-AU':loc;this.shadowRoot.querySelector('.time').textContent=new Intl.DateTimeFormat(locale,{hour:'numeric',minute:'2-digit',timeZone:zone}).format(now);const s=this.h?.states?.[this.c.weather_entity],a=s?.attributes||{},n=v=>Number.isFinite(Number(v))?new Intl.NumberFormat(locale,{maximumFractionDigits:1}).format(Number(v)):'—',temp=n(a.temperature)+(a.temperature_unit||'°C'),cloud=Number.isFinite(Number(a.cloud_coverage))?`Cloud ${Math.round(Number(a.cloud_coverage))}%`:'Cloud —',w=this.shadowRoot.querySelector('.weather');w.textContent=`${temp} · ${cloud}`;w.setAttribute('aria-label',`Outside ${temp}, ${cloud}. Open weather details.`)}moreWeather(){if(this.c?.weather_entity)openMoreInfo(this,this.c.weather_entity)}async ensure(){if(this.built||this.building||!this.c||!this.h)return;this.building=true;await Promise.all(['component-favourites-minimal-v1','component-smart-collection-v3','component-room-directory-v4','component-household-directory-v3'].map(x=>customElements.whenDefined(x)));if(!this.isConnected){this.building=false;return}const defs=[['favourites',()=>{const x=document.createElement('component-favourites-minimal-v1');x.setConfig({helpers:this.c.favourites_helpers,max:4,title:'Favourites'});return x}],['active',()=>{const x=document.createElement('component-smart-collection-v3');x.setConfig({mode:'active',title:'Active now',icon:'mdi:motion-play-outline',editable:false,pref_key:null});return x}],['rooms',()=>{const x=document.createElement('component-room-directory-v4');x.setConfig({mode:'home',title:'Rooms',icon:'mdi:floor-plan',pref_key:'home-control.rooms.v2',base_path:this.c.base_path,navigation_path:`${this.c.base_path}/rooms`});return x}],['household',()=>{const x=document.createElement('component-household-directory-v3');x.setConfig({pref_key:'home-control.household.v2',base_path:this.c.base_path,current_dashboard:this.c.current_dashboard});return x}]];for(const[id,make]of defs){const x=make();x.classList.add('section');x.hass=this.h;this._children.set(id,x);this.sections.append(x)}this.built=true;this.building=false}}if(!customElements.get('component-home-overview-v4'))customElements.define('component-home-overview-v4',ComponentHomeOverviewV4);window.customCards=window.customCards||[];if(!window.customCards.some(x=>x.type==='component-home-overview-v4'))window.customCards.push({type:'component-home-overview-v4',name:'Home Overview V4',description:'Stable minimal Home overview without state-refresh teardown.'});
+const { interaction, openMoreInfo } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentHomeOverviewV4 extends HTMLElement {
+  static getGridOptions() { return { columns: 12, rows: "auto" }; }
+
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.c = null;
+    this.h = null;
+    this._children = new Map();
+    this.built = false;
+    this.building = false;
+    this.timer = null;
+    this._weatherInteraction = null;
+    this.shadowRoot.innerHTML = `<style>
+      :host{display:block;min-width:0}*{box-sizing:border-box}
+      ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}
+      .top{min-height:44px;padding:0 2px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+      .time{min-width:0;white-space:nowrap;color:var(--secondary-text-color);font-size:14px;line-height:1.2;font-weight:400}
+      .weather{appearance:none;border:0;min-height:44px;padding:0;background:transparent;color:var(--secondary-text-color);font:inherit;font-size:13px;line-height:1.2;font-weight:400;white-space:nowrap;cursor:pointer}
+      .weather:hover{text-decoration:underline}.weather:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px;border-radius:6px}
+      .sections{margin-top:8px}.section+.section{margin-top:16px}
+      @media(max-width:520px){.time{font-size:13px}.weather{font-size:12px}}
+      @media(max-width:350px){.time{font-size:12px}.weather{font-size:11px}}
+    </style><ha-card><div class="top"><span class="time"></span><button class="weather" type="button"></button></div><div class="sections"></div></ha-card>`;
+    this.sections = this.shadowRoot.querySelector(".sections");
+    this._bindWeather();
+  }
+
+  setConfig(c) {
+    this.c = {
+      weather_entity: "weather.forecast_home",
+      base_path: "/home-control",
+      current_dashboard: "home-control",
+      favourites_helpers: ["input_text.dashboard_favourite_1", "input_text.dashboard_favourite_2", "input_text.dashboard_favourite_3", "input_text.dashboard_favourite_4"],
+      ...c,
+    };
+    this.renderHeader();
+    this.ensure();
+    this.tick();
+  }
+
+  set hass(h) {
+    this.h = h;
+    for (const child of this._children.values()) child.hass = h;
+    this.renderHeader();
+    if (!this.built) this.ensure();
+  }
+
+  connectedCallback() { this._bindWeather(); this.tick(); this.ensure(); }
+  disconnectedCallback() { this._weatherInteraction?.destroy(); this._weatherInteraction = null; clearTimeout(this.timer); }
+  getCardSize() { return 12; }
+
+  _bindWeather() {
+    if (this._weatherInteraction) return;
+    this._weatherInteraction = interaction(this.shadowRoot.querySelector(".weather"), { primary: () => this.moreWeather(), feedback: true });
+  }
+
+  tick() {
+    clearTimeout(this.timer);
+    this.renderHeader();
+    this.timer = setTimeout(() => this.tick(), 60000 - Date.now() % 60000 + 100);
+  }
+
+  renderHeader() {
+    if (!this.c) return;
+    const now = new Date();
+    const zone = this.h?.config?.time_zone;
+    const language = this.h?.locale?.language || navigator.language || "en-AU";
+    const locale = language === "en" ? "en-AU" : language;
+    this.shadowRoot.querySelector(".time").textContent = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", timeZone: zone }).format(now);
+    const state = this.h?.states?.[this.c.weather_entity];
+    const attributes = state?.attributes || {};
+    const number = (value) => Number.isFinite(Number(value)) ? new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(Number(value)) : "—";
+    const temperature = number(attributes.temperature) + (attributes.temperature_unit || "°C");
+    const cloud = Number.isFinite(Number(attributes.cloud_coverage)) ? `Cloud ${Math.round(Number(attributes.cloud_coverage))}%` : "Cloud —";
+    const weather = this.shadowRoot.querySelector(".weather");
+    weather.textContent = `${temperature} · ${cloud}`;
+    weather.setAttribute("aria-label", `Outside ${temperature}, ${cloud}. Open weather details.`);
+  }
+
+  moreWeather() { if (this.c?.weather_entity) openMoreInfo(this, this.c.weather_entity); }
+
+  async ensure() {
+    if (this.built || this.building || !this.c || !this.h) return;
+    this.building = true;
+    await Promise.all(["component-favourites-minimal-v1", "component-smart-collection-v3", "component-room-directory-v4", "component-household-directory-v3"].map((name) => customElements.whenDefined(name)));
+    if (!this.isConnected) { this.building = false; return; }
+    const definitions = [
+      ["favourites", () => {
+        const element = document.createElement("component-favourites-minimal-v1");
+        element.setConfig({ helpers: this.c.favourites_helpers, max: 4, title: "Favourites" });
+        return element;
+      }],
+      ["active", () => {
+        const element = document.createElement("component-smart-collection-v3");
+        element.setConfig({ mode: "active", title: "Active now", icon: "mdi:motion-play-outline", editable: false, pref_key: null });
+        return element;
+      }],
+      ["household", () => {
+        const element = document.createElement("component-household-directory-v3");
+        element.setConfig({
+          title: "Quick actions",
+          icon: "mdi:gesture-tap-button",
+          quick_action_label: "dashboard_quick_action",
+          pref_key: "home-control.household.v2",
+          base_path: this.c.base_path,
+          current_dashboard: this.c.current_dashboard,
+        });
+        return element;
+      }],
+      ["rooms", () => {
+        const element = document.createElement("component-room-directory-v4");
+        element.setConfig({ mode: "home", title: "Rooms", icon: "mdi:floor-plan", pref_key: "home-control.rooms.v2", base_path: this.c.base_path, navigation_path: `${this.c.base_path}/rooms` });
+        return element;
+      }],
+    ];
+    for (const [id, make] of definitions) {
+      const element = make();
+      element.classList.add("section");
+      element.hass = this.h;
+      this._children.set(id, element);
+      this.sections.append(element);
+    }
+    this.built = true;
+    this.building = false;
+  }
+}
+
+class ComponentHomeOverviewV5 extends ComponentHomeOverviewV4 {}
+
+if (!customElements.get("component-home-overview-v5")) customElements.define("component-home-overview-v5", ComponentHomeOverviewV5);
+if(!customElements.get('component-home-overview-v4'))customElements.define('component-home-overview-v4',ComponentHomeOverviewV4);window.customCards=window.customCards||[];
+if (!window.customCards.some((x) => x.type === "component-home-overview-v4")) window.customCards.push({ type: "component-home-overview-v4", name: "Home Overview V4", description: "Stable minimal Home overview without state-refresh teardown." });
 }
 
 // Module: src/components/solar-daylight-card.js
