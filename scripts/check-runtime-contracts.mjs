@@ -60,6 +60,7 @@ class MockNode {
     return event;
   }
   append(...nodes) { this.children.push(...nodes); }
+  before(...nodes) { this.beforeNodes = [...(this.beforeNodes ?? []), ...nodes]; }
   replaceChildren(...nodes) { this.children = [...nodes]; }
   contains(node) { return node === this || this.children.includes(node); }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
@@ -258,6 +259,10 @@ if (failures.length) throw new Error(`Runtime contract failures:\n${failures.joi
     throw new Error("Apple TV Remote and Apps launchers must rebind after reconnect");
   }
   appleTv.disconnectedCallback();
+}
+
+if (!bundle.includes("cardHead.append(actions)") || bundle.includes('querySelector(".identity")?.append(actions)')) {
+  throw new Error("Apple TV header actions must remain siblings of the identity detail trigger");
 }
 
 {

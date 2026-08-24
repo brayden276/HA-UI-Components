@@ -24,8 +24,17 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
     if (!this.shadowRoot.querySelector("style[data-apple-tv-header-controls]")) {
       const style = document.createElement("style");
       style.setAttribute("data-apple-tv-header-controls", "");
-      style.textContent = `.identity{grid-template-columns:44px minmax(0,1fr) auto!important;gap:12px!important}.card-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-left:0}.header-action{width:44px;height:44px;min-width:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.header-action.power.on{color:var(--primary-color)}.header-action ha-icon{--mdc-icon-size:20px}.header-action span{display:none}.panel{padding:16px!important;overscroll-behavior:contain}.sheet{width:min(430px,calc(100vw - 32px))!important;max-height:calc(100dvh - 32px)!important;min-height:0;overflow:hidden!important;display:flex!important;flex-direction:column;border-radius:var(--dashboard-radius-dialog,8px)!important;box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))!important}.head{flex:0 0 auto}.body{flex:1 1 auto;min-height:0!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}.panel-notice{flex:0 0 auto}.panel[data-mode="apps"] .body{max-height:calc(100dvh - 112px)}.apps-grid{align-content:start}.app-logo ha-icon{color:var(--apple-tv-app-colour,var(--primary-color))}@media(max-width:420px){.panel{padding:16px!important}.sheet{width:calc(100vw - 32px)!important;max-height:calc(100dvh - 32px)!important}.card-actions{gap:8px}.header-action{width:44px;height:44px;min-width:44px}.header-action ha-icon{--mdc-icon-size:20px}}`;
+      style.textContent = `.card-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px}.identity{grid-template-columns:44px minmax(0,1fr)!important;gap:12px!important}.card-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-left:0}.header-action{width:44px;height:44px;min-width:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.header-action.power.on{color:var(--primary-color)}.header-action ha-icon{--mdc-icon-size:20px}.header-action span{display:none}.panel{padding:16px!important;overscroll-behavior:contain}.sheet{width:min(430px,calc(100vw - 32px))!important;max-height:calc(100dvh - 32px)!important;min-height:0;overflow:hidden!important;display:flex!important;flex-direction:column;border-radius:var(--dashboard-radius-dialog,8px)!important;box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))!important}.head{flex:0 0 auto}.body{flex:1 1 auto;min-height:0!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}.panel-notice{flex:0 0 auto}.panel[data-mode="apps"] .body{max-height:calc(100dvh - 112px)}.apps-grid{align-content:start}.app-logo ha-icon{color:var(--apple-tv-app-colour,var(--primary-color))}@media(max-width:420px){.panel{padding:16px!important}.sheet{width:calc(100vw - 32px)!important;max-height:calc(100dvh - 32px)!important}.card-head{gap:8px}.card-actions{gap:8px}.header-action{width:44px;height:44px;min-width:44px}.header-action ha-icon{--mdc-icon-size:20px}}`;
       this.shadowRoot.append(style);
+    }
+
+    let cardHead = this.shadowRoot.querySelector(".card-head");
+    if (!cardHead) {
+      const identity = this.shadowRoot.querySelector(".identity");
+      cardHead = document.createElement("div");
+      cardHead.className = "card-head";
+      identity?.before(cardHead);
+      if (identity) cardHead.append(identity);
     }
 
     let actions = this.shadowRoot.querySelector(".card-actions");
@@ -33,7 +42,7 @@ customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
       actions = document.createElement("div");
       actions.className = "card-actions";
       actions.setAttribute("aria-label", "Apple TV quick controls");
-      this.shadowRoot.querySelector(".identity")?.append(actions);
+      cardHead.append(actions);
     }
     for (const handle of this._headerInteractions || []) handle.destroy();
     this._headerInteractions = [];
