@@ -109,3 +109,18 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 - Validation: Focused source-level check, syntax checks and diff whitespace check pass. No build or generated-bundle validation was run; `dist` remains outside this source-only validation boundary.
 - Reviewer findings: Two MEDIUM coverage gaps and two LOW completeness/report findings resolved; independent Sol re-review found no remaining findings.
 - Status: Source coverage complete; generated distributable and live HA remain unverified.
+
+### `component-status-row-v2`
+
+- Component: `src/components/status-row.js`
+- Risk: Low; configured status display with optional navigation or More Info.
+- Original complexity: 2,743 bytes (about 2.7 kB) compressed into seven physical lines; configuration, action selection, rendering and interaction teardown were interleaved.
+- Primary architectural problems: Dense source obscured the owned interaction lifecycle, while a generic runtime retained-field patch overrode the component's local disconnect behaviour.
+- Refactor: Expanded the existing direct `c` configuration-to-`r()` render path without changing the public prototype surface, default order, DOM/CSS/whitespace or action semantics.
+- Shared changes: Removed only the stale Status Row retained-interaction entry from `runtime-reliability.js`.
+- Removed complexity: Status Row now owns its interaction teardown and reconnect lifecycle directly.
+- Behavioural contracts verified: Metadata/editor/stub, prototype and own-property descriptors, native spread replacement, direct escaped display fields without HA-derived status/tone/active state, literal `interactive: false`, exact static/button DOM, navigation precedence, current-value closures, interaction options, error teardown timing and reconnect.
+- Tests added/changed: Added `scripts/check-status-row.mjs` and wired it into `scripts/check-all.mjs`; it evaluates the real runtime patch alongside the component contract.
+- Validation: Focused checker; syntax for the component, runtime patch, focused checker and aggregate runner; maintainability; interaction contracts; interaction runtime; and diff whitespace checks pass. Strict style retains the same ten unrelated baseline drifts, while the focused exact-markup assertion confirms Status Row CSS is unchanged. No build, generated-bundle or live HA validation was run.
+- Reviewer findings: One MEDIUM and two LOW checker-coverage findings resolved; independent Sol review found no remaining findings.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified.
