@@ -29,6 +29,21 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 
 ## Component entries
 
+### `component-quick-nav-v2`
+
+- Component: `src/components/quick-navigation.js`
+- Risk: Medium; entity-state caching, formatted display text, three current-target actions and retained reconnect handles share one render path.
+- Original complexity: 5,114 bytes across 120 physical lines; the Hass setter formatted a changed entity state for cache comparison, then `r()` independently resolved and formatted it again.
+- Primary architectural problem: Stateful or non-deterministic formatters could make the cached text disagree with the text rendered by the same Hass update, while every changed update performed redundant formatting.
+- Refactor: A changed Hass update now resolves one `{ state, stateText }` snapshot and reuses it for cache comparison and rendering; direct configuration/reconnect renders derive one snapshot, and the unchanged fast path only refreshes the retained state icon.
+- Shared changes: None. The retained `_interactions` runtime entry remains intentional so reconnect destroys preserved detached handles exactly once before rebinding.
+- Removed complexity: Eliminated duplicate state formatting without changing inheritance, cache timing, native partial-Hass failure timing, exact DOM/CSS, disabled controls or current-value action closures.
+- Behavioural contracts verified: Metadata/editor/stub, base-class inheritance, constructor/config cache-field timing, config-before-Hass and Hass-before-config, all cache branches, formatter fallback/call count, missing/available/no-entity output, exact DOM/CSS/escaping, state-icon property refresh, disabled suppression, three exact shared interactions, current action targets and retained reconnect lifecycle.
+- Tests added/changed: Added `scripts/check-quick-navigation.mjs` and wired it into `scripts/check-all.mjs`; it uses a component-specific DashboardBaseCard, state-icon and runtime-patch harness.
+- Validation: Focused checker, source/checker/runner syntax, maintainability, interaction contracts, advisory style and target diff whitespace pass. Quick Navigation introduces no style drift; eight unrelated established drifts remain. Generated bundle, full aggregate and live HA remain outside the source-only boundary.
+- Reviewer findings: Independent review found no production regression initially; coordinator integration then caught and restored two legacy partial-Hass/cache behaviours, which the final delta review accepted before commit.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified. This in-flight component was completed after the user reprioritised remaining work toward proven runtime composition.
+
 ### `component-text-effect-v1`
 
 - Component: `src/components/text-effect.js`
