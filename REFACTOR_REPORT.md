@@ -40,6 +40,21 @@ Components with only catalogue, audit or generic-test references are deferred be
 
 ## Component entries
 
+### `component-favourites-minimal-v1`
+
+- Component: `src/components/favourites-minimal.js`
+- Risk: Medium; this live Home wrapper owns asynchronous creation/config forwarding for the backend-backed Favourites V3 child and injects the exact Minimal shadow-DOM treatment.
+- Original complexity: 2,118 bytes compressed into one physical line; a single `ready` flag conflated “build attempted” with “child successfully ready”.
+- Primary architectural problems: Definition/child configuration failure permanently prevented retry, and later wrapper `setConfig()` calls never reached the retained child, leaving preference key, limits or labels stale.
+- Refactor: Replaced `ready` with a retryable single-flight build promise, builds once from the latest pending configuration, forwards later configuration and Hass updates to the same child, and clears failed build ownership in `finally`.
+- Shared changes: None. Favourites V3, backend adapters, backend-only Home patch and retained-interaction runtime compatibility remain unchanged.
+- Removed complexity: Made wrapper-versus-child ownership explicit without duplicating any Favourites behaviour or moving child-shadow styling across the shadow boundary.
+- Behavioural contracts verified: Registration/metadata/grid/card size, initially empty open shadow root, config-before-Hass and Hass-before-config, pending latest config, one child identity, post-build reconfiguration, public failure/retry, retained reconnect, backend default/override preference key, current Hass forwarding, exact edit icon and idempotent Minimal style injection.
+- Tests added/changed: Added `scripts/check-favourites-minimal.mjs` and wired it into `scripts/check-all.mjs`; it evaluates the real backend adapter and a retryable V3 fixture.
+- Validation: Focused checker, source/checker/backend-adapter syntax and target diff whitespace pass. The injected runtime-style string remains byte-exact to its recognised fingerprint. Generated bundle, full aggregate and live HA remain outside the source-only boundary.
+- Reviewer findings: Production source review found no regression; two LOW checker gaps were corrected to exercise public backend-patched retry and retained reconnect idempotence.
+- Status: Source refactor accepted; generated distributable and current live HA behaviour remain unverified.
+
 ### `component-home-overview-v4`
 
 - Component: `src/components/home-overview.js`
