@@ -12,6 +12,7 @@ const checks = [
   ["scripts/check-context-strip.mjs"],
   ["scripts/check-text-effect.mjs"],
   ["scripts/check-quick-navigation.mjs"],
+  ["scripts/check-home-overview.mjs"],
   ["scripts/check-single-kpi.mjs"],
   ["scripts/check-three-stat.mjs"],
   ["scripts/check-navigation-tile.mjs"],

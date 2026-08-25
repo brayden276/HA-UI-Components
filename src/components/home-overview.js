@@ -13,6 +13,7 @@ class ComponentHomeOverviewV4 extends HTMLElement {
     this.building = false;
     this.timer = null;
     this._weatherInteraction = null;
+    this._headerSignature = "";
     this.shadowRoot.innerHTML = `<style>
       :host{display:block;min-width:0}*{box-sizing:border-box}
       ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}
@@ -69,15 +70,21 @@ class ComponentHomeOverviewV4 extends HTMLElement {
     const zone = this.h?.config?.time_zone;
     const language = this.h?.locale?.language || navigator.language || "en-AU";
     const locale = language === "en" ? "en-AU" : language;
-    this.shadowRoot.querySelector(".time").textContent = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", timeZone: zone }).format(now);
+    const time = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", timeZone: zone }).format(now);
     const state = this.h?.states?.[this.c.weather_entity];
     const attributes = state?.attributes || {};
     const number = (value) => Number.isFinite(Number(value)) ? new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(Number(value)) : "—";
     const temperature = number(attributes.temperature) + (attributes.temperature_unit || "°C");
     const cloud = Number.isFinite(Number(attributes.cloud_coverage)) ? `Cloud ${Math.round(Number(attributes.cloud_coverage))}%` : "Cloud —";
+    const weatherText = `${temperature} · ${cloud}`;
+    const weatherAriaLabel = `Outside ${temperature}, ${cloud}. Open weather details.`;
+    const signature = JSON.stringify([time, weatherText, weatherAriaLabel]);
+    if (signature === this._headerSignature) return;
+    this._headerSignature = signature;
+    this.shadowRoot.querySelector(".time").textContent = time;
     const weather = this.shadowRoot.querySelector(".weather");
-    weather.textContent = `${temperature} · ${cloud}`;
-    weather.setAttribute("aria-label", `Outside ${temperature}, ${cloud}. Open weather details.`);
+    weather.textContent = weatherText;
+    weather.setAttribute("aria-label", weatherAriaLabel);
   }
 
   moreWeather() { if (this.c?.weather_entity) openMoreInfo(this, this.c.weather_entity); }

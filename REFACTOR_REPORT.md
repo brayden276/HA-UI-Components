@@ -4,6 +4,17 @@ Branch: `dev/global-refactor`
 
 Validation boundary: source-only until the user explicitly authorises `RUN A BUILD`. The pre-existing deletion of `dist/ha-component-library.js` is preserved, so bundle-dependent checks remain unavailable.
 
+## Usage-led execution priority
+
+After the accepted Leaf batch and the already in-flight Text Effect/Quick Navigation work, the user reprioritised the remaining refactor toward components with concrete deployment or runtime-composition evidence. The active queue is therefore:
+
+1. Promoted Home composition: Home Overview, Smart Collection, Room Directory, Household Directory, Favourites Minimal and Favourites V3.
+2. Composed Energy dashboard: Energy Dashboard, Day Selector, Energy Summary, Solar Daylight and Energy History.
+3. Conditionally emitted physical controllers: Split Controller, Apple TV, Camera V1, WLED and Garage Door.
+4. Current Security composition: Security Dashboard and Security Camera Wall V3.
+
+Components with only catalogue, audit or generic-test references are deferred behind this queue. This changes execution order only; it does not treat source checks as proof that the installed bundle or live HA runtime is current.
+
 ## Migration order
 
 | Batch | Components | Status |
@@ -28,6 +39,21 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 - Validation: All eleven focused checks, maintainability, interaction contracts/runtime, component-model, polish and advisory style checks pass. Strict style fails only on the nine unrelated established drifts. Generated bundle, full aggregate and live HA remain unverified.
 
 ## Component entries
+
+### `component-home-overview-v4`
+
+- Component: `src/components/home-overview.js`
+- Risk: High; this is the retained top-level Home composition captured in the promoted `/test-home` configuration and it owns live header updates plus four asynchronous child sections.
+- Original complexity: 6,782 bytes across 123 physical lines; every Hass refresh recreated Intl formatters and rewrote the time, weather text and ARIA label even when their displayed values were unchanged.
+- Primary architectural problem: High-frequency Home Assistant state updates caused redundant live DOM mutation at the dashboard root, and `setConfig()` immediately repeated the same header work through `tick()`.
+- Refactor: Added one component-local display signature after the existing time/weather calculations; only byte-identical formatted output skips DOM writes, preserving native coercion and formatting failure timing.
+- Shared changes: None. V4/V5 inheritance, the backend-only favourites patch, exact legacy path/preference defaults and all child component contracts remain unchanged.
+- Removed complexity: Eliminated unchanged header writes without introducing shared caching or changing child reconciliation.
+- Behavioural contracts verified: V4/V5 registration and inheritance, public metadata/config contract, constructor/prototype fields, exact DOM/CSS and 44px weather target, locale/timezone/numeric branches, native failure timing, signature invalidation, minute timer, current weather action, direct interaction teardown/reconnect, async definition waits, exact child order/configuration, detach races, Hass forwarding and backend-only patch inheritance.
+- Tests added/changed: Added `scripts/check-home-overview.mjs` and wired it into `scripts/check-all.mjs`; the deterministic async harness evaluates the real backend-only patch and counts exact header writes.
+- Validation: Focused checker, source/checker/backend-patch/runner syntax, maintainability, interaction contracts and target diff whitespace pass. Focused output proves CSS is byte-exact; the established Home Overview provenance mismatch remains advisory and unchanged. Generated bundle, full aggregate and live HA remain outside the source-only boundary.
+- Reviewer findings: Independent Sol review found no material findings; one unused mock getter and one unused creation accumulator were removed.
+- Status: Source refactor accepted; generated distributable and current live HA behaviour remain unverified.
 
 ### `component-quick-nav-v2`
 
