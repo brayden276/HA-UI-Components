@@ -20,6 +20,21 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 
 ## Component entries
 
+### `component-list-v2`
+
+- Component: `src/components/list-ranking.js`
+- Risk: Medium; up to six optional row actions share captured path/entity values, current custom callbacks and retained reconnect handles.
+- Original complexity: approximately 3.4 kB compressed into eight physical lines; row shaping, action selection, markup and binding were interleaved.
+- Primary architectural problem: Actionable rows resolved `_actions(row)` twice, allowing getter or override side effects to make button markup and bound callbacks disagree.
+- Refactor: Expanded the component readably and resolves one row/action record per visited sliced index, reusing it for exact markup and interaction binding while preserving sparse indices and `slice(0, 6)`.
+- Shared changes: None; the existing List retained `_interactions` runtime compatibility entry remains intentional.
+- Removed complexity: Eliminated duplicate action resolution without changing the custom/path/entity/hold matrix or exact DOM/CSS.
+- Behavioural contracts verified: Default/static rows, first-six sparse indexing, literal `interactive: false`, current custom callback/current Hass, captured path/entity, hold behaviour, exact interaction options, one-resolution binding and retained reconnect teardown.
+- Tests added/changed: Added `scripts/check-list.mjs` using the shared leaf harness and wired it into `scripts/check-all.mjs`.
+- Validation: Focused checker; Action and Three-stat shared-harness regressions; source/checker/runner syntax; maintainability; interaction contracts; interaction runtime; and diff whitespace checks pass. Generated bundle, full aggregate and live HA remain outside the source-only boundary.
+- Reviewer findings: Owner and independent Sol reviews found no material behavioural findings; two non-material unused record/checker bindings were removed.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified.
+
 ### `component-nav-tile-v2`
 
 - Component: `src/components/navigation-tile.js`
