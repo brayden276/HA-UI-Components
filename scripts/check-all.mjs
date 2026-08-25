@@ -16,6 +16,7 @@ const checks = [
   ["scripts/check-notice.mjs"],
   ["scripts/check-progress.mjs"],
   ["scripts/check-status-row.mjs"],
+  ["scripts/check-action.mjs"],
   ["scripts/check-async-broker.mjs"],
   ["scripts/check-component-models.mjs"],
   ["scripts/check-polish-contracts.mjs"],

@@ -124,3 +124,18 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 - Validation: Focused checker; syntax for the component, runtime patch, focused checker and aggregate runner; maintainability; interaction contracts; interaction runtime; and diff whitespace checks pass. Strict style retains the same ten unrelated baseline drifts, while the focused exact-markup assertion confirms Status Row CSS is unchanged. No build, generated-bundle or live HA validation was run.
 - Reviewer findings: One MEDIUM and two LOW checker-coverage findings resolved; independent Sol review found no remaining findings.
 - Status: Source refactor accepted; generated distributable and live HA remain unverified.
+
+### `component-action-v2`
+
+- Component: `src/components/action-card.js`
+- Risk: Low; optional navigation and More Info interaction with a single owned handle.
+- Original complexity: approximately 2.7 kB compressed into seven physical lines; configuration, action selection, rendering and teardown were interleaved.
+- Primary architectural problems: Dense source obscured local interaction ownership, while the generic retained-field patch obscured the component's actual disconnect lifecycle.
+- Refactor: Readably expanded the existing direct `c` configuration-to-`r()` path without changing the public surface, defaults, markup/CSS, escaping, action matrix or interaction option order.
+- Shared changes: Removed only the Action retained-field entry from `runtime-reliability.js`; added a generic test-only shared leaf-card VM/mock harness; corrected the interaction checker false-positive matcher so literal `repeat: false` is not treated as enabled.
+- Removed complexity: Action owns teardown and reconnect directly; no runtime lifecycle override is required.
+- Behavioural contracts verified: Exact static/actionable template and escaping, `more_info_entity || entity || null` and `navigation_path || null` local snapshots, primary/hold matrix, exact shared interaction options, teardown and reconnect ownership.
+- Tests added/changed: Added `scripts/check-action.mjs` and wired it into `scripts/check-all.mjs`; it uses `scripts/fixtures/leaf-card-harness.mjs` for common runtime scaffolding.
+- Validation: Focused Action checker, syntax, maintainability, interaction contracts, interaction runtime and diff whitespace checks pass. No build, generated bundle or live HA validation was run; that remains outside the source-only boundary.
+- Reviewer findings: One MEDIUM action-matrix coverage finding resolved; independent Sol review found no remaining material findings.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified.

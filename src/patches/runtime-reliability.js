@@ -28,7 +28,6 @@
     ["component-context-strip-v3", ["_interaction"]],
     ["component-history-graph-v2", ["interactions"]],
     ["component-three-stat-v2", ["_interactions"]],
-    ["component-action-v2", ["_interaction"]],
     ["component-list-v2", ["_interactions"]],
     ["component-quick-nav-v2", ["_interactions"]],
     ["component-favourites-v3", ["_interactionHandles"]],

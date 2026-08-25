@@ -32,8 +32,8 @@ const hasLiteralHoldAndRepeat = (source) => {
   const calls = source.match(/interaction\([\s\S]{0,900}?\}\s*\)/g) ?? [];
   return calls.some(
     (call) =>
-      /\bhold\s*:\s*(?!null\b|false\b|!1\b)/.test(call) &&
-      /\brepeat\s*:\s*(?!false\b|null\b|!1\b)/.test(call),
+      /\bhold\s*:\s*(?!(?:null|false|!1)\b)[^,\s}]/.test(call) &&
+      /\brepeat\s*:\s*(?!(?:false|null|!1)\b)[^,\s}]/.test(call),
   );
 };
 
