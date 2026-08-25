@@ -2,12 +2,19 @@ import assert from "node:assert/strict";
 import vm from "node:vm";
 
 export function createLeafCardHarness({ source, filename, buttonSelector = "button.demo" }) {
-  class MockElement {}
+  class MockElement {
+    constructor(dataset = {}) { this.dataset = dataset; }
+  }
   class MockShadowRoot {
     innerHTML = "";
 
     querySelector(selector) {
       return selector === buttonSelector && this.innerHTML.includes(`<${buttonSelector.split(".")[0]} class="${buttonSelector.split(".")[1]}"`) ? new MockElement() : null;
+    }
+    querySelectorAll(selector) {
+      const [tagName, className] = selector.split(".");
+      const expression = new RegExp(`<${tagName} class="[^\"]*\\b${className}\\b[^\"]*"[^>]*data-index="([^\"]+)"`, "g");
+      return [...this.innerHTML.matchAll(expression)].map(([, index]) => new MockElement({ index }));
     }
   }
   class MockHTMLElement {

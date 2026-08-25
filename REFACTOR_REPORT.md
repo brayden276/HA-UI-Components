@@ -35,6 +35,19 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 - Reviewer findings: Independent Sol review found no findings.
 - Status: Source refactor accepted; generated distributable and live HA remain unverified.
 
+### `component-three-stat-v2`
+
+- Component: `src/components/three-stat-summary.js`
+- Risk: Low; three optional metric actions use shared interactions and the retained-interaction runtime compatibility wrapper.
+- Original complexity: 2,919 bytes (about 2.9 kB) compressed into eight physical lines; configuration, per-metric action selection, rendering and teardown were interleaved.
+- Primary architectural problem: `r()` resolved each metric action twice, allowing getter side effects or overridden selection to make button markup and bound closures disagree.
+- Refactor: Expanded the existing `c` configuration, action, render and lifecycle paths while preserving the exact prototype surface, defaults, rendered string/CSS and action precedence. Each render now resolves one `{ index, action }` record per metric and reuses it for matching markup and interaction binding.
+- Shared changes: The `component-three-stat-v2` retained `_interactions` entry in `runtime-reliability.js` is intentionally unchanged pending review; its disconnect wrapper retains handles, then reconnect clears each old handle once and binds fresh ones.
+- Tests added/changed: Added `scripts/check-three-stat.mjs`, registered it in `scripts/check-all.mjs`, and minimally extended the leaf harness with metric `dataset` and `querySelectorAll` support.
+- Validation: Focused checker; source/checker syntax; and target diff whitespace checks pass. No build, generated bundle, full aggregate check or live HA validation was run: the source-only boundary remains in force and the pre-existing deleted `dist/ha-component-library.js` keeps bundle-dependent checks unavailable.
+- Reviewer findings: Owner and independent Sol reviews found no remaining material findings.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified.
+
 ### `component-notice-v2`
 
 - Component: `src/components/notice.js`
