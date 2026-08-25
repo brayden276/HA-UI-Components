@@ -249,106 +249,22 @@
   },
   {
     "order": 63,
-    "file": "src/support/backend-favourites.js"
-  },
-  {
-    "order": 64,
     "file": "src/components/room-directory.js"
   },
   {
-    "order": 65,
+    "order": 64,
     "file": "src/components/home-overview.js"
   },
   {
-    "order": 66,
+    "order": 65,
     "file": "src/components/solar-daylight-card.js"
   },
   {
-    "order": 67,
+    "order": 66,
     "file": "src/components/energy-history-card.js"
   },
   {
-    "order": 68,
+    "order": 67,
     "file": "src/components/energy-dashboard.js"
-  },
-  {
-    "order": 69,
-    "file": "src/patches/split-profiles-core.js"
-  },
-  {
-    "order": 70,
-    "file": "src/patches/split-profiles-ui.js"
-  },
-  {
-    "order": 71,
-    "file": "src/patches/wled-registry-integration.js"
-  },
-  {
-    "order": 72,
-    "file": "src/patches/wled-controller-current-behaviour.js"
-  },
-  {
-    "order": 73,
-    "file": "src/patches/room-navigation-current-behaviour.js"
-  },
-  {
-    "order": 74,
-    "file": "src/patches/garage-trigger-safety.js"
-  },
-  {
-    "order": 75,
-    "file": "src/patches/garage-door-device-dedup.js"
-  },
-  {
-    "order": 76,
-    "file": "src/patches/camera-controller-integration.js"
-  },
-  {
-    "order": 77,
-    "file": "src/patches/camera-controller-current-behaviour.js"
-  },
-  {
-    "order": 78,
-    "file": "src/patches/runtime-reliability.js"
-  },
-  {
-    "order": 79,
-    "file": "src/patches/home-editor-portal.js"
-  },
-  {
-    "order": 80,
-    "file": "src/patches/room-directory-presence-glow.js"
-  },
-  {
-    "order": 81,
-    "file": "src/patches/split-registry-discovery.js"
-  },
-  {
-    "order": 82,
-    "file": "src/patches/room-directory-open-guard.js"
-  },
-  {
-    "order": 83,
-    "file": "src/patches/split-registry-resume.js"
-  },
-  {
-    "order": 84,
-    "file": "src/patches/apple-tv-header-controls.js"
-  },
-  {
-    "order": 85,
-    "file": "src/patches/smart-collection-live-active.js"
-  },
-  {
-    "order": 86,
-    "file": "src/patches/home-favourites-backend-only.js"
-  },
-  {
-    "order": 87,
-    "file": "src/patches/config-contracts.js"
-  },
-  {
-    "order": 88,
-    "file": "src/patches/security-dashboard-live-polish.js"
   }
 ]

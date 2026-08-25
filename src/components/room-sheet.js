@@ -5,7 +5,7 @@ class ComponentRoomSheetV2 extends DashboardBaseCard{
  setConfig(c){this.c={icon:'mdi:bed-king-outline',title:'Room name',rows:null,...c};this.r()}
  set hass(h){this._hass=h;this.r()}
  connectedCallback(){if(this.c)this.r()}
- disconnectedCallback(){for(const handle of this._interactions)handle.destroy();this._interactions=[]}
+ disconnectedCallback(){/* Retained room controls are replaced by the next render. */}
  getCardSize(){return 5}
  _defaults(){return[
   {section:'Room state',icon:'mdi:thermometer',name:'Status metric',state:'Supporting context',value:'Value'},

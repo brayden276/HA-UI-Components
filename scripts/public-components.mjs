@@ -105,6 +105,14 @@ export const supportedComponentCategories = Object.freeze([
   "composition-wrapper",
 ]);
 
+// This is deliberately authored separately from source registrations. These scenarios
+// have behavioural risks that generic public contracts cannot express.
+export const requiredSpecialisedComponentTypes = Object.freeze([
+  "component-single-kpi-v2",
+  "component-smart-collection-v3",
+  "component-home-overview-v4",
+]);
+
 export const publicComponentCount = publicComponents.length;
 export const publicComponentFiles = publicComponents.map(([file]) => file);
 export const publicComponentTypes = publicComponents.map(([, type]) => type);

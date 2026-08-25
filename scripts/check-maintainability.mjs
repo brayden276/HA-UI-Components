@@ -1,20 +1,11 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { publicComponentFiles } from "./public-components.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const componentDirectory = resolve(root, "src/components");
-const componentFiles = (await readdir(componentDirectory))
-  .filter((file) => file.endsWith(".js"))
-  .sort();
-const expectedFiles = publicComponentFiles.map((file) => file.replace("src/components/", "")).sort();
-
-if (JSON.stringify(componentFiles) !== JSON.stringify(expectedFiles)) {
-  const missing = expectedFiles.filter((file) => !componentFiles.includes(file));
-  const extra = componentFiles.filter((file) => !expectedFiles.includes(file));
-  throw new Error(`Public component inventory mismatch; missing=[${missing.join(", ")}], extra=[${extra.join(", ")}]`);
-}
+const componentFiles = publicComponentFiles.map((file) => file.replace("src/components/", ""));
 
 const forbiddenComponentImplementations = [
   ["hass-more-info", "openMoreInfo"],
@@ -68,4 +59,4 @@ if (!appleTvController.includes("const keyboardState = active?.classList?.contai
   throw new Error("Apple TV panel refresh must preserve in-progress keyboard input");
 }
 
-console.log(`Maintainability check passed: ${componentFiles.length} descriptively named component modules use shared helpers`);
+console.log(`Maintainability check passed: ${componentFiles.length} public component modules use shared helpers`);

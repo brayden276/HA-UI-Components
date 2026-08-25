@@ -66,14 +66,77 @@ if (dashboardRegistry && !dashboardRegistry.__refreshCoalescingV1) {
     return refreshPromise;
   };
 }
-HD2.uiEntry=e=>Boolean(e?.entity_id&&!e.disabled_by&&!e.hidden_by&&!['diagnostic','config'].includes(e.entity_category));
+HD2.entryFilters ??= [];
+HD2.registerEntryFilter ??= (filter) => {
+  if (typeof filter !== "function") throw new TypeError("Dashboard entry filters must be functions");
+  HD2.entryFilters.push(filter);
+  return () => {
+    const index = HD2.entryFilters.indexOf(filter);
+    if (index >= 0) HD2.entryFilters.splice(index, 1);
+  };
+};
+HD2.uiEntry = (entry) =>
+  Boolean(
+    entry?.entity_id &&
+      !entry.disabled_by &&
+      !entry.hidden_by &&
+      !["diagnostic", "config"].includes(entry.entity_category) &&
+      HD2.entryFilters.every((filter) => filter(entry)),
+  );
 HD2.card=async(h,c)=>{const helpers=await window.loadCardHelpers();const x=helpers.createCardElement(c);x.hass=h;return x};
 HD2.controlDomains=new Set(['light','fan','switch','input_boolean','media_player','climate','cover','lock','vacuum','button','select','number']);
 HD2.isPotential=(e,s)=>HD2.uiEntry(e)&&(HD2.controlDomains.has(HD2.domain(e.entity_id))||(HD2.domain(e.entity_id)==='binary_sensor'&&s?.attributes?.device_class==='garage_door'));
 HD2.isActive=(e,s)=>{if(!HD2.uiEntry(e)||!s)return false;const d=HD2.domain(e.entity_id),st=s.state,a=s.attributes||{};if(['light','fan','switch','input_boolean'].includes(d))return st==='on';if(d==='media_player'){if(['playing','paused','buffering','on'].includes(st))return true;if(st==='idle'){const v=String(a.media_title||a.app_name||'');return Boolean(v&&!/^(idle|home(?: screen)?|default media receiver)$/i.test(v))}return false}if(d==='climate')return /^(heat|cool|heat_cool|auto|dry|fan_only)$/.test(st);if(d==='cover')return /^(open|opening|closing)$/.test(st);if(d==='lock')return st==='unlocked';if(d==='vacuum')return /^(cleaning|returning)$/.test(st);if(d==='binary_sensor')return st==='on'&&/^(door|window|garage_door|smoke|moisture|gas)$/.test(a.device_class||'');return false};
-HD2.garageControl=(e,d,h)=>{if(!e?.device_id)return null;const sib=d?.byDevice?.get(e.device_id)||[],buttons=sib.filter(x=>HD2.domain(x.entity_id)==='button'&&HD2.uiEntry(x)&&h.states[x.entity_id]);return buttons.find(x=>/trigger|operate|door/i.test(`${x.entity_id} ${x.name||''} ${x.original_name||''}`))?.entity_id||buttons[0]?.entity_id||null};
+const garageOperatorIdentity = (entry) =>
+  `${entry?.entity_id || ""} ${entry?.name || ""} ${entry?.original_name || ""}`
+    .toLowerCase()
+    .replace(/[_./-]+/g, " ");
+
+HD2.garageControl = (entry, registry, hass) => {
+  if (!entry?.device_id) return null;
+  const buttons = (registry?.byDevice?.get(entry.device_id) || []).filter(
+    (candidate) =>
+      HD2.domain(candidate?.entity_id) === "button" &&
+      HD2.uiEntry(candidate) &&
+      hass?.states?.[candidate.entity_id] &&
+      String(hass.states[candidate.entity_id].state).toLowerCase() !== "unavailable",
+  );
+  const explicit = buttons.filter((candidate) =>
+    /\bgarage\s+door\b.*\b(trigger|operate|operator)\b|\b(trigger|operate|operator)\b.*\bgarage\s+door\b/.test(
+      garageOperatorIdentity(candidate),
+    ),
+  );
+  return explicit.length === 1 ? explicit[0].entity_id : null;
+};
 HD2.appleTvRegistry=(entityId,d,h,options={})=>{const entity=(d?.entities||[]).find(x=>x?.entity_id===entityId)||null,deviceId=entity?.device_id||options.deviceId||null,siblings=deviceId?(d?.byDevice?.get(deviceId)||[]):[],named=x=>`${x?.entity_id||''} ${x?.name||''} ${x?.original_name||''}`.toLowerCase(),isUi=x=>HD2.uiEntry(x)&&x?.entity_id&&!x.disabled_by,byDomain=domain=>siblings.filter(x=>isUi(x)&&HD2.domain(x.entity_id)===domain),mediaEntry=entity||byDomain('media_player').find(x=>x.entity_id===entityId)||null,remoteEntry=byDomain('remote').find(x=>x.platform==='apple_tv')||byDomain('remote')[0]||null,keyboardEntry=byDomain('binary_sensor').find(x=>/keyboard.*focus|focus.*keyboard/.test(named(x)))||null,configEntryId=mediaEntry?.config_entry_id||remoteEntry?.config_entry_id||keyboardEntry?.config_entry_id||entity?.config_entry_id||(Array.isArray((d?.devices||[]).find(x=>x.id===deviceId)?.config_entries)?(d.devices.find(x=>x.id===deviceId)?.config_entries||[])[0]:null)||null,signature=JSON.stringify([deviceId,configEntryId,siblings.map(x=>[x.entity_id,x.platform,x.disabled_by,x.hidden_by])]);return{entityId,deviceId,mediaEntry,remoteEntry,keyboardEntry,remoteEntityId:remoteEntry?.entity_id||null,keyboardEntityId:keyboardEntry?.entity_id||null,configEntryId,signature}};
 HD2.appleTvBundle=(e,s,d,h)=>{if(HD2.domain(e?.entity_id)!=='media_player'||e?.platform!=='apple_tv')return null;const info=HD2.appleTvRegistry(e.entity_id,d,h,{deviceId:e.device_id});return{type:'custom:component-apple-tv-controller-v1',entity:e.entity_id,device_id:info?.deviceId||e.device_id||null,title:HD2.stateName(h,e,s),icon:'mdi:apple'}};
 HD2.splitBundle=(e,d)=>{if(!e?.device_id||!d)return null;const siblings=d.byDevice?.get(e.device_id)||[],suffix=x=>String(x?.entity_id||'').split('.')[1]||'',find=(rows,domain,end)=>rows.find(x=>!x?.disabled_by&&HD2.domain(x.entity_id)===domain&&suffix(x).endsWith(end)),controller=find(siblings,'binary_sensor','_controller_status');if(!controller)return null;const vertical=find(siblings,'select','_vertical_vane'),horizontal=find(siblings,'select','_horizontal_vane');return{controller_entity:controller.entity_id,vertical_vane_entity:vertical?.entity_id,horizontal_vane_entity:horizontal?.entity_id,room_id:HD2.areaOf(e,d)}};HD2.splitRegistryConfig=(id,split)=>{const system=split?.systems?.get(id)||globalThis.__componentSplitRegistryV4?.result?.systems?.get(id);return system?{type:'custom:component-split-controller-v4',entity:id,room_id:system.room_id,registry_entity:system.registry_entity,controller_entity:system.controller_entity,vertical_vane_entity:system.vertical_vane_entity,horizontal_vane_entity:system.horizontal_vane_entity,minimum_target:system.minimum_target,maximum_target:system.maximum_target,fan_ceiling:system.fan_ceiling,last_mode:system.last_mode,deadline:system.deadline,profiles:system.profiles}:null};HD2.controlConfig=(e,s,d,h,split)=>{const id=e.entity_id,dom=HD2.domain(id),registry=dom==='climate'?HD2.splitRegistryConfig(id,split):null,bundle=!registry&&dom==='climate'?HD2.splitBundle(e,d):null;if(registry)return registry;if(bundle)return{type:'custom:component-split-controller-v4',entity:id,...bundle};if(dom==='binary_sensor'&&s?.attributes?.device_class==='garage_door'){const b=HD2.garageControl(e,d,h);return b?{type:'custom:component-garage-door-controller-v1',title:HD2.stateName(h,e,s).replace(/ Garage Door Status$/i,''),entity:id,control_entity:b}:{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true}}if(['light','fan','number'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'slider',entity:id,show_state:true,tap_action:{action:'more-info'}};if(['switch','input_boolean'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'switch',entity:id,show_state:true,button_action:{tap_action:{action:'toggle'}},tap_action:{action:'more-info'}};if(dom==='media_player')return HD2.appleTvBundle(e,s,d,h)||{type:'custom:bubble-card',card_type:'media-player',entity:id,show_state:true,tap_action:{action:'more-info'}};if(dom==='climate')return{type:'custom:bubble-card',card_type:'climate',entity:id,show_state:true};if(dom==='cover')return{type:'custom:bubble-card',card_type:'cover',entity:id,show_state:true};if(dom==='lock')return{type:'custom:mushroom-lock-card',entity:id};if(dom==='vacuum')return{type:'custom:mushroom-vacuum-card',entity:id};if(dom==='select')return{type:'custom:mushroom-select-card',entity:id};if(dom==='button')return{type:'custom:mushroom-entity-card',entity:id,tap_action:{action:'perform-action',perform_action:'button.press',target:{entity_id:id},confirmation:{text:'Run this control?'}},hold_action:{action:'more-info'}};if(dom==='binary_sensor')return{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true,show_last_changed:false};return null};
-class DashboardPreferenceEditorV2 extends HTMLElement{constructor(){super();this.attachShadow({mode:'open'});this.built=false}open(o){this.o=o;this.items=o.items.map(x=>({...x}));const ids=new Set(this.items.map(x=>x.id));this.hidden=new Set((o.hidden||[]).filter(id=>ids.has(id)));this.build();this.render();this.d.showModal();queueMicrotask(()=>this.shadowRoot.querySelector('.x')?.focus())}build(){if(this.built)return;this.built=true;this.shadowRoot.innerHTML=`<style>*{box-sizing:border-box}dialog{width:min(580px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 24px));border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,8px);padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.hd{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--divider-color)}h2{font-size:20px;margin:0}.x,.move,.vis{width:44px;height:44px;border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center}.x{border:1px solid var(--divider-color)}.body{padding:12px 14px 92px}.copy{font-size:13px;color:var(--secondary-text-color);line-height:1.4;margin:0 2px 10px}.rows{display:grid;gap:7px}.row{min-height:58px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px}.row.off{opacity:.58}.ico{width:34px;height:34px;display:grid;place-items:center;color:var(--primary-color)}.name{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{font-size:12px;color:var(--secondary-text-color);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.acts{display:flex}.move[disabled]{opacity:.25}.vis.off{color:var(--error-color)}.ft{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--divider-color);background:var(--card-background-color)}.count{font-size:13px;color:var(--secondary-text-color)}.buttons{display:flex;gap:8px}.cancel,.save{min-height:44px;padding:0 13px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,6px);background:transparent;font-weight:650}.save{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}:is(button):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}</style><dialog><div class="hd"><h2></h2><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"><div class="copy"></div><div class="rows"></div></div><div class="ft"><span class="count"></span><span class="buttons"><button class="cancel" type="button">Cancel</button><button class="save" type="button">Save</button></span></div></dialog>`;this.d=this.shadowRoot.querySelector('dialog');this.d.addEventListener('click',e=>{if(e.target===this.d)this.d.close()});this.shadowRoot.querySelector('.x').onclick=()=>this.d.close();this.shadowRoot.querySelector('.cancel').onclick=()=>this.d.close();this.shadowRoot.querySelector('.save').onclick=()=>this.save()}render(){this.shadowRoot.querySelector('h2').textContent=this.o.title||'Edit';this.shadowRoot.querySelector('.copy').textContent=this.o.description||'Reorder items and hide anything you do not want shown.';const rows=this.shadowRoot.querySelector('.rows');rows.replaceChildren();this.items.forEach((x,i)=>{const r=document.createElement('div'),off=this.hidden.has(x.id);r.className=`row ${off?'off':''}`;r.innerHTML=`<span class="ico"><ha-icon icon="${HD2.esc(x.icon||'mdi:circle-outline')}"></ha-icon></span><span><div class="name">${HD2.esc(x.name)}</div><div class="meta">${HD2.esc(x.meta||'')}</div></span><span class="acts"><button class="move up" type="button" aria-label="Move earlier" ${i===0?'disabled':''}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="move down" type="button" aria-label="Move later" ${i===this.items.length-1?'disabled':''}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="vis ${off?'off':''}" type="button" aria-label="${off?'Show':'Hide'} ${HD2.esc(x.name)}"><ha-icon icon="mdi:${off?'eye-outline':'eye-off-outline'}"></ha-icon></button></span>`;r.querySelector('.up').onclick=()=>this.move(i,-1);r.querySelector('.down').onclick=()=>this.move(i,1);r.querySelector('.vis').onclick=()=>{off?this.hidden.delete(x.id):this.hidden.add(x.id);this.render()};rows.append(r)});this.shadowRoot.querySelector('.count').textContent=`${this.items.length-this.hidden.size} of ${this.items.length} shown`}move(i,d){const n=i+d;if(n<0||n>=this.items.length)return;[this.items[i],this.items[n]]=[this.items[n],this.items[i]];this.render()}async save(){const b=this.shadowRoot.querySelector('.save');b.disabled=true;b.textContent='Saving…';try{await this.o.onSave?.({order:this.items.map(x=>x.id),hidden:[...this.hidden]});this.d.close()}finally{b.disabled=false;b.textContent='Save'}}}
-if(!customElements.get('dashboard-preference-editor-v2'))customElements.define('dashboard-preference-editor-v2',DashboardPreferenceEditorV2);
+
+HD2.controlResolvers ??= [];
+HD2.registerControlResolver ??= (resolver) => {
+  if (typeof resolver !== "function") throw new TypeError("Dashboard control resolvers must be functions");
+  HD2.controlResolvers.push(resolver);
+  return () => {
+    const index = HD2.controlResolvers.indexOf(resolver);
+    if (index >= 0) HD2.controlResolvers.splice(index, 1);
+  };
+};
+
+const defaultControlConfig = HD2.controlConfig;
+HD2.controlConfig = (entry, state, registry, hass, splitRegistry) => {
+  for (const resolveControl of HD2.controlResolvers) {
+    const configuration = resolveControl(entry, state, registry, hass, splitRegistry);
+    if (configuration) return configuration;
+  }
+  return defaultControlConfig(entry, state, registry, hass, splitRegistry);
+};
+
+HD2.preferenceEditor ??= async () => {
+  await customElements.whenDefined("dashboard-preference-editor-v3");
+  const editor = globalThis.__homeDashboardEditorV3 ??= document.createElement("dashboard-preference-editor-v3");
+  if (editor.parentNode !== document.body) {
+    editor.remove?.();
+    document.body.append(editor);
+  }
+  return editor;
+};

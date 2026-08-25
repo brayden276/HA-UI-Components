@@ -12,7 +12,7 @@ The library turns the dashboard's inline JavaScript resources into one reusable 
 - Every public card has its own descriptively named source module.
 - Shared registration, escaping, navigation, lifecycle ownership, request coalescing, localisation, registry health, Apple TV, Security, Update, split-system and WLED logic is centralised under `src/shared/`.
 - The established component CSS and visual direction are preserved. Intentional micro-polish is limited to shared tokens, stable state feedback, focus treatment and undersized interaction targets.
-- Required supporting runtime modules and the current WLED, garage-door, camera and room-navigation patches are bundled.
+- Required supporting runtime modules are bundled from their owning source modules.
 - Native Home Assistant `heading` cards are not duplicated because they are built into Home Assistant and require no custom resource.
 - Creating this repository did not change Home Assistant, its dashboards, entities or registered resources.
 
@@ -68,16 +68,18 @@ The bundle guards custom-element registration, so it can be loaded while older i
 - `src/components/` — one descriptively named module for each of the 45 public cards.
 - `src/shared/` — shared primitives, registry caches, CSS tokens and controller runtimes.
 - `src/support/` — internal elements required by the public cards, including the Home preference editor.
-- `src/patches/` — the current WLED, garage-door, camera and room-navigation integration/compatibility patches.
+- no active compatibility-patch layer; component and shared-runtime source own current behaviour directly.
 - `src/provenance/` — style fingerprints captured before source reorganisation.
 - `scripts/assemble.mjs` — deterministic bundle assembly with no third-party dependencies.
-- `scripts/check-all.mjs` — syntax, inventory, advisory style-drift and isolated load-order validation.
+- `scripts/check-source.mjs` — the normal refactor-stable source gate: generic contracts plus migrated black-box specifications; it never reads or writes `dist/`.
+- `scripts/check-components.mjs` — automatically discovers generic contracts and migrated component specifications.
+- `scripts/check-all.mjs` — grouped validation categories, including the separate generated-artifact release boundary.
 - `scripts/check-release-contract.mjs` — verifies the versioned bundle and HACS filename contract.
 - `scripts/release.mjs` — non-destructive release preparation for versioning, bundling and validation.
 
 This repository intentionally contains no `custom_components/` integration source. Backend runtime code belongs in the separate [**HA-UI-Backend**](https://github.com/brayden276/HA-UI-Backend) HACS Integration repository.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and extension rules. For maintainers, `npm run check` runs the full static suite, while `npm run bundle` regenerates the distributable from the ordered source modules. Style fingerprint drift is reported as an advisory because intentional component work can legitimately change a fingerprint; run `npm run check:style` when it must be blocking. `npm run release` bumps the patch version, assembles the bundle and runs every release check; use `npm run release -- minor` or `npm run release -- major` for a larger version change. `npm run release:dry-run` previews the target version and working-tree state without writing files. The release command never stages, commits, tags or pushes.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and extension rules. For day-to-day work, `npm run check:source` is the normal refactor-stable source gate: it covers generic contracts and black-box component specifications without reading or writing `dist/`; ordinary behaviour-preserving refactors should normally change only `src/`. `npm run check:style` remains the blocking style-provenance gate; normal source validation reports existing provenance drift as advisory and never regenerates fingerprints. `npm run bundle` is the explicit artefact-writing operation. Bundle freshness/release checks independently compare the checked-in bundle with the expected in-memory composition, while live Home Assistant/HACS proof remains a separate installation and runtime exercise. `npm run release` bumps the patch version, assembles the bundle and runs every release check; use `npm run release -- minor` or `npm run release -- major` for a larger version change. `npm run release:dry-run` previews the target version and working-tree state without writing files. The release command never stages, commits, tags or pushes.
 
 ## Release checklist
 

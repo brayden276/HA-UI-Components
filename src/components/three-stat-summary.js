@@ -38,7 +38,8 @@ class ComponentThreeStatV2 extends HTMLElement {
   }
 
   disconnectedCallback() {
-    this._clear();
+    // The interaction handles belong to the retained shadow DOM. They remain
+    // valid during a transient detach and are replaced by the next render.
   }
 
   getCardSize() {

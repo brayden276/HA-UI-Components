@@ -1,3 +1,5 @@
+const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
 class ComponentFavouritesMinimalV1 extends HTMLElement {
   static getGridOptions() {
     return { columns: 12, rows: "auto" };
@@ -13,8 +15,8 @@ class ComponentFavouritesMinimalV1 extends HTMLElement {
   }
 
   setConfig(config) {
-    this.c = config;
-    if (this.child) this.child.setConfig(config);
+    this.c = { preference_key: "home-control.favourites.v1", ...config };
+    if (this.child) this.child.setConfig(this.c);
     else this.ensure();
   }
 
@@ -69,14 +71,9 @@ class ComponentFavouritesMinimalV1 extends HTMLElement {
   }
 }
 
-if (!customElements.get("component-favourites-minimal-v1")) {
-  customElements.define("component-favourites-minimal-v1", ComponentFavouritesMinimalV1);
-}
-window.customCards = window.customCards || [];
-if (!window.customCards.some((card) => card.type === "component-favourites-minimal-v1")) {
-  window.customCards.push({
-    type: "component-favourites-minimal-v1",
-    name: "Favourites Minimal",
-    description: "Existing favourites behaviour with restrained Home typography.",
-  });
-}
+registerCard({
+  type: "component-favourites-minimal-v1",
+  element: ComponentFavouritesMinimalV1,
+  name: "Favourites Minimal",
+  description: "Existing favourites behaviour with restrained Home typography.",
+});

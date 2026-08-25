@@ -32,8 +32,8 @@ class ComponentHistoryGraphV2 extends HTMLElement {
     clearTimeout(this.timer);
     this.timer = null;
     window.removeEventListener('pointerdown', this.outside, true);
-    for (const handle of this.interactions) handle.destroy();
-    this.interactions = [];
+    // Legend controls are bound to retained shadow DOM and remain valid while
+    // Home Assistant temporarily detaches the card.
   }
   getCardSize() { return 7; }
   build() {

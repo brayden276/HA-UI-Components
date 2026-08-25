@@ -24,8 +24,8 @@ class ComponentControlRowV2 extends DashboardBaseCard {
     if (this.c) this.r();
   }
   disconnectedCallback() {
-    for (const handle of this._interactions) handle.destroy();
-    this._interactions = [];
+    // Local controls remain attached to the retained shadow DOM. Service
+    // coalescing, unlike DOM interaction, must be released on disconnect.
     this._resetCoalescer();
   }
   getCardSize() { return 1; }

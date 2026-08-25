@@ -41,8 +41,7 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
   disconnectedCallback() {
     window.clearTimeout(this.messageTimer);
     this.messageTimer = null;
-    this._interaction?.destroy();
-    this._interaction = null;
+    // The retained action remains available until a reconnect render replaces it.
   }
 
   _all() {

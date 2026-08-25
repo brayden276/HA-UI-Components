@@ -1,10 +1,10 @@
-import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { composeBundleFromSource } from "./bundle-composition.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const bundle = await readFile(resolve(root, "dist/ha-component-library.js"), "utf8");
+const bundle = await composeBundleFromSource(root);
 
 class MockStyle {
   constructor() { this.values = new Map(); }
@@ -139,7 +139,7 @@ context.customCards = [];
 context.addEventListener = () => {};
 context.removeEventListener = () => {};
 context.dispatchEvent = () => true;
-vm.runInContext(bundle, vm.createContext(context), { filename: "dist/ha-component-library.js" });
+vm.runInContext(bundle, vm.createContext(context), { filename: "in-memory-ha-component-library.js" });
 await Promise.resolve();
 await Promise.resolve();
 
@@ -265,6 +265,26 @@ if (failures.length) throw new Error(`Runtime contract failures:\n${failures.joi
 }
 
 {
+  const Split = definitions.get("component-split-controller-v4");
+  const split = new Split();
+  split.setConfig({ entity: "climate.smoke", profile_area_id: "smoke" });
+  split.R();
+  split.connectedCallback();
+  const changes = [];
+  split.W = (amount) => changes.push(amount);
+  const press = (button) => {
+    button.dispatch("pointerdown");
+    button.dispatch("pointerup");
+  };
+  press(split.$.decrease);
+  press(split.$.increase);
+  split.disconnectedCallback();
+  if (JSON.stringify(changes) !== JSON.stringify([-1, 1])) {
+    throw new Error("Split temperature controls must apply exactly one discrete decrement and increment per press");
+  }
+}
+
+{
   const AppleTv = definitions.get("component-apple-tv-controller-v1");
   const appleTv = new AppleTv();
   appleTv.setConfig({ demo: true });
@@ -276,15 +296,13 @@ if (failures.length) throw new Error(`Runtime contract failures:\n${failures.joi
   if (
     appleTv.interactionHandles.length !== 4 ||
     remote?.listeners.get("pointerdown")?.length !== 1 ||
-    apps?.listeners.get("pointerdown")?.length !== 1
+    apps?.listeners.get("pointerdown")?.length !== 1 ||
+    !appleTv.el?.headerActions ||
+    appleTv.el.headerActions.children.length !== 3
   ) {
-    throw new Error("Apple TV Remote and Apps launchers must rebind after reconnect");
+    throw new Error("Apple TV controls must retain their header actions and launcher bindings after reconnect");
   }
   appleTv.disconnectedCallback();
-}
-
-if (!bundle.includes("cardHead.append(actions)") || bundle.includes('querySelector(".identity")?.append(actions)')) {
-  throw new Error("Apple TV header actions must remain siblings of the identity detail trigger");
 }
 
 {

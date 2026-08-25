@@ -33,8 +33,9 @@ class ComponentContextStripV3 extends HTMLElement {
   }
 
   disconnectedCallback() {
-    this._interaction?.destroy();
-    this._interaction = null;
+    // This card owns only an interaction bound to its retained shadow DOM.
+    // Keep it live while Home Assistant temporarily moves the card; reconnect
+    // renders a fresh view and releases the previous handle.
   }
 
   getCardSize() { return 1; }

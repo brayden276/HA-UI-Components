@@ -17,7 +17,6 @@ const backendIsUnavailable = (error) => {
     code.includes("not configured")
   );
 };
-
 const callPreferenceBackend = (hass, message) => {
   if (typeof hass?.callWS === "function") return hass.callWS(message);
   if (typeof hass?.connection?.sendMessagePromise === "function") {
@@ -109,55 +108,3 @@ preferenceRuntime.savePrefs = async (hass, key, value) => {
     throw error;
   }
 };
-
-// Give the existing editor explicit failure feedback without duplicating the
-// editor component. The patch is intentionally behavioural; its visual system
-// remains owned by dashboard-preference-editor-v3.
-const PreferenceEditor = customElements.get("dashboard-preference-editor-v3");
-if (PreferenceEditor && !PreferenceEditor.prototype.__backendFeedbackV1) {
-  PreferenceEditor.prototype.__backendFeedbackV1 = true;
-  const originalOpen = PreferenceEditor.prototype.open;
-  PreferenceEditor.prototype.open = function openWithBackendFeedback(options) {
-    originalOpen.call(this, options);
-    const save = this.shadowRoot.querySelector(".save");
-    if (save) save.style.minWidth = "84px";
-    let error = this.shadowRoot.querySelector(".save-error");
-    if (!error) {
-      error = document.createElement("p");
-      error.className = "save-error";
-      error.hidden = true;
-      error.setAttribute("role", "alert");
-      error.style.cssText =
-        "margin:0;padding:10px 14px 0;color:var(--error-color);font-size:13px;line-height:1.4";
-      this.shadowRoot.querySelector(".ft")?.before(error);
-    }
-    error.hidden = true;
-    error.textContent = "";
-  };
-  PreferenceEditor.prototype.save = async function saveWithBackendFeedback() {
-    const button = this.shadowRoot.querySelector(".save");
-    const error = this.shadowRoot.querySelector(".save-error");
-    button.disabled = true;
-    button.setAttribute("aria-busy", "true");
-    button.textContent = "Saving…";
-    if (error) error.hidden = true;
-    try {
-      await this.o.onSave?.({
-        order: this.items.map((item) => item.id),
-        hidden: [...this.hiddenIds],
-      });
-      this.d.close();
-    } catch (saveError) {
-      if (error) {
-        error.textContent =
-          saveError?.message ||
-          "Couldn’t save these changes. Your current choices are still open; try again.";
-        error.hidden = false;
-      }
-    } finally {
-      button.disabled = false;
-      button.setAttribute("aria-busy", "false");
-      button.textContent = "Save";
-    }
-  };
-}

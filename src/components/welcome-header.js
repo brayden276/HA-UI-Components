@@ -10,7 +10,7 @@ class ComponentWelcomeHeaderV1 extends HTMLElement{
   }
   set hass(hass){this._hass=hass;this._render()}
   connectedCallback(){this._schedule();this._render()}
-  disconnectedCallback(){clearTimeout(this._timer);this._timer=null;this._interaction?.destroy();this._interaction=null}
+  disconnectedCallback(){clearTimeout(this._timer);this._timer=null}
   getCardSize(){return 1}
   _schedule(){
     clearTimeout(this._timer);

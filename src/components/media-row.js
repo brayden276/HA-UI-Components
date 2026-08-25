@@ -25,8 +25,7 @@ class ComponentMediaRowV2 extends DashboardBaseCard {
     if (this.c) this.r();
   }
   disconnectedCallback() {
-    for (const handle of this._interactions) handle.destroy();
-    this._interactions = [];
+    // The rendered media controls stay valid across a transient detach.
     this._busy = false;
   }
   getCardSize() { return 1; }

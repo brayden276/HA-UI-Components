@@ -1,6 +1,7 @@
 (() => {
   globalThis.__homeDashboardV2 ??= {};
   const HD2 = globalThis.__homeDashboardV2;
+  const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
   const ACTION_SERVICES = new Map([
     ["automation", "trigger"],
     ["scene", "turn_on"],
@@ -24,7 +25,6 @@
       this.gen = 0;
       this.cards = new Map();
       this.structureSig = "";
-      this.editor = document.createElement("dashboard-preference-editor-v3");
       this.shadowRoot.innerHTML = `<style>
         :host{display:block;min-width:0}*{box-sizing:border-box}
         ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}
@@ -39,7 +39,6 @@
       </style><ha-card><div class="head"><span class="heading"><ha-icon></ha-icon><h2></h2></span><button class="edit" type="button"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button></div><div class="grid"></div><p class="empty">No quick actions available</p></ha-card>`;
       this.grid = this.shadowRoot.querySelector(".grid");
       this.empty = this.shadowRoot.querySelector(".empty");
-      this.shadowRoot.append(this.editor);
       this.shadowRoot.querySelector(".edit").onclick = () => this.openEditor();
     }
 
@@ -62,14 +61,18 @@
 
     set hass(h) {
       this.h = h;
-      for (const card of this.cards.values()) card.hass = h;
+      for (const record of this.cards.values()) record.element.hass = h;
       this.unsub || this.subscribe();
       if (!this.prefsLoaded) this.loadPrefs();
       if (!this.d) this.schedule();
     }
 
     connectedCallback() { this.subscribe(); this.schedule(); }
-    disconnectedCallback() { this.unsub?.(); this.unsub = null; this.gen++; }
+    disconnectedCallback() {
+      this.unsub?.();
+      this.unsub = null;
+      this.gen++;
+    }
     getCardSize() { return 2; }
 
     subscribe() {
@@ -147,40 +150,66 @@
     }
 
     async sync(generation) {
-      this.d = this.d || await HD2.REG.load(this.h);
+      const data = this.d || await HD2.REG.load(this.h);
       if (generation !== this.gen) return;
+      this.d ||= data;
+
       const presentation = HD2.applyPrefs(this.items(), this.prefs);
-      const sig = JSON.stringify(presentation.visible.map((item) => [item.id, item.name, item.icon, item.path, item.entity, item.service]));
-      this.empty.style.display = presentation.visible.length ? "none" : "block";
-      if (sig === this.structureSig) {
-        for (const card of this.cards.values()) card.hass = this.h;
+      const rows = presentation.visible.map((item) => {
+        const config = this.cardConfig(item);
+        return { item, config, configSignature: JSON.stringify(config) };
+      });
+      const signature = JSON.stringify(rows.map((row) => [row.item.id, row.configSignature]));
+      const complete = rows.length === this.cards.size && rows.every((row, index) =>
+        this.cards.get(row.item.id)?.configSignature === row.configSignature &&
+        this.grid.children[index] === this.cards.get(row.item.id)?.element,
+      );
+      if (complete) {
+        this.empty.style.display = rows.length ? "none" : "block";
+        for (const record of this.cards.values()) record.element.hass = this.h;
+        this.structureSig = signature;
         return;
       }
-      this.structureSig = sig;
-      const keep = new Set(presentation.visible.map((item) => item.id));
-      for (const [id, element] of [...this.cards]) {
-        if (!keep.has(id)) { element.remove(); this.cards.delete(id); }
-      }
-      for (const item of presentation.visible) {
-        let element = this.cards.get(item.id);
-        if (!element) {
-          try {
-            element = await HD2.card(this.h, this.cardConfig(item));
-            if (generation !== this.gen) return;
-            this.cards.set(item.id, element);
-          } catch { continue; }
+
+      const staged = new Map();
+      for (const row of rows) {
+        const current = this.cards.get(row.item.id);
+        if (current?.configSignature === row.configSignature) {
+          staged.set(row.item.id, current);
+          continue;
         }
-        element.hass = this.h;
-        if (this.grid.lastElementChild !== element) this.grid.append(element);
+        try {
+          const element = await HD2.card(this.h, row.config);
+          if (generation !== this.gen) return;
+          staged.set(row.item.id, { element, configSignature: row.configSignature });
+        } catch {
+          // Retain the committed child and leave the signature stale for retry.
+        }
       }
+      if (generation !== this.gen || staged.size !== rows.length) return;
+
+      const retained = new Set(staged.values());
+      for (const record of this.cards.values()) {
+        if (!retained.has(record)) record.element.remove();
+      }
+      this.cards.clear();
+      for (const [id, record] of staged) this.cards.set(id, record);
+
+      this.empty.style.display = rows.length ? "none" : "block";
+      for (const row of rows) {
+        const record = this.cards.get(row.item.id);
+        record.element.hass = this.h;
+        if (this.grid.lastElementChild !== record.element) this.grid.append(record.element);
+      }
+      this.structureSig = signature;
     }
 
     async openEditor() {
       if (!this.h || !HD2.REG?.load) return;
-      await customElements.whenDefined("dashboard-preference-editor-v3");
+      const editor = await HD2.preferenceEditor();
       this.d = this.d || await HD2.REG.load(this.h);
       const presentation = HD2.applyPrefs(this.items(), this.prefs);
-      this.editor.open({
+      editor.open({
         title: `Edit ${this.c.title.toLowerCase()}`,
         description: "Reorder or hide discovered actions and destinations without changing their Home Assistant configuration.",
         items: presentation.all,
@@ -195,6 +224,5 @@
     }
   }
 
-  if(!customElements.get('component-household-directory-v3'))customElements.define('component-household-directory-v3',ComponentHouseholdDirectoryV3);window.customCards=window.customCards||[];
-  if (!window.customCards.some((x) => x.type === "component-household-directory-v3")) window.customCards.push({ type: "component-household-directory-v3", name: "Quick Actions Directory V3", description: "Stable auto-discovered labelled actions and household destinations." });
+  registerCard({ type: "component-household-directory-v3", element: ComponentHouseholdDirectoryV3, name: "Quick Actions Directory V3", description: "Stable auto-discovered labelled actions and household destinations." });
 })();

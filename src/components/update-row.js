@@ -51,8 +51,7 @@ class ComponentUpdateRowV3 extends HTMLElement {
   disconnectedCallback() {
     window.clearTimeout(this.startTimer);
     window.clearTimeout(this.errorTimer);
-    for (const handle of this._interactions) handle.destroy();
-    this._interactions = [];
+    // The retained detail and action controls are replaced by the next render.
   }
 
   _state() {

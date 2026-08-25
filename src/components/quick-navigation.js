@@ -49,7 +49,10 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
     }
   }
 
-  disconnectedCallback() { this._clearInteractions(); }
+  disconnectedCallback() {
+    // Reconnect renders the retained shadow DOM and replaces these handles.
+    // Keeping them alive through a transient detach avoids dead controls.
+  }
 
   connectedCallback() {
     if (this.c) this.r();

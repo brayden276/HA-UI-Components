@@ -98,9 +98,14 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
 
   entityState(entityId) { return entityId ? this._hass?.states?.[entityId] ?? null : null; }
 
+  controlEntityId() {
+    const entityId = String(this.config?.control_entity || "");
+    return entityId.startsWith("button.") ? entityId : null;
+  }
+
   stateSignature() {
     return JSON.stringify(
-      [this.config.entity, this.config.control_entity, this.config.availability_entity]
+      [this.config.entity, this.controlEntityId(), this.config.availability_entity]
         .filter(Boolean)
         .map((entityId) => {
           const state = this.entityState(entityId);
@@ -111,7 +116,7 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
 
   status() {
     const state = this.entityState(this.config.entity);
-    const control = this.entityState(this.config.control_entity);
+    const control = this.entityState(this.controlEntityId());
     const availability = this.entityState(this.config.availability_entity);
     const controllerUnavailable =
       (this.config.availability_entity && (!availability || availability.state !== "on")) ||
@@ -207,7 +212,7 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
     try {
       confirmation = this.waitForConfirmation(expected);
       void confirmation.catch(() => {});
-      await this._hass.callService("button", "press", { entity_id: this.config.control_entity });
+      await this._hass.callService("button", "press", { entity_id: this.controlEntityId() });
       if (generation !== this.requestGeneration) return;
       this.pendingLabel = expected === "on" ? "Opening" : expected === "off" ? "Closing" : "Waiting";
       this.render();

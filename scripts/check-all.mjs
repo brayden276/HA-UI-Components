@@ -3,40 +3,17 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const checks = [
-  ["--check", "dist/ha-component-library.js"],
-  ["scripts/check-inventory.mjs"],
-  ["scripts/check-maintainability.mjs"],
-  ["scripts/check-interactions.mjs"],
-  ["scripts/check-interaction-runtime.mjs"],
-  ["scripts/check-context-strip.mjs"],
-  ["scripts/check-text-effect.mjs"],
-  ["scripts/check-quick-navigation.mjs"],
-  ["scripts/check-home-overview.mjs"],
-  ["scripts/check-favourites-minimal.mjs"],
-  ["scripts/check-single-kpi.mjs"],
-  ["scripts/check-three-stat.mjs"],
-  ["scripts/check-navigation-tile.mjs"],
-  ["scripts/check-section-separator.mjs"],
-  ["scripts/check-empty-state.mjs"],
-  ["scripts/check-notice.mjs"],
-  ["scripts/check-progress.mjs"],
-  ["scripts/check-status-row.mjs"],
-  ["scripts/check-action.mjs"],
-  ["scripts/check-list.mjs"],
-  ["scripts/check-async-broker.mjs"],
-  ["scripts/check-component-models.mjs"],
-  ["scripts/check-polish-contracts.mjs"],
-  ["scripts/check-backend-preferences.mjs"],
-  ["scripts/check-style-preservation.mjs"],
-  ["scripts/check-load-order.mjs"],
-  ["scripts/check-runtime-contracts.mjs"],
-  ["scripts/check-release-contract.mjs"],
+const categories = [
+  ["source syntax/policy", "scripts/check-source.mjs"],
+  ["component contracts", "scripts/check-components.mjs"],
+  ["shared runtime contracts", "scripts/check-interaction-runtime.mjs"],
+  ["shared component harness", "scripts/check-component-harness.mjs"],
+  ["style/provenance", "scripts/check-style-preservation.mjs"],
+  ["in-memory bundle/load-order", "scripts/check-load-order.mjs"],
+  ["generated-artifact freshness/release checks", "scripts/check-bundle-freshness.mjs"],
+  ["generated-artifact release contract", "scripts/check-release-contract.mjs"],
 ];
-
-for (const args of checks) {
-  execFileSync(process.execPath, args, {
-    cwd: root,
-    stdio: "inherit",
-  });
+for (const [label, file, args = []] of categories) {
+  console.log(`Validation category: ${label}`);
+  execFileSync(process.execPath, [file, ...args], { cwd: root, stdio: "inherit" });
 }

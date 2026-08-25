@@ -1,4 +1,4 @@
-const { interaction, openMoreInfo } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 
 class ComponentHomeOverviewV4 extends HTMLElement {
   static getGridOptions() { return { columns: 12, rows: "auto" }; }
@@ -36,6 +36,9 @@ class ComponentHomeOverviewV4 extends HTMLElement {
       current_dashboard: "home-control",
       favourites_helpers: ["input_text.dashboard_favourite_1", "input_text.dashboard_favourite_2", "input_text.dashboard_favourite_3", "input_text.dashboard_favourite_4"],
       ...c,
+      // Home Favourites is backed by the companion service. Dashboard helper
+      // entities are intentionally never forwarded into the child card.
+      favourites_helpers: [],
     };
     this.renderHeader();
     this.ensure();
@@ -138,5 +141,4 @@ class ComponentHomeOverviewV4 extends HTMLElement {
 class ComponentHomeOverviewV5 extends ComponentHomeOverviewV4 {}
 
 if (!customElements.get("component-home-overview-v5")) customElements.define("component-home-overview-v5", ComponentHomeOverviewV5);
-if(!customElements.get('component-home-overview-v4'))customElements.define('component-home-overview-v4',ComponentHomeOverviewV4);window.customCards=window.customCards||[];
-if (!window.customCards.some((x) => x.type === "component-home-overview-v4")) window.customCards.push({ type: "component-home-overview-v4", name: "Home Overview V4", description: "Stable minimal Home overview without state-refresh teardown." });
+registerCard({ type: "component-home-overview-v4", element: ComponentHomeOverviewV4, name: "Home Overview V4", description: "Stable minimal Home overview without state-refresh teardown." });

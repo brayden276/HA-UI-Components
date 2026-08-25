@@ -131,12 +131,15 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.row.classList.toggle("offline", !status.online);
     this.view.disabled = !status.online;
     const hasControls = this.bundleData.switches.length || this.bundleData.detections.length || this.bundleData.buttons.length;
-    this.controls.hidden = !hasControls;
+    const internalUsable = [...this.bundleData.switches, ...this.bundleData.detections, ...this.bundleData.buttons]
+      .some((entity) => this.good(entity.entity_id));
+    this.view.hidden = !status.online;
+    this.controls.hidden = !status.online || !internalUsable;
     // The sheet is populated when opened. Rebuilding it while hidden creates
     // controls and listeners for every Home Assistant state update.
     if (this.dialog.open) this.renderControls();
     else this.controlsSignature = "";
-    if (this.dialog.open && !hasControls) this.dialog.close();
+    if (this.dialog.open && (!hasControls || !status.online)) this.dialog.close();
   }
 
   renderControls() {
@@ -206,7 +209,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.shadowRoot.querySelector(".maintenance-section").hidden = !this.bundleData.buttons.length;
   }
 
-  openControls() { if (!this.dialog || !this.bundleData) return; this.confirmId = null; this.renderControls(); if (!this.dialog.open) this.dialog.showModal(); queueMicrotask(() => this.shadowRoot.querySelector(".close")?.focus()); }
+  openControls() { if (!this.dialog || !this.bundleData || !this.status().online) return; this.confirmId = null; this.renderControls(); if (!this.dialog.open) this.dialog.showModal(); queueMicrotask(() => this.shadowRoot.querySelector(".close")?.focus()); }
   async openCamera() {
     const hass = this._hass, bundle = this.bundleData;
     if (!hass || !bundle) return;

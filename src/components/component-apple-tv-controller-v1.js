@@ -10,6 +10,22 @@ const {
   registerCard,
 } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 
+const APP_BRAND_COLOURS = [
+  [/netflix/i, "#e50914"],
+  [/youtube/i, "#ff0000"],
+  [/spotify/i, "#1ed760"],
+  [/prime video|amazon/i, "#00a8e1"],
+  [/plex/i, "#e5a00d"],
+  [/twitch/i, "#9146ff"],
+  [/vlc/i, "#ff8800"],
+  [/apple tv|apple music|music/i, "var(--primary-text-color)"],
+  [/disney/i, "#0b5bd3"],
+  [/kayo|sport/i, "#00a651"],
+  [/binge/i, "#8a2be2"],
+  [/stan/i, "#00a5ff"],
+  [/paramount/i, "#0064ff"],
+];
+
 class ComponentAppleTvControllerV1 extends HTMLElement {
   static getGridOptions() {
     return { columns: 12, rows: "auto" };
@@ -28,6 +44,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.messageTimer = null;
     this.interactionHandles = [];
     this.dynamicInteractions = [];
+    this.headerInteractions = [];
     this.volumeCoalescer = null;
     this.volumeGestureActive = false;
     this.optimisticVolume = null;
@@ -61,6 +78,8 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.interactionHandles = [];
     for (const handle of this.dynamicInteractions) handle.destroy();
     this.dynamicInteractions = [];
+    for (const handle of this.headerInteractions) handle.destroy();
+    this.headerInteractions = [];
     this.volumeCoalescer?.destroy();
     this.volumeCoalescer = null;
     this.unsubscribe?.();
@@ -136,12 +155,18 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         button:disabled{opacity:.42;cursor:default}
         ha-card{display:block;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,8px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color)}
         .wrap{padding:14px}
+        .card-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px}
         .identity{min-height:44px;display:grid;grid-template-columns:44px minmax(0,1fr);gap:12px;align-items:center}
         .ico{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;background:var(--secondary-background-color);color:var(--secondary-text-color)}
         .ico.on{color:var(--primary-color)}
         .name,.status{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .name{font-size:14px;font-weight:650}
         .status{margin-top:3px;font-size:12px;color:var(--secondary-text-color)}
+        .card-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+        .header-action{width:44px;height:44px;min-width:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}
+        .header-action.power.on{color:var(--primary-color)}
+        .header-action ha-icon{--mdc-icon-size:20px}
+        .header-action span{display:none}
         .launchers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
         .launcher{min-height:66px;padding:10px 12px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:14px;display:grid;grid-template-columns:38px minmax(0,1fr) 20px;gap:10px;align-items:center;text-align:left;background:color-mix(in srgb,var(--secondary-background-color) 45%,transparent)}
         .launcher .launch-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:var(--card-background-color);color:var(--primary-color)}
@@ -155,12 +180,12 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         .error{color:var(--error-color)}
         .panel{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:16px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,rgba(0,0,0,.28)));overscroll-behavior:contain;touch-action:pan-y}
         .panel[hidden]{display:none!important}
-        .sheet{width:min(430px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--divider-color);border-radius:24px;background:var(--card-background-color);box-shadow:0 18px 54px rgba(0,0,0,.24)}
-        .head{min-height:62px;padding:9px 10px 9px 18px;display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;border-bottom:1px solid var(--divider-color)}
+        .sheet{width:min(430px,calc(100vw - 32px));max-height:calc(100dvh - 32px);min-height:0;overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,8px);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}
+        .head{flex:0 0 auto;min-height:62px;padding:9px 10px 9px 18px;display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;border-bottom:1px solid var(--divider-color)}
         .sheet-name{display:block;font-size:15px;font-weight:700}
         .sheet-state{display:block;margin-top:2px;font-size:12px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .close{width:44px;height:44px;border-radius:50%;display:grid;place-items:center}
-        .body{min-height:0;overflow:auto;overscroll-behavior:contain;padding:16px 18px max(18px,env(safe-area-inset-bottom));display:grid;gap:16px;scrollbar-gutter:stable}
+        .body{flex:1 1 auto;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;padding:16px 18px max(18px,env(safe-area-inset-bottom));display:grid;gap:16px;scrollbar-gutter:stable}
         .section{display:grid;gap:10px}
         .section-title{font-size:12px;font-weight:700;color:var(--secondary-text-color);text-transform:uppercase;letter-spacing:.04em}
         .remote-shell{display:grid;gap:16px}
@@ -190,24 +215,30 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         .keyboard .utility span{display:none}
         .apps-summary{font-size:12px;color:var(--secondary-text-color)}
         .apps-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px}
+        .apps-grid{align-content:start}
         .app{min-width:0;aspect-ratio:1;padding:10px;border:1px solid var(--divider-color);border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;background:color-mix(in srgb,var(--secondary-background-color) 58%,transparent);text-align:center}
         .app[aria-selected=true]{border-color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}
         .app-logo{width:48px;height:48px;border-radius:13px;display:grid;place-items:center;background:var(--card-background-color);color:var(--primary-text-color);box-shadow:0 2px 9px rgba(0,0,0,.1)}
-        .app-logo ha-icon{--mdc-icon-size:29px}
+        .app-logo ha-icon{--mdc-icon-size:29px;color:var(--apple-tv-app-colour,var(--primary-color))}
         .app-name{width:100%;font-size:11px;font-weight:650;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .panel-notice{padding:0 18px max(16px,env(safe-area-inset-bottom));margin:0;font-size:12px;color:var(--secondary-text-color)}
         .panel-notice:not(:empty){padding-top:10px;border-top:1px solid var(--divider-color)}
+        .panel-notice{flex:0 0 auto}
+        .panel[data-mode="apps"] .body{max-height:calc(100dvh - 112px)}
         :is(button,input,.identity):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
-        @media(max-width:420px){.panel{padding:8px}.sheet{width:calc(100vw - 16px);max-height:calc(100dvh - 16px);border-radius:20px}.wrap{padding:12px}.body{padding:14px}.dpad{width:min(270px,78vw)}.apps-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.app{border-radius:16px}.app-logo{width:44px;height:44px}}
+        @media(max-width:420px){.panel{padding:16px}.sheet{width:calc(100vw - 32px);max-height:calc(100dvh - 32px)}.wrap{padding:12px}.card-head{gap:8px}.card-actions{gap:8px}.header-action{width:44px;height:44px;min-width:44px}.header-action ha-icon{--mdc-icon-size:20px}.body{padding:14px}.dpad{width:min(270px,78vw)}.apps-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.app{border-radius:16px}.app-logo{width:44px;height:44px}}
       </style>
       <ha-card>
         <div class="wrap">
-          <div class="identity" role="button" tabindex="0">
-            <span class="ico"><ha-icon></ha-icon></span>
-            <span>
-              <span class="name"></span>
-              <span class="status" role="status"></span>
-            </span>
+          <div class="card-head">
+            <div class="identity" role="button" tabindex="0">
+              <span class="ico"><ha-icon></ha-icon></span>
+              <span>
+                <span class="name"></span>
+                <span class="status" role="status"></span>
+              </span>
+            </div>
+            <div class="card-actions" aria-label="Apple TV quick controls"></div>
           </div>
           <div class="launchers">
             <button class="launcher remote-launch" type="button" aria-controls="apple-tv-panel">
@@ -246,6 +277,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       iconWrap: q(".ico"),
       name: q(".name"),
       status: q(".status"),
+      headerActions: q(".card-actions"),
       remoteLaunch: q(".remote-launch"),
       appsLaunch: q(".apps-launch"),
       appsMeta: q(".apps-launch .launch-meta"),
@@ -331,12 +363,12 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.el.identity.setAttribute("aria-label", `Open details for ${this.name(model)}`);
     this.el.icon.setAttribute("icon", this.config.icon);
     this.el.iconWrap.classList.toggle("on", model.awake);
-    this.el.remoteLaunch.disabled = !this.canRemote(model);
+    this.el.remoteLaunch.disabled = !model.awake || !this.canRemote(model);
     this.el.remoteLaunch.setAttribute(
       "aria-expanded",
       String(this.panelMode === "remote"),
     );
-    this.el.appsLaunch.disabled = !model.canSelectSource;
+    this.el.appsLaunch.disabled = !model.awake || !model.canSelectSource;
     this.el.appsLaunch.setAttribute(
       "aria-expanded",
       String(this.panelMode === "apps"),
@@ -346,10 +378,52 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       : "No installed apps";
     this.el.notice.textContent = this.message;
     this.el.notice.classList.toggle("error", this.messageType === "error");
+    this.el.panel.dataset.mode = this.panelMode || "";
+    this.renderHeaderControls(model);
+    if (this.panelMode && !model.awake) this.closePanel(false);
     if (this.panelMode) {
       if (this.volumeGestureActive) this.updateVolumeReadout(model);
       else this.renderPanel(model);
     }
+  }
+
+  renderHeaderControls(model) {
+    for (const handle of this.headerInteractions) handle.destroy();
+    this.headerInteractions = [];
+
+    const wake = !model.awake;
+    const powerAction = wake ? "wake" : "sleep";
+    const canPower = wake ? model.canWake : model.canSleep;
+    const repeatVolume = { delay: 350, interval: 110, accelerate: true };
+    const start = this.dynamicInteractions.length;
+    const volumeDown = this.button(
+      "header-action",
+      "Volume down",
+      "mdi:volume-minus",
+      () => this.queueVolume("down"),
+      !model.canVolumeDown,
+      false,
+      { repeat: repeatVolume, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
+    );
+    const volumeUp = this.button(
+      "header-action",
+      "Volume up",
+      "mdi:volume-plus",
+      () => this.queueVolume("up"),
+      !model.canVolumeUp,
+      false,
+      { repeat: repeatVolume, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
+    );
+    const power = this.button(
+      `header-action power ${model.awake ? "on" : ""}`,
+      wake ? "Turn Apple TV on" : "Turn Apple TV off",
+      "mdi:power",
+      () => this.remoteCommand(wake ? "wakeup" : "suspend", powerAction),
+      !canPower || this.busy(powerAction),
+      this.busy(powerAction),
+    );
+    this.headerInteractions.push(...this.dynamicInteractions.splice(start));
+    this.el.headerActions.replaceChildren(volumeDown, volumeUp, power);
   }
 
   renderPanel(model) {
@@ -416,20 +490,6 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         ),
       );
     }
-    if (model.canWake || model.canSleep) {
-      const wake = model.canWake;
-      const action = wake ? "wake" : "sleep";
-      toolbar.append(
-        this.button(
-          "remote-pill power",
-          wake ? "Wake" : "Sleep",
-          wake ? "mdi:power" : "mdi:power-sleep",
-          () => this.remoteCommand(wake ? "wakeup" : "suspend", action),
-          this.busy(action),
-          this.busy(action),
-        ),
-      );
-    }
     if (toolbar.childElementCount) shell.append(toolbar);
 
     const navigation = this.navigation(model);
@@ -440,12 +500,6 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
 
     const playback = this.playback(model);
     if (playback) shell.append(playback);
-
-    if (model.canVolumeDown || model.canVolumeUp) {
-      const volume = this.section("Volume");
-      volume.append(this.volumeControl(model));
-      shell.append(volume);
-    }
 
     const keyboard = this.keyboard(model);
     if (keyboard) shell.append(keyboard);
@@ -667,6 +721,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       );
       button.disabled = !model.canSelectSource || this.busy(action);
       logo.className = "app-logo";
+      logo.style.setProperty("--apple-tv-app-colour", this.appColour(source));
       logo.append(this.icon(this.appIcon(source)));
       name.className = "app-name";
       name.textContent = source;
@@ -679,6 +734,11 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
 
   appIcon(source) {
     return appleTvAppIcon(source, this.config?.app_icons);
+  }
+
+  appColour(source) {
+    return APP_BRAND_COLOURS.find(([pattern]) => pattern.test(source))?.[1]
+      || "var(--primary-color)";
   }
 
   async invoke(action, request, success) {
@@ -731,12 +791,19 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   ensureVolumeCoalescer() {
-    if (this.volumeCoalescer) return this.volumeCoalescer;
+    if (this.volumeCoalescer && !this.volumeCoalescer.destroyed) return this.volumeCoalescer;
     this.volumeCoalescer = createRequestCoalescer(async (direction) => {
       const model = this.model();
       if (direction === "up" ? !model.canVolumeUp : !model.canVolumeDown) return;
       if (!this.config.demo) await this._hass.callService("media_player", `volume_${direction}`, { entity_id: model.entities.media });
-    }, { onError: () => this.setMessage("Apple TV did not respond", "error", 4000) });
+    }, {
+      onError: () => this.setMessage("Apple TV did not respond", "error", 4000),
+      onIdle: () => {
+        if (this.volumeGestureActive) return;
+        this.optimisticVolume = null;
+        if (this.isConnected) this.render();
+      },
+    });
     return this.volumeCoalescer;
   }
 
@@ -751,7 +818,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   setVolumeGesture(pressed, model) {
     this.volumeGestureActive = pressed;
     if (pressed && this.optimisticVolume === null) this.optimisticVolume = model.level;
-    if (!pressed) { this.optimisticVolume = null; this.render(); }
+    this.updateVolumeReadout(model);
   }
 
   queueVolume(direction) {
@@ -837,7 +904,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
 
   openPanel(mode, trigger) {
     const model = this.model();
-    if (mode === "remote" ? !this.canRemote(model) : !model.canSelectSource) {
+    if (!model.awake || (mode === "remote" ? !this.canRemote(model) : !model.canSelectSource)) {
       return;
     }
     this.panelMode = mode;

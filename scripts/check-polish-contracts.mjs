@@ -34,8 +34,6 @@ requireText("src/shared/dashboard-style-tokens.js", "prefers-reduced-motion:redu
 requireText("src/components/media-row.js", ".btn{position:relative;width:44px;height:44px", "Media transport controls must retain 44px targets");
 requireText("src/components/welcome-header.js", ".row{min-height:44px", "Welcome header must retain a stable 44px row");
 requireText("src/components/home-overview.js", ".weather{appearance:none;border:0;min-height:44px", "Overview weather control must retain a 44px target");
-requireText("src/components/split-system-controller.js", 'interaction(this.$.decrease,{primary:()=>this.W(-1),feedback:!0})', "Split temperature decrement must activate once per discrete press");
-requireText("src/components/split-system-controller.js", 'interaction(this.$.increase,{primary:()=>this.W(1),feedback:!0})', "Split temperature increment must activate once per discrete press");
 requireText("src/components/home-overview.js", 'quick_action_label: "dashboard_quick_action"', "Home must configure reusable labelled quick actions");
 requireText("src/components/household-directory.js", 'action: "perform-action"', "Labelled Home quick actions must execute native Home Assistant actions");
 requireText("src/components/household-directory.js", "labels.includes(this.c.quick_action_label)", "Home quick actions must be discovered by registry label");

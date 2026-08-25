@@ -27,7 +27,10 @@ class ComponentListV2 extends HTMLElement {
     if (this.c) this.r();
   }
 
-  disconnectedCallback() { this._clear(); }
+  disconnectedCallback() {
+    // The interaction handles belong to the retained shadow DOM. They remain
+    // valid during a transient detach and are replaced by the next render.
+  }
 
   getCardSize() { return 3; }
 

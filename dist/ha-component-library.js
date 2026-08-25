@@ -1463,17 +1463,80 @@ if (dashboardRegistry && !dashboardRegistry.__refreshCoalescingV1) {
     return refreshPromise;
   };
 }
-HD2.uiEntry=e=>Boolean(e?.entity_id&&!e.disabled_by&&!e.hidden_by&&!['diagnostic','config'].includes(e.entity_category));
+HD2.entryFilters ??= [];
+HD2.registerEntryFilter ??= (filter) => {
+  if (typeof filter !== "function") throw new TypeError("Dashboard entry filters must be functions");
+  HD2.entryFilters.push(filter);
+  return () => {
+    const index = HD2.entryFilters.indexOf(filter);
+    if (index >= 0) HD2.entryFilters.splice(index, 1);
+  };
+};
+HD2.uiEntry = (entry) =>
+  Boolean(
+    entry?.entity_id &&
+      !entry.disabled_by &&
+      !entry.hidden_by &&
+      !["diagnostic", "config"].includes(entry.entity_category) &&
+      HD2.entryFilters.every((filter) => filter(entry)),
+  );
 HD2.card=async(h,c)=>{const helpers=await window.loadCardHelpers();const x=helpers.createCardElement(c);x.hass=h;return x};
 HD2.controlDomains=new Set(['light','fan','switch','input_boolean','media_player','climate','cover','lock','vacuum','button','select','number']);
 HD2.isPotential=(e,s)=>HD2.uiEntry(e)&&(HD2.controlDomains.has(HD2.domain(e.entity_id))||(HD2.domain(e.entity_id)==='binary_sensor'&&s?.attributes?.device_class==='garage_door'));
 HD2.isActive=(e,s)=>{if(!HD2.uiEntry(e)||!s)return false;const d=HD2.domain(e.entity_id),st=s.state,a=s.attributes||{};if(['light','fan','switch','input_boolean'].includes(d))return st==='on';if(d==='media_player'){if(['playing','paused','buffering','on'].includes(st))return true;if(st==='idle'){const v=String(a.media_title||a.app_name||'');return Boolean(v&&!/^(idle|home(?: screen)?|default media receiver)$/i.test(v))}return false}if(d==='climate')return /^(heat|cool|heat_cool|auto|dry|fan_only)$/.test(st);if(d==='cover')return /^(open|opening|closing)$/.test(st);if(d==='lock')return st==='unlocked';if(d==='vacuum')return /^(cleaning|returning)$/.test(st);if(d==='binary_sensor')return st==='on'&&/^(door|window|garage_door|smoke|moisture|gas)$/.test(a.device_class||'');return false};
-HD2.garageControl=(e,d,h)=>{if(!e?.device_id)return null;const sib=d?.byDevice?.get(e.device_id)||[],buttons=sib.filter(x=>HD2.domain(x.entity_id)==='button'&&HD2.uiEntry(x)&&h.states[x.entity_id]);return buttons.find(x=>/trigger|operate|door/i.test(`${x.entity_id} ${x.name||''} ${x.original_name||''}`))?.entity_id||buttons[0]?.entity_id||null};
+const garageOperatorIdentity = (entry) =>
+  `${entry?.entity_id || ""} ${entry?.name || ""} ${entry?.original_name || ""}`
+    .toLowerCase()
+    .replace(/[_./-]+/g, " ");
+
+HD2.garageControl = (entry, registry, hass) => {
+  if (!entry?.device_id) return null;
+  const buttons = (registry?.byDevice?.get(entry.device_id) || []).filter(
+    (candidate) =>
+      HD2.domain(candidate?.entity_id) === "button" &&
+      HD2.uiEntry(candidate) &&
+      hass?.states?.[candidate.entity_id] &&
+      String(hass.states[candidate.entity_id].state).toLowerCase() !== "unavailable",
+  );
+  const explicit = buttons.filter((candidate) =>
+    /\bgarage\s+door\b.*\b(trigger|operate|operator)\b|\b(trigger|operate|operator)\b.*\bgarage\s+door\b/.test(
+      garageOperatorIdentity(candidate),
+    ),
+  );
+  return explicit.length === 1 ? explicit[0].entity_id : null;
+};
 HD2.appleTvRegistry=(entityId,d,h,options={})=>{const entity=(d?.entities||[]).find(x=>x?.entity_id===entityId)||null,deviceId=entity?.device_id||options.deviceId||null,siblings=deviceId?(d?.byDevice?.get(deviceId)||[]):[],named=x=>`${x?.entity_id||''} ${x?.name||''} ${x?.original_name||''}`.toLowerCase(),isUi=x=>HD2.uiEntry(x)&&x?.entity_id&&!x.disabled_by,byDomain=domain=>siblings.filter(x=>isUi(x)&&HD2.domain(x.entity_id)===domain),mediaEntry=entity||byDomain('media_player').find(x=>x.entity_id===entityId)||null,remoteEntry=byDomain('remote').find(x=>x.platform==='apple_tv')||byDomain('remote')[0]||null,keyboardEntry=byDomain('binary_sensor').find(x=>/keyboard.*focus|focus.*keyboard/.test(named(x)))||null,configEntryId=mediaEntry?.config_entry_id||remoteEntry?.config_entry_id||keyboardEntry?.config_entry_id||entity?.config_entry_id||(Array.isArray((d?.devices||[]).find(x=>x.id===deviceId)?.config_entries)?(d.devices.find(x=>x.id===deviceId)?.config_entries||[])[0]:null)||null,signature=JSON.stringify([deviceId,configEntryId,siblings.map(x=>[x.entity_id,x.platform,x.disabled_by,x.hidden_by])]);return{entityId,deviceId,mediaEntry,remoteEntry,keyboardEntry,remoteEntityId:remoteEntry?.entity_id||null,keyboardEntityId:keyboardEntry?.entity_id||null,configEntryId,signature}};
 HD2.appleTvBundle=(e,s,d,h)=>{if(HD2.domain(e?.entity_id)!=='media_player'||e?.platform!=='apple_tv')return null;const info=HD2.appleTvRegistry(e.entity_id,d,h,{deviceId:e.device_id});return{type:'custom:component-apple-tv-controller-v1',entity:e.entity_id,device_id:info?.deviceId||e.device_id||null,title:HD2.stateName(h,e,s),icon:'mdi:apple'}};
 HD2.splitBundle=(e,d)=>{if(!e?.device_id||!d)return null;const siblings=d.byDevice?.get(e.device_id)||[],suffix=x=>String(x?.entity_id||'').split('.')[1]||'',find=(rows,domain,end)=>rows.find(x=>!x?.disabled_by&&HD2.domain(x.entity_id)===domain&&suffix(x).endsWith(end)),controller=find(siblings,'binary_sensor','_controller_status');if(!controller)return null;const vertical=find(siblings,'select','_vertical_vane'),horizontal=find(siblings,'select','_horizontal_vane');return{controller_entity:controller.entity_id,vertical_vane_entity:vertical?.entity_id,horizontal_vane_entity:horizontal?.entity_id,room_id:HD2.areaOf(e,d)}};HD2.splitRegistryConfig=(id,split)=>{const system=split?.systems?.get(id)||globalThis.__componentSplitRegistryV4?.result?.systems?.get(id);return system?{type:'custom:component-split-controller-v4',entity:id,room_id:system.room_id,registry_entity:system.registry_entity,controller_entity:system.controller_entity,vertical_vane_entity:system.vertical_vane_entity,horizontal_vane_entity:system.horizontal_vane_entity,minimum_target:system.minimum_target,maximum_target:system.maximum_target,fan_ceiling:system.fan_ceiling,last_mode:system.last_mode,deadline:system.deadline,profiles:system.profiles}:null};HD2.controlConfig=(e,s,d,h,split)=>{const id=e.entity_id,dom=HD2.domain(id),registry=dom==='climate'?HD2.splitRegistryConfig(id,split):null,bundle=!registry&&dom==='climate'?HD2.splitBundle(e,d):null;if(registry)return registry;if(bundle)return{type:'custom:component-split-controller-v4',entity:id,...bundle};if(dom==='binary_sensor'&&s?.attributes?.device_class==='garage_door'){const b=HD2.garageControl(e,d,h);return b?{type:'custom:component-garage-door-controller-v1',title:HD2.stateName(h,e,s).replace(/ Garage Door Status$/i,''),entity:id,control_entity:b}:{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true}}if(['light','fan','number'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'slider',entity:id,show_state:true,tap_action:{action:'more-info'}};if(['switch','input_boolean'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'switch',entity:id,show_state:true,button_action:{tap_action:{action:'toggle'}},tap_action:{action:'more-info'}};if(dom==='media_player')return HD2.appleTvBundle(e,s,d,h)||{type:'custom:bubble-card',card_type:'media-player',entity:id,show_state:true,tap_action:{action:'more-info'}};if(dom==='climate')return{type:'custom:bubble-card',card_type:'climate',entity:id,show_state:true};if(dom==='cover')return{type:'custom:bubble-card',card_type:'cover',entity:id,show_state:true};if(dom==='lock')return{type:'custom:mushroom-lock-card',entity:id};if(dom==='vacuum')return{type:'custom:mushroom-vacuum-card',entity:id};if(dom==='select')return{type:'custom:mushroom-select-card',entity:id};if(dom==='button')return{type:'custom:mushroom-entity-card',entity:id,tap_action:{action:'perform-action',perform_action:'button.press',target:{entity_id:id},confirmation:{text:'Run this control?'}},hold_action:{action:'more-info'}};if(dom==='binary_sensor')return{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true,show_last_changed:false};return null};
-class DashboardPreferenceEditorV2 extends HTMLElement{constructor(){super();this.attachShadow({mode:'open'});this.built=false}open(o){this.o=o;this.items=o.items.map(x=>({...x}));const ids=new Set(this.items.map(x=>x.id));this.hidden=new Set((o.hidden||[]).filter(id=>ids.has(id)));this.build();this.render();this.d.showModal();queueMicrotask(()=>this.shadowRoot.querySelector('.x')?.focus())}build(){if(this.built)return;this.built=true;this.shadowRoot.innerHTML=`<style>*{box-sizing:border-box}dialog{width:min(580px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 24px));border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,8px);padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.hd{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--divider-color)}h2{font-size:20px;margin:0}.x,.move,.vis{width:44px;height:44px;border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center}.x{border:1px solid var(--divider-color)}.body{padding:12px 14px 92px}.copy{font-size:13px;color:var(--secondary-text-color);line-height:1.4;margin:0 2px 10px}.rows{display:grid;gap:7px}.row{min-height:58px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px}.row.off{opacity:.58}.ico{width:34px;height:34px;display:grid;place-items:center;color:var(--primary-color)}.name{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{font-size:12px;color:var(--secondary-text-color);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.acts{display:flex}.move[disabled]{opacity:.25}.vis.off{color:var(--error-color)}.ft{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--divider-color);background:var(--card-background-color)}.count{font-size:13px;color:var(--secondary-text-color)}.buttons{display:flex;gap:8px}.cancel,.save{min-height:44px;padding:0 13px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,6px);background:transparent;font-weight:650}.save{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}:is(button):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}</style><dialog><div class="hd"><h2></h2><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"><div class="copy"></div><div class="rows"></div></div><div class="ft"><span class="count"></span><span class="buttons"><button class="cancel" type="button">Cancel</button><button class="save" type="button">Save</button></span></div></dialog>`;this.d=this.shadowRoot.querySelector('dialog');this.d.addEventListener('click',e=>{if(e.target===this.d)this.d.close()});this.shadowRoot.querySelector('.x').onclick=()=>this.d.close();this.shadowRoot.querySelector('.cancel').onclick=()=>this.d.close();this.shadowRoot.querySelector('.save').onclick=()=>this.save()}render(){this.shadowRoot.querySelector('h2').textContent=this.o.title||'Edit';this.shadowRoot.querySelector('.copy').textContent=this.o.description||'Reorder items and hide anything you do not want shown.';const rows=this.shadowRoot.querySelector('.rows');rows.replaceChildren();this.items.forEach((x,i)=>{const r=document.createElement('div'),off=this.hidden.has(x.id);r.className=`row ${off?'off':''}`;r.innerHTML=`<span class="ico"><ha-icon icon="${HD2.esc(x.icon||'mdi:circle-outline')}"></ha-icon></span><span><div class="name">${HD2.esc(x.name)}</div><div class="meta">${HD2.esc(x.meta||'')}</div></span><span class="acts"><button class="move up" type="button" aria-label="Move earlier" ${i===0?'disabled':''}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="move down" type="button" aria-label="Move later" ${i===this.items.length-1?'disabled':''}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="vis ${off?'off':''}" type="button" aria-label="${off?'Show':'Hide'} ${HD2.esc(x.name)}"><ha-icon icon="mdi:${off?'eye-outline':'eye-off-outline'}"></ha-icon></button></span>`;r.querySelector('.up').onclick=()=>this.move(i,-1);r.querySelector('.down').onclick=()=>this.move(i,1);r.querySelector('.vis').onclick=()=>{off?this.hidden.delete(x.id):this.hidden.add(x.id);this.render()};rows.append(r)});this.shadowRoot.querySelector('.count').textContent=`${this.items.length-this.hidden.size} of ${this.items.length} shown`}move(i,d){const n=i+d;if(n<0||n>=this.items.length)return;[this.items[i],this.items[n]]=[this.items[n],this.items[i]];this.render()}async save(){const b=this.shadowRoot.querySelector('.save');b.disabled=true;b.textContent='Saving…';try{await this.o.onSave?.({order:this.items.map(x=>x.id),hidden:[...this.hidden]});this.d.close()}finally{b.disabled=false;b.textContent='Save'}}}
-if(!customElements.get('dashboard-preference-editor-v2'))customElements.define('dashboard-preference-editor-v2',DashboardPreferenceEditorV2);
+
+HD2.controlResolvers ??= [];
+HD2.registerControlResolver ??= (resolver) => {
+  if (typeof resolver !== "function") throw new TypeError("Dashboard control resolvers must be functions");
+  HD2.controlResolvers.push(resolver);
+  return () => {
+    const index = HD2.controlResolvers.indexOf(resolver);
+    if (index >= 0) HD2.controlResolvers.splice(index, 1);
+  };
+};
+
+const defaultControlConfig = HD2.controlConfig;
+HD2.controlConfig = (entry, state, registry, hass, splitRegistry) => {
+  for (const resolveControl of HD2.controlResolvers) {
+    const configuration = resolveControl(entry, state, registry, hass, splitRegistry);
+    if (configuration) return configuration;
+  }
+  return defaultControlConfig(entry, state, registry, hass, splitRegistry);
+};
+
+HD2.preferenceEditor ??= async () => {
+  await customElements.whenDefined("dashboard-preference-editor-v3");
+  const editor = globalThis.__homeDashboardEditorV3 ??= document.createElement("dashboard-preference-editor-v3");
+  if (editor.parentNode !== document.body) {
+    editor.remove?.();
+    document.body.append(editor);
+  }
+  return editor;
+};
 }
 
 // Module: src/shared/registry-health.js
@@ -1527,6 +1590,30 @@ Object.assign(componentLibraryWledShared, {
   WLED_INVALID,
   WLED_NAME,
 });
+
+// WLED is a physical device bundle. Only its canonical light belongs in
+// dashboard discovery; the remaining WLED entities are control details.
+if (!WLED_HD.__wledDashboardIntegrationV1) {
+  WLED_HD.__wledDashboardIntegrationV1 = true;
+
+  WLED_HD.registerEntryFilter?.((entry) => {
+    if (entry?.platform !== "wled") return true;
+    if (WLED_DOMAIN(entry.entity_id) !== "light") return false;
+    const name = WLED_NAME(entry);
+    return name === "main" || !/_\d+$/.test(String(entry.unique_id || ""));
+  });
+
+  WLED_HD.registerControlResolver?.((entry) => {
+    if (entry?.platform !== "wled" || WLED_DOMAIN(entry.entity_id) !== "light") return null;
+    return {
+      type: "custom:component-wled-controller-v1",
+      entity: entry.entity_id,
+      device_id: entry.device_id,
+    };
+  });
+
+  WLED_HD.REG?.refresh?.();
+}
 }
 
 // Module: src/shared/update-styles.js
@@ -1659,7 +1746,129 @@ registerCard({ type: "component-empty-state-v2", element: ComponentEmptyStateV2,
 
 // Module: src/support/dashboard-preference-editor.js
 {
-class DashboardPreferenceEditorV3 extends HTMLElement{constructor(){super();this.attachShadow({mode:'open'});this.built=false;this.hiddenIds=new Set}open(o){this.o=o;this.items=o.items.map(x=>({...x}));const ids=new Set(this.items.map(x=>x.id));this.hiddenIds=new Set((o.hidden||[]).filter(id=>ids.has(id)));this.build();this.render();this.d.showModal();queueMicrotask(()=>this.shadowRoot.querySelector('.x')?.focus())}build(){if(this.built)return;this.built=true;this.shadowRoot.innerHTML=`<style>*{box-sizing:border-box}dialog{width:min(560px,calc(100vw - 24px));max-height:min(760px,calc(100dvh - 24px));border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,8px);padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.hd{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--divider-color);background:var(--card-background-color)}h2{font-size:16px;line-height:1.2;font-weight:500;margin:0}.x,.move,.vis{width:44px;height:44px;border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center;color:var(--secondary-text-color)}.x ha-icon,.move ha-icon,.vis ha-icon{--mdc-icon-size:17px}.body{padding:12px 14px 88px}.copy{font-size:12px;color:var(--secondary-text-color);line-height:1.45;margin:0 2px 10px}.rows{display:grid;gap:7px}.row{min-height:56px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px}.row.off{opacity:.52}.ico{width:32px;height:32px;display:grid;place-items:center;color:var(--secondary-text-color)}.ico ha-icon{--mdc-icon-size:18px}.name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{font-size:12px;color:var(--secondary-text-color);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.acts{display:flex}.move[disabled]{opacity:.22}.vis.off{color:var(--error-color)}.ft{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-top:1px solid var(--divider-color);background:var(--card-background-color)}.count{font-size:12px;color:var(--secondary-text-color)}.buttons{display:flex;gap:8px}.cancel,.save{min-height:44px;padding:0 13px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,6px);background:transparent;font-size:13px;font-weight:500}.save{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}:is(button):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}</style><dialog><div class="hd"><h2></h2><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="body"><div class="copy"></div><div class="rows"></div></div><div class="ft"><span class="count"></span><span class="buttons"><button class="cancel" type="button">Cancel</button><button class="save" type="button">Save</button></span></div></dialog>`;this.d=this.shadowRoot.querySelector('dialog');this.d.addEventListener('click',e=>{if(e.target===this.d)this.d.close()});this.shadowRoot.querySelector('.x').onclick=()=>this.d.close();this.shadowRoot.querySelector('.cancel').onclick=()=>this.d.close();this.shadowRoot.querySelector('.save').onclick=()=>this.save()}render(){this.shadowRoot.querySelector('h2').textContent=this.o.title||'Edit';this.shadowRoot.querySelector('.copy').textContent=this.o.description||'Reorder or hide items.';const rows=this.shadowRoot.querySelector('.rows');rows.replaceChildren();this.items.forEach((x,i)=>{const r=document.createElement('div'),off=this.hiddenIds.has(x.id);r.className=`row ${off?'off':''}`;r.innerHTML=`<span class="ico"><ha-icon icon="${x.icon||'mdi:circle-outline'}"></ha-icon></span><span><div class="name"></div><div class="meta"></div></span><span class="acts"><button class="move up" type="button" aria-label="Move earlier" ${i===0?'disabled':''}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="move down" type="button" aria-label="Move later" ${i===this.items.length-1?'disabled':''}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="vis ${off?'off':''}" type="button" aria-label="${off?'Show':'Hide'}"><ha-icon icon="mdi:${off?'eye-outline':'eye-off-outline'}"></ha-icon></button></span>`;r.querySelector('.name').textContent=x.name;r.querySelector('.meta').textContent=x.meta||'';r.querySelector('.up').onclick=()=>this.move(i,-1);r.querySelector('.down').onclick=()=>this.move(i,1);r.querySelector('.vis').onclick=()=>{off?this.hiddenIds.delete(x.id):this.hiddenIds.add(x.id);this.render()};rows.append(r)});this.shadowRoot.querySelector('.count').textContent=`${this.items.length-this.hiddenIds.size} of ${this.items.length} shown`}move(i,d){const n=i+d;if(n<0||n>=this.items.length)return;[this.items[i],this.items[n]]=[this.items[n],this.items[i]];this.render()}async save(){const b=this.shadowRoot.querySelector('.save');b.disabled=true;b.textContent='Saving…';try{await this.o.onSave?.({order:this.items.map(x=>x.id),hidden:[...this.hiddenIds]});this.d.close()}finally{b.disabled=false;b.textContent='Save'}}}if(!customElements.get('dashboard-preference-editor-v3'))customElements.define('dashboard-preference-editor-v3',DashboardPreferenceEditorV3);
+class DashboardPreferenceEditorV3 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.built = false;
+    this.hiddenIds = new Set();
+  }
+
+  open(options) {
+    this.options = options;
+    this.items = options.items.map((item) => ({ ...item }));
+    const ids = new Set(this.items.map((item) => item.id));
+    this.hiddenIds = new Set((options.hidden || []).filter((id) => ids.has(id)));
+    this.build();
+    this.clearSaveError();
+    this.render();
+    this.dialog.showModal();
+    queueMicrotask(() => this.shadowRoot.querySelector(".close")?.focus());
+  }
+
+  build() {
+    if (this.built) return;
+    this.built = true;
+    this.shadowRoot.innerHTML = `
+      <style>
+        *{box-sizing:border-box}
+        dialog{width:min(560px,calc(100vw - 24px));max-height:min(760px,calc(100dvh - 24px));border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,8px);padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}
+        dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}
+        button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}
+        .header{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--divider-color);background:var(--card-background-color)}
+        h2{font-size:16px;line-height:1.2;font-weight:500;margin:0}
+        .close,.move,.visibility{width:44px;height:44px;border-radius:var(--dashboard-radius-control,6px);display:grid;place-items:center;color:var(--secondary-text-color)}
+        .close ha-icon,.move ha-icon,.visibility ha-icon{--mdc-icon-size:17px}
+        .body{padding:12px 14px 88px}.copy{font-size:12px;color:var(--secondary-text-color);line-height:1.45;margin:0 2px 10px}.rows{display:grid;gap:7px}
+        .row{min-height:56px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px}.row.off{opacity:.52}
+        .icon{width:32px;height:32px;display:grid;place-items:center;color:var(--secondary-text-color)}.icon ha-icon{--mdc-icon-size:18px}.name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.meta{font-size:12px;color:var(--secondary-text-color);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .actions,.buttons{display:flex;gap:8px}.move[disabled]{opacity:.22}.visibility.off{color:var(--error-color)}
+        .save-error{margin:0;padding:10px 14px 0;color:var(--error-color);font-size:13px;line-height:1.4}
+        .footer{position:sticky;bottom:0;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-top:1px solid var(--divider-color);background:var(--card-background-color)}.count{font-size:12px;color:var(--secondary-text-color)}
+        .cancel,.save{min-height:44px;padding:0 13px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,6px);background:transparent;font-size:13px;font-weight:500}.save{min-width:84px;background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}:is(button):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+      </style>
+      <dialog>
+        <div class="header"><h2></h2><button class="close" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div>
+        <div class="body"><div class="copy"></div><div class="rows"></div></div>
+        <p class="save-error" role="alert" hidden></p>
+        <div class="footer"><span class="count"></span><span class="buttons"><button class="cancel" type="button">Cancel</button><button class="save" type="button">Save</button></span></div>
+      </dialog>`;
+    this.dialog = this.shadowRoot.querySelector("dialog");
+    this.dialog.addEventListener("click", (event) => {
+      if (event.target === this.dialog) this.dialog.close();
+    });
+    this.shadowRoot.querySelector(".close").onclick = () => this.dialog.close();
+    this.shadowRoot.querySelector(".cancel").onclick = () => this.dialog.close();
+    this.shadowRoot.querySelector(".save").onclick = () => this.save();
+  }
+
+  render() {
+    this.shadowRoot.querySelector("h2").textContent = this.options.title || "Edit";
+    this.shadowRoot.querySelector(".copy").textContent = this.options.description || "Reorder or hide items.";
+    const rows = this.shadowRoot.querySelector(".rows");
+    rows.replaceChildren();
+    this.items.forEach((item, index) => {
+      const row = document.createElement("div");
+      const hidden = this.hiddenIds.has(item.id);
+      row.className = `row ${hidden ? "off" : ""}`;
+      row.innerHTML = `<span class="icon"><ha-icon icon="${item.icon || "mdi:circle-outline"}"></ha-icon></span><span><div class="name"></div><div class="meta"></div></span><span class="actions"><button class="move up" type="button" aria-label="Move earlier" ${index === 0 ? "disabled" : ""}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="move down" type="button" aria-label="Move later" ${index === this.items.length - 1 ? "disabled" : ""}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="visibility ${hidden ? "off" : ""}" type="button" aria-label="${hidden ? "Show" : "Hide"}"><ha-icon icon="mdi:${hidden ? "eye-outline" : "eye-off-outline"}"></ha-icon></button></span>`;
+      row.querySelector(".name").textContent = item.name;
+      row.querySelector(".meta").textContent = item.meta || "";
+      row.querySelector(".up").onclick = () => this.move(index, -1);
+      row.querySelector(".down").onclick = () => this.move(index, 1);
+      row.querySelector(".visibility").onclick = () => {
+        if (hidden) this.hiddenIds.delete(item.id);
+        else this.hiddenIds.add(item.id);
+        this.render();
+      };
+      rows.append(row);
+    });
+    this.shadowRoot.querySelector(".count").textContent = `${this.items.length - this.hiddenIds.size} of ${this.items.length} shown`;
+  }
+
+  move(index, direction) {
+    const next = index + direction;
+    if (next < 0 || next >= this.items.length) return;
+    [this.items[index], this.items[next]] = [this.items[next], this.items[index]];
+    this.render();
+  }
+
+  clearSaveError() {
+    const error = this.shadowRoot.querySelector(".save-error");
+    if (!error) return;
+    error.hidden = true;
+    error.textContent = "";
+  }
+
+  async save() {
+    const button = this.shadowRoot.querySelector(".save");
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.textContent = "Saving…";
+    this.clearSaveError();
+    try {
+      await this.options.onSave?.({
+        order: this.items.map((item) => item.id),
+        hidden: [...this.hiddenIds],
+      });
+      this.dialog.close();
+    } catch (error) {
+      const message = this.shadowRoot.querySelector(".save-error");
+      if (message) {
+        message.textContent = error?.message || "Couldn’t save these changes. Your current choices are still open; try again.";
+        message.hidden = false;
+      }
+    } finally {
+      button.disabled = false;
+      button.setAttribute("aria-busy", "false");
+      button.textContent = "Save";
+    }
+  }
+}
+
+if (!customElements.get("dashboard-preference-editor-v3")) {
+  customElements.define("dashboard-preference-editor-v3", DashboardPreferenceEditorV3);
+}
 }
 
 // Module: src/support/config-editor.js
@@ -1751,7 +1960,6 @@ const backendIsUnavailable = (error) => {
     code.includes("not configured")
   );
 };
-
 const callPreferenceBackend = (hass, message) => {
   if (typeof hass?.callWS === "function") return hass.callWS(message);
   if (typeof hass?.connection?.sendMessagePromise === "function") {
@@ -1843,58 +2051,6 @@ preferenceRuntime.savePrefs = async (hass, key, value) => {
     throw error;
   }
 };
-
-// Give the existing editor explicit failure feedback without duplicating the
-// editor component. The patch is intentionally behavioural; its visual system
-// remains owned by dashboard-preference-editor-v3.
-const PreferenceEditor = customElements.get("dashboard-preference-editor-v3");
-if (PreferenceEditor && !PreferenceEditor.prototype.__backendFeedbackV1) {
-  PreferenceEditor.prototype.__backendFeedbackV1 = true;
-  const originalOpen = PreferenceEditor.prototype.open;
-  PreferenceEditor.prototype.open = function openWithBackendFeedback(options) {
-    originalOpen.call(this, options);
-    const save = this.shadowRoot.querySelector(".save");
-    if (save) save.style.minWidth = "84px";
-    let error = this.shadowRoot.querySelector(".save-error");
-    if (!error) {
-      error = document.createElement("p");
-      error.className = "save-error";
-      error.hidden = true;
-      error.setAttribute("role", "alert");
-      error.style.cssText =
-        "margin:0;padding:10px 14px 0;color:var(--error-color);font-size:13px;line-height:1.4";
-      this.shadowRoot.querySelector(".ft")?.before(error);
-    }
-    error.hidden = true;
-    error.textContent = "";
-  };
-  PreferenceEditor.prototype.save = async function saveWithBackendFeedback() {
-    const button = this.shadowRoot.querySelector(".save");
-    const error = this.shadowRoot.querySelector(".save-error");
-    button.disabled = true;
-    button.setAttribute("aria-busy", "true");
-    button.textContent = "Saving…";
-    if (error) error.hidden = true;
-    try {
-      await this.o.onSave?.({
-        order: this.items.map((item) => item.id),
-        hidden: [...this.hiddenIds],
-      });
-      this.d.close();
-    } catch (saveError) {
-      if (error) {
-        error.textContent =
-          saveError?.message ||
-          "Couldn’t save these changes. Your current choices are still open; try again.";
-        error.hidden = false;
-      }
-    } finally {
-      button.disabled = false;
-      button.setAttribute("aria-busy", "false");
-      button.textContent = "Save";
-    }
-  };
-}
 }
 
 // Module: src/support/backend-profiles.js
@@ -2317,44 +2473,359 @@ Object.assign(securityShared, {
 {
 /** ComponentSingleKpiV2 — reusable Home Assistant dashboard card. */
 const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentSingleKpiV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={value:'00',label:'Primary metric',support_value:'00',support_label:'Supporting context',interactive:true,entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
- action(){if(this.c.interactive===false)return null;if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}
- r(){this._interaction?.destroy();this._interaction=null;const action=this.action(),tag=action?'button':'div',className=action?'demo':'demo-static',attrs=action?' type="button"':'';this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:flex;align-items:flex-end;justify-content:space-between;gap:16px;min-height:70px}.value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em;white-space:nowrap}.label{margin-top:4px;font-size:11px;color:var(--secondary-text-color);white-space:nowrap}.support{text-align:right;font-size:11.5px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap}.support b{font-weight:600;color:var(--primary-text-color)}@media(max-width:700px){.wrap{padding:12px}.value{font-size:25px}.support{font-size:11px}}</style><style>.demo-static{width:100%;border:0;background:transparent;text-align:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><div><div class="value">${escapeHtml(this.c.value)}</div><div class="label">${escapeHtml(this.c.label)}</div></div><div class="support"><b>${escapeHtml(this.c.support_value)}</b> ${escapeHtml(this.c.support_label)}</div></div></${tag}></ha-card>`;if(action)this._interaction=interaction(this.shadowRoot.querySelector('button.demo'),{primary:action,feedback:true})}}
+
+const SINGLE_KPI_DEFAULTS = Object.freeze({
+  value: "00",
+  label: "Primary metric",
+  support_value: "00",
+  support_label: "Supporting context",
+  interactive: true,
+  entity: null,
+  navigation_path: null,
+});
+
+class ComponentSingleKpiV2 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._interactionHandle = null;
+  }
+
+  get c() {
+    return this.config;
+  }
+
+  set c(config) {
+    this.config = config;
+  }
+
+  get h() {
+    return this._hass;
+  }
+
+  set h(hass) {
+    this._hass = hass;
+  }
+
+  get _interaction() {
+    return this._interactionHandle;
+  }
+
+  set _interaction(handle) {
+    this._interactionHandle = handle;
+  }
+
+  setConfig(config) {
+    this.c = {
+      ...SINGLE_KPI_DEFAULTS,
+      ...config,
+    };
+    this.r();
+  }
+
+  set hass(hass) {
+    this.h = hass;
+  }
+
+  connectedCallback() {
+    if (this.c) this.r();
+  }
+
+  disconnectedCallback() {
+    this._destroyInteraction();
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  action() {
+    return this._primaryAction();
+  }
+
+  _primaryAction() {
+    if (this.config.interactive === false) return null;
+    if (this.config.navigation_path) return () => navigateTo(this.config.navigation_path);
+    if (this.config.entity) return () => openMoreInfo(this, this.config.entity);
+    return null;
+  }
+
+  _destroyInteraction() {
+    this._interaction?.destroy();
+    this._interaction = null;
+  }
+
+  _render() {
+    this._destroyInteraction();
+
+    const action = this.action();
+    const tag = action ? "button" : "div";
+    const className = action ? "demo" : "demo-static";
+    const attributes = action ? ' type="button"' : "";
+
+    this.shadowRoot.innerHTML = `<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:flex;align-items:flex-end;justify-content:space-between;gap:16px;min-height:70px}.value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em;white-space:nowrap}.label{margin-top:4px;font-size:11px;color:var(--secondary-text-color);white-space:nowrap}.support{text-align:right;font-size:11.5px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap}.support b{font-weight:600;color:var(--primary-text-color)}@media(max-width:700px){.wrap{padding:12px}.value{font-size:25px}.support{font-size:11px}}</style><style>.demo-static{width:100%;border:0;background:transparent;text-align:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attributes}><div class="wrap"><div><div class="value">${escapeHtml(this.config.value)}</div><div class="label">${escapeHtml(this.config.label)}</div></div><div class="support"><b>${escapeHtml(this.config.support_value)}</b> ${escapeHtml(this.config.support_label)}</div></div></${tag}></ha-card>`;
+
+    if (action) {
+      const button = this.shadowRoot.querySelector("button.demo");
+      this._interaction = interaction(button, { primary: action, feedback: true });
+    }
+  }
+
+  r() {
+    this._render();
+  }
+}
+
 registerCard({ type: "component-single-kpi-v2", element: ComponentSingleKpiV2, name: "Single KPI", description: "Reusable single KPI component." });
 }
 
 // Module: src/components/three-stat-summary.js
 {
 /** ComponentThreeStatV2 — reusable Home Assistant dashboard card. */
-const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentThreeStatV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interactions=[]} setConfig(c){this.c={metric_1_value:'00',metric_1_label:'Metric one',metric_2_value:'00',metric_2_label:'Metric two',metric_3_value:'00',metric_3_label:'Metric three',interactive:true,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._clear()} getCardSize(){return 2}
- _clear(){for(const handle of this._interactions)handle.destroy();this._interactions=[]}
- _action(i){if(this.c.interactive===false)return null;const custom=this.c[`metric_${i}_action`];if(typeof custom==='function')return()=>custom({host:this,hass:this.h,index:i});const path=this.c[`metric_${i}_navigation_path`];if(path)return()=>navigateTo(path);const entity=this.c[`metric_${i}_entity`];if(entity)return()=>openMoreInfo(this,entity);return null}
- r(){this._clear();const rows=[1,2,3].map(i=>{const action=this._action(i),tag=action?'button':'div',attrs=action?' type="button"':'';return`<${tag} class="stat" data-index="${i}"${attrs}><div class="value">${escapeHtml(this.c[`metric_${i}_value`])}</div><div class="label">${escapeHtml(this.c[`metric_${i}_label`])}</div></${tag}>`}).join('');this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;min-height:70px;align-items:center}.stat{appearance:none;border:0;background:transparent;color:inherit;font:inherit;padding:0;text-align:center;min-width:0;cursor:pointer}.stat:first-child{text-align:left}.stat:last-child{text-align:right}.stat:active{transform:scale(.98)}.stat:focus-visible{outline:2px solid var(--primary-color);outline-offset:3px;border-radius:8px}.value{font-size:22px;line-height:1;font-weight:650;letter-spacing:-.025em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.label{margin-top:5px;font-size:10.5px;line-height:1.2;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}@media(max-width:700px){.wrap{padding:12px;gap:8px}.value{font-size:20px}.label{font-size:10px}}</style><style>.stat:not(button){cursor:default}.stat:not(button):active{transform:none}.stat:not(button):focus-visible{outline:none}</style><ha-card><div class="wrap">${rows}</div></ha-card>`;for(const el of this.shadowRoot.querySelectorAll('button.stat')){const i=Number(el.dataset.index),action=this._action(i);this._interactions.push(interaction(el,{primary:action,feedback:true}))}}}
+const {
+  PRESENTATIONAL_CARD_STYLES,
+  escapeHtml,
+  interaction,
+  navigateTo,
+  openMoreInfo,
+  registerCard,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentThreeStatV2 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._interactions = [];
+  }
+
+  setConfig(c) {
+    this.c = {
+      metric_1_value: "00",
+      metric_1_label: "Metric one",
+      metric_2_value: "00",
+      metric_2_label: "Metric two",
+      metric_3_value: "00",
+      metric_3_label: "Metric three",
+      interactive: true,
+      ...c,
+    };
+    this.r();
+  }
+
+  set hass(h) {
+    this.h = h;
+  }
+
+  connectedCallback() {
+    if (this.c) this.r();
+  }
+
+  disconnectedCallback() {
+    // The interaction handles belong to the retained shadow DOM. They remain
+    // valid during a transient detach and are replaced by the next render.
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  _clear() {
+    for (const handle of this._interactions) handle.destroy();
+    this._interactions = [];
+  }
+
+  _action(i) {
+    if (this.c.interactive === false) return null;
+
+    const custom = this.c[`metric_${i}_action`];
+    if (typeof custom === "function") return () => custom({ host: this, hass: this.h, index: i });
+
+    const path = this.c[`metric_${i}_navigation_path`];
+    if (path) return () => navigateTo(path);
+
+    const entity = this.c[`metric_${i}_entity`];
+    if (entity) return () => openMoreInfo(this, entity);
+
+    return null;
+  }
+
+  r() {
+    this._clear();
+
+    const metrics = [1, 2, 3].map((index) => ({ index, action: this._action(index) }));
+    const rows = metrics.map(({ index, action }) => {
+      const tag = action ? "button" : "div";
+      const attrs = action ? ' type="button"' : "";
+      return `<${tag} class="stat" data-index="${index}"${attrs}><div class="value">${escapeHtml(this.c[`metric_${index}_value`])}</div><div class="label">${escapeHtml(this.c[`metric_${index}_label`])}</div></${tag}>`;
+    }).join("");
+
+    this.shadowRoot.innerHTML = `<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;min-height:70px;align-items:center}.stat{appearance:none;border:0;background:transparent;color:inherit;font:inherit;padding:0;text-align:center;min-width:0;cursor:pointer}.stat:first-child{text-align:left}.stat:last-child{text-align:right}.stat:active{transform:scale(.98)}.stat:focus-visible{outline:2px solid var(--primary-color);outline-offset:3px;border-radius:8px}.value{font-size:22px;line-height:1;font-weight:650;letter-spacing:-.025em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.label{margin-top:5px;font-size:10.5px;line-height:1.2;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}@media(max-width:700px){.wrap{padding:12px;gap:8px}.value{font-size:20px}.label{font-size:10px}}</style><style>.stat:not(button){cursor:default}.stat:not(button):active{transform:none}.stat:not(button):focus-visible{outline:none}</style><ha-card><div class="wrap">${rows}</div></ha-card>`;
+
+    for (const element of this.shadowRoot.querySelectorAll("button.stat")) {
+      const metric = metrics.find(({ index }) => index === Number(element.dataset.index));
+      this._interactions.push(interaction(element, { primary: metric.action, feedback: true }));
+    }
+  }
+}
+
 registerCard({ type: "component-three-stat-v2", element: ComponentThreeStatV2, name: "Three-stat Summary", description: "Reusable three-stat summary component." });
 }
 
 // Module: src/components/status-row.js
 {
 /** ComponentStatusRowV2 — reusable Home Assistant dashboard card. */
-const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentStatusRowV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={title:'Status title',description:'Supporting description',status_value:'Active',status_label:'Current state',icon:'mdi:information-outline',interactive:true,entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
- action(){if(this.c.interactive===false)return null;if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}
- r(){this._interaction?.destroy();this._interaction=null;const action=this.action(),tag=action?'button':'div',className=action?'demo':'demo-static',attrs=action?' type="button"':'';this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:3px;font-size:10.5px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status{text-align:right;white-space:nowrap}.status b{display:block;font-size:12px;font-weight:650}.status span{display:block;margin-top:3px;font-size:10.5px;color:var(--secondary-text-color)}@media(max-width:700px){.wrap{padding:12px}}</style><style>.demo-static{width:100%;border:0;background:transparent;text-align:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><div><div class="title">${escapeHtml(this.c.title)}</div><div class="desc">${escapeHtml(this.c.description)}</div></div><div class="status"><b>${escapeHtml(this.c.status_value)}</b><span>${escapeHtml(this.c.status_label)}</span></div></div></${tag}></ha-card>`;if(action)this._interaction=interaction(this.shadowRoot.querySelector('button.demo'),{primary:action,feedback:true})}}
+const {
+  PRESENTATIONAL_CARD_STYLES,
+  escapeHtml,
+  interaction,
+  navigateTo,
+  openMoreInfo,
+  registerCard,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentStatusRowV2 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._interaction = null;
+  }
+
+  setConfig(c) {
+    this.c = {
+      title: "Status title",
+      description: "Supporting description",
+      status_value: "Active",
+      status_label: "Current state",
+      icon: "mdi:information-outline",
+      interactive: true,
+      entity: null,
+      navigation_path: null,
+      ...c,
+    };
+    this.r();
+  }
+
+  set hass(h) {
+    this.h = h;
+  }
+
+  connectedCallback() {
+    if (this.c) this.r();
+  }
+
+  disconnectedCallback() {
+    this._interaction?.destroy();
+    this._interaction = null;
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  action() {
+    if (this.c.interactive === false) return null;
+    if (this.c.navigation_path) return () => navigateTo(this.c.navigation_path);
+    if (this.c.entity) return () => openMoreInfo(this, this.c.entity);
+    return null;
+  }
+
+  r() {
+    this._interaction?.destroy();
+    this._interaction = null;
+
+    const action = this.action();
+    const tag = action ? "button" : "div";
+    const className = action ? "demo" : "demo-static";
+    const attrs = action ? ' type="button"' : "";
+
+    this.shadowRoot.innerHTML = `<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:3px;font-size:10.5px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.status{text-align:right;white-space:nowrap}.status b{display:block;font-size:12px;font-weight:650}.status span{display:block;margin-top:3px;font-size:10.5px;color:var(--secondary-text-color)}@media(max-width:700px){.wrap{padding:12px}}</style><style>.demo-static{width:100%;border:0;background:transparent;text-align:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><div><div class="title">${escapeHtml(this.c.title)}</div><div class="desc">${escapeHtml(this.c.description)}</div></div><div class="status"><b>${escapeHtml(this.c.status_value)}</b><span>${escapeHtml(this.c.status_label)}</span></div></div></${tag}></ha-card>`;
+
+    if (action) {
+      this._interaction = interaction(this.shadowRoot.querySelector("button.demo"), {
+        primary: action,
+        feedback: true,
+      });
+    }
+  }
+}
+
 registerCard({ type: "component-status-row-v2", element: ComponentStatusRowV2, name: "Status Row", description: "Reusable status row component." });
 }
 
 // Module: src/components/progress-target.js
 {
 /** ComponentProgressV2 — reusable Home Assistant dashboard card. */
-const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentProgressV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={value:'68%',label:'Progress metric',progress:68,target_value:'100%',target_label:'Target',entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
- action(){if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}
- r(){this._interaction?.destroy();this._interaction=null;let p=Math.min(100,Math.max(0,Number(this.c.progress)||0));const action=this.action();this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;min-height:78px}.head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px}.value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em}.label{margin-top:4px;font-size:11px;color:var(--secondary-text-color)}.target{text-align:right;font-size:11.5px;color:var(--secondary-text-color);white-space:nowrap}.target b{font-weight:600;color:var(--primary-text-color)}.track{height:5px;margin-top:11px;border-radius:999px;background:var(--secondary-background-color);overflow:hidden}.fill{height:100%;border-radius:inherit;background:var(--primary-color)}@media(max-width:700px){.wrap{padding:12px}.value{font-size:25px}.target{font-size:11px}}</style><style>.wrap.actionable{cursor:pointer}.wrap.actionable:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:var(--ha-card-border-radius,16px)}</style><ha-card><div class="wrap ${action?'actionable':''}" ${action?'role="button" tabindex="0"':''}><div class="head"><div><div class="value">${escapeHtml(this.c.value)}</div><div class="label">${escapeHtml(this.c.label)}</div></div><div class="target"><b>${escapeHtml(this.c.target_value)}</b> ${escapeHtml(this.c.target_label)}</div></div><div class="track"><div class="fill" style="width:${p}%"></div></div></div></ha-card>`;if(action)this._interaction=interaction(this.shadowRoot.querySelector('.wrap'),{primary:action,feedback:true})}}
+const {
+  PRESENTATIONAL_CARD_STYLES,
+  escapeHtml,
+  interaction,
+  navigateTo,
+  openMoreInfo,
+  registerCard,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentProgressV2 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._interaction = null;
+  }
+
+  setConfig(c) {
+    this.c = {
+      value: "68%",
+      label: "Progress metric",
+      progress: 68,
+      target_value: "100%",
+      target_label: "Target",
+      entity: null,
+      navigation_path: null,
+      ...c,
+    };
+    this.r();
+  }
+
+  set hass(h) {
+    this.h = h;
+  }
+
+  connectedCallback() {
+    if (this.c) this.r();
+  }
+
+  disconnectedCallback() {
+    this._interaction?.destroy();
+    this._interaction = null;
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  action() {
+    if (this.c.navigation_path) return () => navigateTo(this.c.navigation_path);
+    if (this.c.entity) return () => openMoreInfo(this, this.c.entity);
+    return null;
+  }
+
+  r() {
+    this._interaction?.destroy();
+    this._interaction = null;
+
+    const p = Math.min(100, Math.max(0, Number(this.c.progress) || 0));
+    const action = this.action();
+
+    this.shadowRoot.innerHTML = `<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;min-height:78px}.head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px}.value{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.035em}.label{margin-top:4px;font-size:11px;color:var(--secondary-text-color)}.target{text-align:right;font-size:11.5px;color:var(--secondary-text-color);white-space:nowrap}.target b{font-weight:600;color:var(--primary-text-color)}.track{height:5px;margin-top:11px;border-radius:999px;background:var(--secondary-background-color);overflow:hidden}.fill{height:100%;border-radius:inherit;background:var(--primary-color)}@media(max-width:700px){.wrap{padding:12px}.value{font-size:25px}.target{font-size:11px}}</style><style>.wrap.actionable{cursor:pointer}.wrap.actionable:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:var(--ha-card-border-radius,16px)}</style><ha-card><div class="wrap ${action ? "actionable" : ""}" ${action ? 'role="button" tabindex="0"' : ""}><div class="head"><div><div class="value">${escapeHtml(this.c.value)}</div><div class="label">${escapeHtml(this.c.label)}</div></div><div class="target"><b>${escapeHtml(this.c.target_value)}</b> ${escapeHtml(this.c.target_label)}</div></div><div class="track"><div class="fill" style="width:${p}%"></div></div></div></ha-card>`;
+
+    if (action) {
+      this._interaction = interaction(this.shadowRoot.querySelector(".wrap"), {
+        primary: action,
+        feedback: true,
+      });
+    }
+  }
+}
+
 registerCard({ type: "component-progress-v2", element: ComponentProgressV2, name: "Progress / Target", description: "Reusable progress and target component." });
 }
 
@@ -2362,10 +2833,49 @@ registerCard({ type: "component-progress-v2", element: ComponentProgressV2, name
 {
 /** ComponentActionV2 — reusable Home Assistant dashboard card. */
 const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentActionV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={title:'Action title',description:'What this action will do',action_text:'Open',icon:'mdi:gesture-tap-button',...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
- actions(){const entity=this.c.more_info_entity||this.c.entity||null,path=this.c.navigation_path||null;return{primary:path?()=>navigateTo(path):entity?()=>openMoreInfo(this,entity):null,hold:path&&entity?()=>openMoreInfo(this,entity):null}}
- r(){this._interaction?.destroy();this._interaction=null;const actions=this.actions(),tag=actions.primary?'button':'div',attrs=actions.primary?' type="button"':'',className=actions.primary?'demo':'demo-static';this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:3px;font-size:10.5px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.action{min-height:32px;padding:0 10px;border-radius:11px;display:flex;align-items:center;background:var(--secondary-background-color);color:var(--primary-color);font-size:11.5px;font-weight:650;white-space:nowrap}@media(max-width:700px){.wrap{padding:12px}}</style><style>.demo-static{width:100%;border:0;background:transparent;text-align:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${escapeHtml(this.c.title)}</div><div class="desc">${escapeHtml(this.c.description)}</div></span><span class="action">${escapeHtml(this.c.action_text)}</span></div></${tag}></ha-card>`;if(actions.primary)this._interaction=interaction(this.shadowRoot.querySelector('button.demo'),{primary:actions.primary,hold:actions.hold,optimistic:false,repeat:false,feedback:true})}}
+class ComponentActionV2 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    this._interaction = null;
+  }
+
+  setConfig(c) {
+    this.c = { title: 'Action title', description: 'What this action will do', action_text: 'Open', icon: 'mdi:gesture-tap-button', ...c };
+    this.r();
+  }
+
+  set hass(h) { this.h = h; }
+
+  connectedCallback() { if (this.c) this.r(); }
+
+  disconnectedCallback() {
+    this._interaction?.destroy();
+    this._interaction = null;
+  }
+
+  getCardSize() { return 2; }
+
+  actions() {
+    const entity = this.c.more_info_entity || this.c.entity || null;
+    const path = this.c.navigation_path || null;
+    return {
+      primary: path ? () => navigateTo(path) : entity ? () => openMoreInfo(this, entity) : null,
+      hold: path && entity ? () => openMoreInfo(this, entity) : null,
+    };
+  }
+
+  r() {
+    this._interaction?.destroy();
+    this._interaction = null;
+    const actions = this.actions();
+    const tag = actions.primary ? 'button' : 'div';
+    const attrs = actions.primary ? ' type="button"' : '';
+    const className = actions.primary ? 'demo' : 'demo-static';
+    this.shadowRoot.innerHTML = `<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:3px;font-size:10.5px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.action{min-height:32px;padding:0 10px;border-radius:11px;display:flex;align-items:center;background:var(--secondary-background-color);color:var(--primary-color);font-size:11.5px;font-weight:650;white-space:nowrap}@media(max-width:700px){.wrap{padding:12px}}</style><style>.demo-static{width:100%;border:0;background:transparent;text-align:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${escapeHtml(this.c.title)}</div><div class="desc">${escapeHtml(this.c.description)}</div></span><span class="action">${escapeHtml(this.c.action_text)}</span></div></${tag}></ha-card>`;
+    if (actions.primary) this._interaction = interaction(this.shadowRoot.querySelector('button.demo'), { primary: actions.primary, hold: actions.hold, optimistic: false, repeat: false, feedback: true });
+  }
+}
 registerCard({ type: "component-action-v2", element: ComponentActionV2, name: "Action Card", description: "Reusable navigation and more-info action card." });
 }
 
@@ -2373,22 +2883,156 @@ registerCard({ type: "component-action-v2", element: ComponentActionV2, name: "A
 {
 /** ComponentListV2 — reusable Home Assistant dashboard card. */
 const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentListV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interactions=[]} setConfig(c){this.c={rows:[{title:'First item',description:'Supporting detail',value:'00',label:'Metric'},{title:'Second item',description:'Supporting detail',value:'00',label:'Metric'},{title:'Third item',description:'Supporting detail',value:'00',label:'Metric'}],interactive:true,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._clear()} getCardSize(){return 3}
- _clear(){for(const handle of this._interactions)handle.destroy();this._interactions=[]}
- _actions(row){if(this.c.interactive===false)return{primary:null,hold:null};const custom=typeof row.action==='function'?()=>row.action({host:this,hass:this.h,row}):null,path=row.navigation_path||row.path||null,entity=row.entity||row.more_info_entity||null;return{primary:custom||(path?()=>navigateTo(path):entity?()=>openMoreInfo(this,entity):null),hold:!custom&&path&&entity?()=>openMoreInfo(this,entity):null}}
- r(){this._clear();let rows=Array.isArray(this.c.rows)?this.c.rows.slice(0,6):[];const markup=rows.map((row,index)=>{const actions=this._actions(row),tag=actions.primary?'button':'div',attrs=actions.primary?' type="button"':'';return`<${tag} class="row" data-index="${index}"${attrs}><span><div class="title">${escapeHtml(row.title)}</div><div class="desc">${escapeHtml(row.description)}</div></span><span class="metric"><b>${escapeHtml(row.value)}</b>${escapeHtml(row.label)}</span></${tag}>`}).join('');this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:2px 14px}.row{appearance:none;width:100%;border:0;border-top:1px solid var(--divider-color);background:transparent;color:inherit;font:inherit;min-height:54px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:0;text-align:left;cursor:pointer}.row:first-child{border-top:0}.row:active{background:var(--secondary-background-color)}.row:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:8px}.title{font-size:12.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:2px;font-size:10.5px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metric{text-align:right;white-space:nowrap;font-size:11px;color:var(--secondary-text-color)}.metric b{font-size:12px;font-weight:650;color:var(--primary-text-color);margin-right:4px}@media(max-width:700px){.wrap{padding:2px 12px}}</style><style>.row:not(button){cursor:default}.row:not(button):active{background:transparent}.row:not(button):focus-visible{outline:none}</style><ha-card><div class="wrap">${markup}</div></ha-card>`;for(const element of this.shadowRoot.querySelectorAll('button.row')){const row=rows[Number(element.dataset.index)],actions=this._actions(row);this._interactions.push(interaction(element,{primary:actions.primary,hold:actions.hold,feedback:true}))}}}
+
+class ComponentListV2 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._interactions = [];
+  }
+
+  setConfig(c) {
+    this.c = {
+      rows: [
+        { title: "First item", description: "Supporting detail", value: "00", label: "Metric" },
+        { title: "Second item", description: "Supporting detail", value: "00", label: "Metric" },
+        { title: "Third item", description: "Supporting detail", value: "00", label: "Metric" },
+      ],
+      interactive: true,
+      ...c,
+    };
+    this.r();
+  }
+
+  set hass(h) { this.h = h; }
+
+  connectedCallback() {
+    if (this.c) this.r();
+  }
+
+  disconnectedCallback() {
+    // The interaction handles belong to the retained shadow DOM. They remain
+    // valid during a transient detach and are replaced by the next render.
+  }
+
+  getCardSize() { return 3; }
+
+  _clear() {
+    for (const handle of this._interactions) handle.destroy();
+    this._interactions = [];
+  }
+
+  _actions(row) {
+    if (this.c.interactive === false) return { primary: null, hold: null };
+    const custom = typeof row.action === "function" ? () => row.action({ host: this, hass: this.h, row }) : null;
+    const path = row.navigation_path || row.path || null;
+    const entity = row.entity || row.more_info_entity || null;
+    return {
+      primary: custom || (path ? () => navigateTo(path) : entity ? () => openMoreInfo(this, entity) : null),
+      hold: !custom && path && entity ? () => openMoreInfo(this, entity) : null,
+    };
+  }
+
+  r() {
+    this._clear();
+    const rows = Array.isArray(this.c.rows) ? this.c.rows.slice(0, 6) : [];
+    const records = rows.map((row, index) => {
+      const actions = this._actions(row);
+      const tag = actions.primary ? "button" : "div";
+      const attributes = actions.primary ? ' type="button"' : "";
+      return {
+        actions,
+        markup: `<${tag} class="row" data-index="${index}"${attributes}><span><div class="title">${escapeHtml(row.title)}</div><div class="desc">${escapeHtml(row.description)}</div></span><span class="metric"><b>${escapeHtml(row.value)}</b>${escapeHtml(row.label)}</span></${tag}>`,
+      };
+    });
+
+    this.shadowRoot.innerHTML = `<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:2px 14px}.row{appearance:none;width:100%;border:0;border-top:1px solid var(--divider-color);background:transparent;color:inherit;font:inherit;min-height:54px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:0;text-align:left;cursor:pointer}.row:first-child{border-top:0}.row:active{background:var(--secondary-background-color)}.row:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:8px}.title{font-size:12.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.desc{margin-top:2px;font-size:10.5px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.metric{text-align:right;white-space:nowrap;font-size:11px;color:var(--secondary-text-color)}.metric b{font-size:12px;font-weight:650;color:var(--primary-text-color);margin-right:4px}@media(max-width:700px){.wrap{padding:2px 12px}}</style><style>.row:not(button){cursor:default}.row:not(button):active{background:transparent}.row:not(button):focus-visible{outline:none}</style><ha-card><div class="wrap">${records.map((record) => record.markup).join("")}</div></ha-card>`;
+
+    for (const element of this.shadowRoot.querySelectorAll("button.row")) {
+      const record = records[Number(element.dataset.index)];
+      this._interactions.push(interaction(element, { primary: record.actions.primary, hold: record.actions.hold, feedback: true }));
+    }
+  }
+}
+
 registerCard({ type: "component-list-v2", element: ComponentListV2, name: "List / Ranking", description: "Reusable list and ranking component." });
 }
 
 // Module: src/components/notice.js
 {
 /** ComponentNoticeV2 — reusable Home Assistant dashboard card. */
-const { PRESENTATIONAL_CARD_STYLES, escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentNoticeV2 extends HTMLElement{
- constructor(){super();this.attachShadow({mode:'open'});this._interaction=null} setConfig(c){this.c={title:'Notice title',message:'Important supporting information appears here.',tone:'info',icon:'mdi:information-outline',entity:null,navigation_path:null,...c};this.r()} set hass(h){this.h=h} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 2}
- action(){if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}
- r(){this._interaction?.destroy();this._interaction=null;let tone=['warning','error','success'].includes(this.c.tone)?this.c.tone:'';const action=this.action();this.shadowRoot.innerHTML=`<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}.warning .icon{color:var(--warning-color,var(--primary-color))}.error .icon{color:var(--error-color,var(--primary-color))}.success .icon{color:var(--success-color,var(--primary-color))}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650}.message{margin-top:3px;font-size:10.5px;line-height:1.35;color:var(--secondary-text-color)}</style><style>.wrap.actionable{cursor:pointer}.wrap.actionable:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:var(--ha-card-border-radius,16px)}</style><ha-card><div class="wrap ${tone} ${action?'actionable':''}" ${action?'role="button" tabindex="0"':''}><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><div><div class="title">${escapeHtml(this.c.title)}</div><div class="message">${escapeHtml(this.c.message)}</div></div></div></ha-card>`;if(action)this._interaction=interaction(this.shadowRoot.querySelector('.wrap'),{primary:action,feedback:true})}}
+const {
+  PRESENTATIONAL_CARD_STYLES,
+  escapeHtml,
+  interaction,
+  navigateTo,
+  openMoreInfo,
+  registerCard,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+class ComponentNoticeV2 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._interaction = null;
+  }
+
+  setConfig(c) {
+    this.c = {
+      title: "Notice title",
+      message: "Important supporting information appears here.",
+      tone: "info",
+      icon: "mdi:information-outline",
+      entity: null,
+      navigation_path: null,
+      ...c,
+    };
+    this.r();
+  }
+
+  set hass(h) {
+    this.h = h;
+  }
+
+  connectedCallback() {
+    if (this.c) this.r();
+  }
+
+  disconnectedCallback() {
+    this._interaction?.destroy();
+    this._interaction = null;
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  action() {
+    if (this.c.navigation_path) return () => navigateTo(this.c.navigation_path);
+    if (this.c.entity) return () => openMoreInfo(this, this.c.entity);
+    return null;
+  }
+
+  r() {
+    this._interaction?.destroy();
+    this._interaction = null;
+
+    const tone = ["warning", "error", "success"].includes(this.c.tone) ? this.c.tone : "";
+    const action = this.action();
+    const actionable = action ? "actionable" : "";
+    const attributes = action ? 'role="button" tabindex="0"' : "";
+
+    this.shadowRoot.innerHTML = `<style>${PRESENTATIONAL_CARD_STYLES}.wrap{padding:12px 14px;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:10px;min-height:70px}.icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:var(--secondary-background-color);color:var(--primary-color)}.warning .icon{color:var(--warning-color,var(--primary-color))}.error .icon{color:var(--error-color,var(--primary-color))}.success .icon{color:var(--success-color,var(--primary-color))}ha-icon{--mdc-icon-size:19px}.title{font-size:13px;font-weight:650}.message{margin-top:3px;font-size:10.5px;line-height:1.35;color:var(--secondary-text-color)}</style><style>.wrap.actionable{cursor:pointer}.wrap.actionable:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:var(--ha-card-border-radius,16px)}</style><ha-card><div class="wrap ${tone} ${actionable}" ${attributes}><span class="icon"><ha-icon icon="${escapeHtml(this.c.icon)}"></ha-icon></span><div><div class="title">${escapeHtml(this.c.title)}</div><div class="message">${escapeHtml(this.c.message)}</div></div></div></ha-card>`;
+
+    if (action) {
+      this._interaction = interaction(this.shadowRoot.querySelector(".wrap"), {
+        primary: action,
+        feedback: true,
+      });
+    }
+  }
+}
+
 registerCard({ type: "component-notice-v2", element: ComponentNoticeV2, name: "Alert / Notice", description: "Reusable alert and notice component." });
 }
 
@@ -2828,6 +3472,7 @@ registerCard({ type: "component-device-discovery-v2", element: ComponentDeviceDi
 {
 /** ComponentQuickNavigationV2 — reusable Home Assistant dashboard card. */
 const { DashboardBaseCard, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
 class ComponentQuickNavigationV2 extends DashboardBaseCard {
   constructor() {
     super();
@@ -2861,18 +3506,24 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
       this._hasHass = true;
       this._leftState = state;
       this._leftStateText = stateText;
-      this.r();
-    } else {
-      const contextIcon = this.shadowRoot?.getElementById("context-icon");
-      if (contextIcon && state) {
-        contextIcon.hass = h;
-        contextIcon.stateObj = state;
+      if (this.c?.left_entity && h && !h.states) {
+        this.r();
+        return;
       }
+      this.r({ state, stateText });
+      return;
+    }
+
+    const contextIcon = this.shadowRoot?.getElementById("context-icon");
+    if (contextIcon && state) {
+      contextIcon.hass = h;
+      contextIcon.stateObj = state;
     }
   }
 
   disconnectedCallback() {
-    this._clearInteractions();
+    // Reconnect renders the retained shadow DOM and replaces these handles.
+    // Keeping them alive through a transient detach avoids dead controls.
   }
 
   connectedCallback() {
@@ -2884,17 +3535,11 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
     this._interactions = [];
   }
 
-  getCardSize() {
-    return 1;
-  }
+  getCardSize() { return 1; }
 
-  moreInfo(entityId) {
-    openMoreInfo(this, entityId);
-  }
+  moreInfo(entityId) { openMoreInfo(this, entityId); }
 
-  navigate(path) {
-    navigateTo(path);
-  }
+  navigate(path) { navigateTo(path); }
 
   formatState(state) {
     try {
@@ -2904,24 +3549,23 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
     }
   }
 
-  r() {
+  r(...snapshots) {
     if (!this.c) return;
     this._clearInteractions();
-    const stateObj =
-      this.c.left_entity && this.h
-        ? this.h.states[this.c.left_entity]
-        : null;
-    const leftText = stateObj
-      ? this.formatState(stateObj)
-      : this.c.left_entity
-        ? "Unavailable"
-        : this.c.left_text;
+    const snapshot = snapshots[0] || (() => {
+      const state = this.c.left_entity && this.h ? this.h.states[this.c.left_entity] : null;
+      return { state, stateText: state ? this.formatState(state) : null };
+    })();
+    const { state: stateObj, stateText } = snapshot;
+
+    const leftText = stateObj ? stateText : this.c.left_entity ? "Unavailable" : this.c.left_text;
     const leftIcon = stateObj
       ? '<ha-state-icon id="context-icon"></ha-state-icon>'
       : `<ha-icon icon="${this.escapeHtml(this.c.left_icon)}"></ha-icon>`;
     const disabled1 = this.c.action_1_path ? "" : "disabled";
     const disabled2 = this.c.action_2_path ? "" : "disabled";
     this.shadowRoot.innerHTML = `<style>${this.cardStyles()}.wrap{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:56px}.group{display:flex;align-items:center;gap:8px}.chip{min-height:44px;border:1px solid var(--divider-color)!important;border-radius:var(--dashboard-radius-control,8px);padding:0 13px!important;display:flex;align-items:center;gap:7px;color:var(--primary-text-color);font-size:13px;font-weight:600;white-space:nowrap}.chip ha-icon,.chip ha-state-icon{color:var(--primary-color);--mdc-icon-size:19px}.chip:disabled{cursor:default;opacity:1}@media(max-width:520px){.chip{width:44px;padding:0!important;justify-content:center}.chip span{display:none}.context{width:auto;padding:0 12px!important}.context span{display:inline}}</style><ha-card><div class="wrap"><button class="i chip context" id="context" type="button" aria-label="${this.escapeHtml(this.c.left_text)}">${leftIcon}<span>${this.escapeHtml(leftText)}</span></button><div class="group"><button class="i chip" id="action-1" type="button" aria-label="${this.escapeHtml(this.c.action_1_text)}" ${disabled1}><ha-icon icon="${this.escapeHtml(this.c.action_1_icon)}"></ha-icon><span>${this.escapeHtml(this.c.action_1_text)}</span></button><button class="i chip" id="action-2" type="button" aria-label="${this.escapeHtml(this.c.action_2_text)}" ${disabled2}><ha-icon icon="${this.escapeHtml(this.c.action_2_icon)}"></ha-icon><span>${this.escapeHtml(this.c.action_2_text)}</span></button></div></div></ha-card>`;
+
     const contextIcon = this.shadowRoot.getElementById("context-icon");
     if (contextIcon && stateObj) {
       contextIcon.hass = this.h;
@@ -2930,21 +3574,13 @@ class ComponentQuickNavigationV2 extends DashboardBaseCard {
     const context = this.shadowRoot.getElementById("context");
     context.disabled = !this.c.left_entity;
     this._interactions.push(
-      interaction(context, {
-        primary: () => this.moreInfo(this.c.left_entity),
-        feedback: true,
-      }),
-      interaction(this.shadowRoot.getElementById("action-1"), {
-        primary: () => this.navigate(this.c.action_1_path),
-        feedback: true,
-      }),
-      interaction(this.shadowRoot.getElementById("action-2"), {
-        primary: () => this.navigate(this.c.action_2_path),
-        feedback: true,
-      }),
+      interaction(context, { primary: () => this.moreInfo(this.c.left_entity), feedback: true }),
+      interaction(this.shadowRoot.getElementById("action-1"), { primary: () => this.navigate(this.c.action_1_path), feedback: true }),
+      interaction(this.shadowRoot.getElementById("action-2"), { primary: () => this.navigate(this.c.action_2_path), feedback: true }),
     );
   }
 }
+
 registerCard({ type: "component-quick-nav-v2", element: ComponentQuickNavigationV2, name: "Quick Navigation", description: "Reusable quick navigation component." });
 }
 
@@ -2952,9 +3588,52 @@ registerCard({ type: "component-quick-nav-v2", element: ComponentQuickNavigation
 {
 /** ComponentNavigationTileV2 — reusable Home Assistant dashboard card. */
 const { DashboardBaseCard, interaction, navigateTo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentNavigationTileV2 extends DashboardBaseCard{
- constructor(){super();this._interaction=null} setConfig(c){this.c={icon:'mdi:door-open',title:'Destination',context:'Navigation',navigation_path:null,...c};this.r()} connectedCallback(){if(this.c)this.r()} disconnectedCallback(){this._interaction?.destroy();this._interaction=null} getCardSize(){return 1}
- r(){this._interaction?.destroy();this._interaction=null;const path=this.c.navigation_path,tag=path?'button':'div',attrs=path?' type="button"':'',className=path?'i nav':'nav nav-static';this.shadowRoot.innerHTML=`<style>${this.cardStyles()}.nav{width:100%;text-align:left}.wrap{min-height:58px;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:10px}.icon{width:36px;height:36px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--primary-color)}</style><style>.nav-static{border:0;background:transparent;color:inherit;font:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><span class="icon"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${this.escapeHtml(this.c.title)}</div><div class="desc">${this.escapeHtml(this.c.context)}</div></span></div></${tag}></ha-card>`;if(path)this._interaction=interaction(this.shadowRoot.querySelector('button.nav'),{primary:()=>navigateTo(path),feedback:true})}}
+class ComponentNavigationTileV2 extends DashboardBaseCard {
+  constructor() {
+    super();
+    this._interaction = null;
+  }
+
+  setConfig(c) {
+    this.c = {
+      icon: "mdi:door-open",
+      title: "Destination",
+      context: "Navigation",
+      navigation_path: null,
+      ...c,
+    };
+    this.r();
+  }
+
+  connectedCallback() {
+    if (this.c) this.r();
+  }
+
+  disconnectedCallback() {
+    this._interaction?.destroy();
+    this._interaction = null;
+  }
+
+  getCardSize() {
+    return 1;
+  }
+
+  r() {
+    this._interaction?.destroy();
+    this._interaction = null;
+    const path = this.c.navigation_path;
+    const tag = path ? "button" : "div";
+    const attrs = path ? ' type="button"' : "";
+    const className = path ? "i nav" : "nav nav-static";
+    this.shadowRoot.innerHTML = `<style>${this.cardStyles()}.nav{width:100%;text-align:left}.wrap{min-height:58px;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:10px}.icon{width:36px;height:36px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--primary-color)}</style><style>.nav-static{border:0;background:transparent;color:inherit;font:inherit;padding:0}</style><ha-card><${tag} class="${className}"${attrs}><div class="wrap"><span class="icon"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon></span><span><div class="title">${this.escapeHtml(this.c.title)}</div><div class="desc">${this.escapeHtml(this.c.context)}</div></span></div></${tag}></ha-card>`;
+    if (path) {
+      this._interaction = interaction(this.shadowRoot.querySelector("button.nav"), {
+        primary: () => navigateTo(path),
+        feedback: true,
+      });
+    }
+  }
+}
 registerCard({ type: "component-nav-tile-v2", element: ComponentNavigationTileV2, name: "Navigation Tile", description: "Reusable navigation tile component." });
 }
 
@@ -2986,8 +3665,8 @@ class ComponentControlRowV2 extends DashboardBaseCard {
     if (this.c) this.r();
   }
   disconnectedCallback() {
-    for (const handle of this._interactions) handle.destroy();
-    this._interactions = [];
+    // Local controls remain attached to the retained shadow DOM. Service
+    // coalescing, unlike DOM interaction, must be released on disconnect.
     this._resetCoalescer();
   }
   getCardSize() { return 1; }
@@ -3166,8 +3845,7 @@ class ComponentMediaRowV2 extends DashboardBaseCard {
     if (this.c) this.r();
   }
   disconnectedCallback() {
-    for (const handle of this._interactions) handle.destroy();
-    this._interactions = [];
+    // The rendered media controls stay valid across a transient detach.
     this._busy = false;
   }
   getCardSize() { return 1; }
@@ -3279,6 +3957,22 @@ const {
   registerCard,
 } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 
+const APP_BRAND_COLOURS = [
+  [/netflix/i, "#e50914"],
+  [/youtube/i, "#ff0000"],
+  [/spotify/i, "#1ed760"],
+  [/prime video|amazon/i, "#00a8e1"],
+  [/plex/i, "#e5a00d"],
+  [/twitch/i, "#9146ff"],
+  [/vlc/i, "#ff8800"],
+  [/apple tv|apple music|music/i, "var(--primary-text-color)"],
+  [/disney/i, "#0b5bd3"],
+  [/kayo|sport/i, "#00a651"],
+  [/binge/i, "#8a2be2"],
+  [/stan/i, "#00a5ff"],
+  [/paramount/i, "#0064ff"],
+];
+
 class ComponentAppleTvControllerV1 extends HTMLElement {
   static getGridOptions() {
     return { columns: 12, rows: "auto" };
@@ -3297,6 +3991,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.messageTimer = null;
     this.interactionHandles = [];
     this.dynamicInteractions = [];
+    this.headerInteractions = [];
     this.volumeCoalescer = null;
     this.volumeGestureActive = false;
     this.optimisticVolume = null;
@@ -3330,6 +4025,8 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.interactionHandles = [];
     for (const handle of this.dynamicInteractions) handle.destroy();
     this.dynamicInteractions = [];
+    for (const handle of this.headerInteractions) handle.destroy();
+    this.headerInteractions = [];
     this.volumeCoalescer?.destroy();
     this.volumeCoalescer = null;
     this.unsubscribe?.();
@@ -3405,12 +4102,18 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         button:disabled{opacity:.42;cursor:default}
         ha-card{display:block;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,8px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color)}
         .wrap{padding:14px}
+        .card-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px}
         .identity{min-height:44px;display:grid;grid-template-columns:44px minmax(0,1fr);gap:12px;align-items:center}
         .ico{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;background:var(--secondary-background-color);color:var(--secondary-text-color)}
         .ico.on{color:var(--primary-color)}
         .name,.status{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .name{font-size:14px;font-weight:650}
         .status{margin-top:3px;font-size:12px;color:var(--secondary-text-color)}
+        .card-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+        .header-action{width:44px;height:44px;min-width:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}
+        .header-action.power.on{color:var(--primary-color)}
+        .header-action ha-icon{--mdc-icon-size:20px}
+        .header-action span{display:none}
         .launchers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
         .launcher{min-height:66px;padding:10px 12px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:14px;display:grid;grid-template-columns:38px minmax(0,1fr) 20px;gap:10px;align-items:center;text-align:left;background:color-mix(in srgb,var(--secondary-background-color) 45%,transparent)}
         .launcher .launch-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:var(--card-background-color);color:var(--primary-color)}
@@ -3424,12 +4127,12 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         .error{color:var(--error-color)}
         .panel{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:16px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,rgba(0,0,0,.28)));overscroll-behavior:contain;touch-action:pan-y}
         .panel[hidden]{display:none!important}
-        .sheet{width:min(430px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--divider-color);border-radius:24px;background:var(--card-background-color);box-shadow:0 18px 54px rgba(0,0,0,.24)}
-        .head{min-height:62px;padding:9px 10px 9px 18px;display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;border-bottom:1px solid var(--divider-color)}
+        .sheet{width:min(430px,calc(100vw - 32px));max-height:calc(100dvh - 32px);min-height:0;overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,8px);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}
+        .head{flex:0 0 auto;min-height:62px;padding:9px 10px 9px 18px;display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;border-bottom:1px solid var(--divider-color)}
         .sheet-name{display:block;font-size:15px;font-weight:700}
         .sheet-state{display:block;margin-top:2px;font-size:12px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .close{width:44px;height:44px;border-radius:50%;display:grid;place-items:center}
-        .body{min-height:0;overflow:auto;overscroll-behavior:contain;padding:16px 18px max(18px,env(safe-area-inset-bottom));display:grid;gap:16px;scrollbar-gutter:stable}
+        .body{flex:1 1 auto;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;padding:16px 18px max(18px,env(safe-area-inset-bottom));display:grid;gap:16px;scrollbar-gutter:stable}
         .section{display:grid;gap:10px}
         .section-title{font-size:12px;font-weight:700;color:var(--secondary-text-color);text-transform:uppercase;letter-spacing:.04em}
         .remote-shell{display:grid;gap:16px}
@@ -3459,24 +4162,30 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         .keyboard .utility span{display:none}
         .apps-summary{font-size:12px;color:var(--secondary-text-color)}
         .apps-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px}
+        .apps-grid{align-content:start}
         .app{min-width:0;aspect-ratio:1;padding:10px;border:1px solid var(--divider-color);border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;background:color-mix(in srgb,var(--secondary-background-color) 58%,transparent);text-align:center}
         .app[aria-selected=true]{border-color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}
         .app-logo{width:48px;height:48px;border-radius:13px;display:grid;place-items:center;background:var(--card-background-color);color:var(--primary-text-color);box-shadow:0 2px 9px rgba(0,0,0,.1)}
-        .app-logo ha-icon{--mdc-icon-size:29px}
+        .app-logo ha-icon{--mdc-icon-size:29px;color:var(--apple-tv-app-colour,var(--primary-color))}
         .app-name{width:100%;font-size:11px;font-weight:650;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .panel-notice{padding:0 18px max(16px,env(safe-area-inset-bottom));margin:0;font-size:12px;color:var(--secondary-text-color)}
         .panel-notice:not(:empty){padding-top:10px;border-top:1px solid var(--divider-color)}
+        .panel-notice{flex:0 0 auto}
+        .panel[data-mode="apps"] .body{max-height:calc(100dvh - 112px)}
         :is(button,input,.identity):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
-        @media(max-width:420px){.panel{padding:8px}.sheet{width:calc(100vw - 16px);max-height:calc(100dvh - 16px);border-radius:20px}.wrap{padding:12px}.body{padding:14px}.dpad{width:min(270px,78vw)}.apps-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.app{border-radius:16px}.app-logo{width:44px;height:44px}}
+        @media(max-width:420px){.panel{padding:16px}.sheet{width:calc(100vw - 32px);max-height:calc(100dvh - 32px)}.wrap{padding:12px}.card-head{gap:8px}.card-actions{gap:8px}.header-action{width:44px;height:44px;min-width:44px}.header-action ha-icon{--mdc-icon-size:20px}.body{padding:14px}.dpad{width:min(270px,78vw)}.apps-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.app{border-radius:16px}.app-logo{width:44px;height:44px}}
       </style>
       <ha-card>
         <div class="wrap">
-          <div class="identity" role="button" tabindex="0">
-            <span class="ico"><ha-icon></ha-icon></span>
-            <span>
-              <span class="name"></span>
-              <span class="status" role="status"></span>
-            </span>
+          <div class="card-head">
+            <div class="identity" role="button" tabindex="0">
+              <span class="ico"><ha-icon></ha-icon></span>
+              <span>
+                <span class="name"></span>
+                <span class="status" role="status"></span>
+              </span>
+            </div>
+            <div class="card-actions" aria-label="Apple TV quick controls"></div>
           </div>
           <div class="launchers">
             <button class="launcher remote-launch" type="button" aria-controls="apple-tv-panel">
@@ -3515,6 +4224,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       iconWrap: q(".ico"),
       name: q(".name"),
       status: q(".status"),
+      headerActions: q(".card-actions"),
       remoteLaunch: q(".remote-launch"),
       appsLaunch: q(".apps-launch"),
       appsMeta: q(".apps-launch .launch-meta"),
@@ -3600,12 +4310,12 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.el.identity.setAttribute("aria-label", `Open details for ${this.name(model)}`);
     this.el.icon.setAttribute("icon", this.config.icon);
     this.el.iconWrap.classList.toggle("on", model.awake);
-    this.el.remoteLaunch.disabled = !this.canRemote(model);
+    this.el.remoteLaunch.disabled = !model.awake || !this.canRemote(model);
     this.el.remoteLaunch.setAttribute(
       "aria-expanded",
       String(this.panelMode === "remote"),
     );
-    this.el.appsLaunch.disabled = !model.canSelectSource;
+    this.el.appsLaunch.disabled = !model.awake || !model.canSelectSource;
     this.el.appsLaunch.setAttribute(
       "aria-expanded",
       String(this.panelMode === "apps"),
@@ -3615,10 +4325,52 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       : "No installed apps";
     this.el.notice.textContent = this.message;
     this.el.notice.classList.toggle("error", this.messageType === "error");
+    this.el.panel.dataset.mode = this.panelMode || "";
+    this.renderHeaderControls(model);
+    if (this.panelMode && !model.awake) this.closePanel(false);
     if (this.panelMode) {
       if (this.volumeGestureActive) this.updateVolumeReadout(model);
       else this.renderPanel(model);
     }
+  }
+
+  renderHeaderControls(model) {
+    for (const handle of this.headerInteractions) handle.destroy();
+    this.headerInteractions = [];
+
+    const wake = !model.awake;
+    const powerAction = wake ? "wake" : "sleep";
+    const canPower = wake ? model.canWake : model.canSleep;
+    const repeatVolume = { delay: 350, interval: 110, accelerate: true };
+    const start = this.dynamicInteractions.length;
+    const volumeDown = this.button(
+      "header-action",
+      "Volume down",
+      "mdi:volume-minus",
+      () => this.queueVolume("down"),
+      !model.canVolumeDown,
+      false,
+      { repeat: repeatVolume, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
+    );
+    const volumeUp = this.button(
+      "header-action",
+      "Volume up",
+      "mdi:volume-plus",
+      () => this.queueVolume("up"),
+      !model.canVolumeUp,
+      false,
+      { repeat: repeatVolume, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
+    );
+    const power = this.button(
+      `header-action power ${model.awake ? "on" : ""}`,
+      wake ? "Turn Apple TV on" : "Turn Apple TV off",
+      "mdi:power",
+      () => this.remoteCommand(wake ? "wakeup" : "suspend", powerAction),
+      !canPower || this.busy(powerAction),
+      this.busy(powerAction),
+    );
+    this.headerInteractions.push(...this.dynamicInteractions.splice(start));
+    this.el.headerActions.replaceChildren(volumeDown, volumeUp, power);
   }
 
   renderPanel(model) {
@@ -3685,20 +4437,6 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         ),
       );
     }
-    if (model.canWake || model.canSleep) {
-      const wake = model.canWake;
-      const action = wake ? "wake" : "sleep";
-      toolbar.append(
-        this.button(
-          "remote-pill power",
-          wake ? "Wake" : "Sleep",
-          wake ? "mdi:power" : "mdi:power-sleep",
-          () => this.remoteCommand(wake ? "wakeup" : "suspend", action),
-          this.busy(action),
-          this.busy(action),
-        ),
-      );
-    }
     if (toolbar.childElementCount) shell.append(toolbar);
 
     const navigation = this.navigation(model);
@@ -3709,12 +4447,6 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
 
     const playback = this.playback(model);
     if (playback) shell.append(playback);
-
-    if (model.canVolumeDown || model.canVolumeUp) {
-      const volume = this.section("Volume");
-      volume.append(this.volumeControl(model));
-      shell.append(volume);
-    }
 
     const keyboard = this.keyboard(model);
     if (keyboard) shell.append(keyboard);
@@ -3936,6 +4668,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       );
       button.disabled = !model.canSelectSource || this.busy(action);
       logo.className = "app-logo";
+      logo.style.setProperty("--apple-tv-app-colour", this.appColour(source));
       logo.append(this.icon(this.appIcon(source)));
       name.className = "app-name";
       name.textContent = source;
@@ -3948,6 +4681,11 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
 
   appIcon(source) {
     return appleTvAppIcon(source, this.config?.app_icons);
+  }
+
+  appColour(source) {
+    return APP_BRAND_COLOURS.find(([pattern]) => pattern.test(source))?.[1]
+      || "var(--primary-color)";
   }
 
   async invoke(action, request, success) {
@@ -4000,12 +4738,19 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   ensureVolumeCoalescer() {
-    if (this.volumeCoalescer) return this.volumeCoalescer;
+    if (this.volumeCoalescer && !this.volumeCoalescer.destroyed) return this.volumeCoalescer;
     this.volumeCoalescer = createRequestCoalescer(async (direction) => {
       const model = this.model();
       if (direction === "up" ? !model.canVolumeUp : !model.canVolumeDown) return;
       if (!this.config.demo) await this._hass.callService("media_player", `volume_${direction}`, { entity_id: model.entities.media });
-    }, { onError: () => this.setMessage("Apple TV did not respond", "error", 4000) });
+    }, {
+      onError: () => this.setMessage("Apple TV did not respond", "error", 4000),
+      onIdle: () => {
+        if (this.volumeGestureActive) return;
+        this.optimisticVolume = null;
+        if (this.isConnected) this.render();
+      },
+    });
     return this.volumeCoalescer;
   }
 
@@ -4020,7 +4765,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   setVolumeGesture(pressed, model) {
     this.volumeGestureActive = pressed;
     if (pressed && this.optimisticVolume === null) this.optimisticVolume = model.level;
-    if (!pressed) { this.optimisticVolume = null; this.render(); }
+    this.updateVolumeReadout(model);
   }
 
   queueVolume(direction) {
@@ -4106,7 +4851,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
 
   openPanel(mode, trigger) {
     const model = this.model();
-    if (mode === "remote" ? !this.canRemote(model) : !model.canSelectSource) {
+    if (!model.awake || (mode === "remote" ? !this.canRemote(model) : !model.canSelectSource)) {
       return;
     }
     this.panelMode = mode;
@@ -4136,9 +4881,21 @@ registerCard({
 {
 /** ComponentSectionSeparatorV2 — reusable Home Assistant dashboard card. */
 const { DashboardBaseCard, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentSectionSeparatorV2 extends DashboardBaseCard{
- setConfig(c){this.c={icon:'mdi:gesture-tap-button',title:'Section label',...c};this.r()} getCardSize(){return 1}
- r(){this.shadowRoot.innerHTML=`<style>${this.cardStyles()}ha-card{background:transparent;border:0;box-shadow:none}.wrap{padding:7px 2px 5px;display:flex;align-items:center;gap:8px;color:var(--secondary-text-color)}.wrap ha-icon{color:var(--primary-color);--mdc-icon-size:18px}.label{font-size:12px;font-weight:600;color:var(--primary-text-color)}.line{height:1px;background:var(--divider-color);flex:1}</style><ha-card><div class="wrap"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon><span class="label">${this.escapeHtml(this.c.title)}</span><span class="line"></span></div></ha-card>`}}
+class ComponentSectionSeparatorV2 extends DashboardBaseCard {
+  setConfig(config) {
+    this.c = { icon: "mdi:gesture-tap-button", title: "Section label", ...config };
+    this.r();
+  }
+
+  getCardSize() {
+    return 1;
+  }
+
+  r() {
+    this.shadowRoot.innerHTML = `<style>${this.cardStyles()}ha-card{background:transparent;border:0;box-shadow:none}.wrap{padding:7px 2px 5px;display:flex;align-items:center;gap:8px;color:var(--secondary-text-color)}.wrap ha-icon{color:var(--primary-color);--mdc-icon-size:18px}.label{font-size:12px;font-weight:600;color:var(--primary-text-color)}.line{height:1px;background:var(--divider-color);flex:1}</style><ha-card><div class="wrap"><ha-icon icon="${this.escapeHtml(this.c.icon)}"></ha-icon><span class="label">${this.escapeHtml(this.c.title)}</span><span class="line"></span></div></ha-card>`;
+  }
+}
+
 registerCard({ type: "component-section-separator-v2", element: ComponentSectionSeparatorV2, name: "Section Separator", description: "Reusable section separator component." });
 }
 
@@ -4151,7 +4908,7 @@ class ComponentRoomSheetV2 extends DashboardBaseCard{
  setConfig(c){this.c={icon:'mdi:bed-king-outline',title:'Room name',rows:null,...c};this.r()}
  set hass(h){this._hass=h;this.r()}
  connectedCallback(){if(this.c)this.r()}
- disconnectedCallback(){for(const handle of this._interactions)handle.destroy();this._interactions=[]}
+ disconnectedCallback(){/* Retained room controls are replaced by the next render. */}
  getCardSize(){return 5}
  _defaults(){return[
   {section:'Room state',icon:'mdi:thermometer',name:'Status metric',state:'Supporting context',value:'Value'},
@@ -4194,7 +4951,7 @@ class ComponentHouseholdAttentionV1 extends HTMLElement{
     this._hass=h;this._subscribe();this._load();this._render();
   }
   connectedCallback(){this._subscribe();this._load();this._renderSignature=null;this._render()}
-  disconnectedCallback(){for(const handle of this._interactionHandles)handle.destroy();this._interactionHandles=[];clearTimeout(this._refreshTimer);this._refreshTimer=null;this._unsubscribe()}
+  disconnectedCallback(){clearTimeout(this._refreshTimer);this._refreshTimer=null;this._unsubscribe()}
   getCardSize(){return this.c?.demo?2:1}
   _subscribe(){
     if(!this.isConnected||this._registrySubscription||!this._connection?.subscribeEvents)return;
@@ -4274,86 +5031,304 @@ registerCard({ type: "component-household-attention-v1", element: ComponentHouse
 // Module: src/components/room-navigation.js
 {
 /** ComponentRoomNavigationV1 — reusable Home Assistant dashboard card. */
-const { escapeHtml, interaction, loadDashboardRegistries, navigateTo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentRoomNavigationV1 extends HTMLElement{
-  static getGridOptions(){return{columns:6,rows:1}}
-  constructor(){super();this.attachShadow({mode:"open"});this.c=null;this._hass=null;this._connection=null;this._registries=null;this._registriesPromise=null;this._renderSignature="";this._interaction=null}
-  setConfig(config){
-    this.c={name:"Room",icon:"mdi:home-outline",area:null,navigation_path:null,...config};
-    if(!this.c.area)throw new Error("area is required");
-    if(!this.c.navigation_path)throw new Error("navigation_path is required");
-    this._renderSignature="";this._render();
+const {
+  escapeHtml,
+  interaction,
+  loadDashboardRegistries,
+  navigateTo,
+  registerCard,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+class ComponentRoomNavigationV1 extends HTMLElement {
+  static getGridOptions() {
+    return { columns: 6, rows: 1 };
   }
-  set hass(hass){
-    const connection=hass&&hass.connection||null;
-    if(connection!==this._connection){this._connection=connection;this._registries=null;this._registriesPromise=null;this._load()}
-    this._hass=hass;this._render();
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.c = null;
+    this._hass = null;
+    this._connection = null;
+    this._registries = null;
+    this._registriesPromise = null;
+    this._renderSignature = "";
+    this._interaction = null;
   }
-  connectedCallback(){this._load();this._render()}
-  disconnectedCallback(){this._interaction?.destroy();this._interaction=null}
-  _load(){
-    const connection=this._connection;
-    if(!connection||this._registries||this._registriesPromise)return;
-    const request=loadDashboardRegistries(connection);
-    this._registriesPromise=request;
-    request.then(registries=>{
-      if(connection!==this._connection)return;
-      this._registries=registries;this._render();
-    }).catch(()=>{}).finally(()=>{if(this._registriesPromise===request)this._registriesPromise=null});
+  setConfig(config) {
+    this.c = {
+      name: "Room",
+      icon: "mdi:home-outline",
+      area: null,
+      navigation_path: null,
+      ...config,
+    };
+    if (!this.c.area) throw new Error("area is required");
+    if (!this.c.navigation_path) throw new Error("navigation_path is required");
+    this._renderSignature = "";
+    this._render();
   }
-  _escape(value){return escapeHtml(value)}
-  _entities(){
-    if(!this._registries||!this._hass)return[];
-    const areaKey=String(this.c.area).trim().toLowerCase();
-    const area=this._registries.areas.find(row=>row.area_id===this.c.area||String(row.name||"").trim().toLowerCase()===areaKey);
-    if(!area)return[];
-    const deviceAreas=new Map(this._registries.devices.map(row=>[row.id,row.area_id]));
+  set hass(hass) {
+    const connection = (hass && hass.connection) || null;
+    if (connection !== this._connection) {
+      this._connection = connection;
+      this._registries = null;
+      this._registriesPromise = null;
+      this._load();
+    }
+    this._hass = hass;
+    this._render();
+  }
+  connectedCallback() {
+    this._load();
+    this._render();
+  }
+  disconnectedCallback() {
+    // The retained tile remains interactive until reconnect renders it again.
+  }
+  _load() {
+    const connection = this._connection;
+    if (!connection || this._registries || this._registriesPromise) return;
+    const request = loadDashboardRegistries(connection);
+    this._registriesPromise = request;
+    request
+      .then((registries) => {
+        if (connection !== this._connection) return;
+        this._registries = registries;
+        this._render();
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (this._registriesPromise === request) this._registriesPromise = null;
+      });
+  }
+  _escape(value) {
+    return escapeHtml(value);
+  }
+  _entities() {
+    if (!this._registries || !this._hass) return [];
+    const areaKey = String(this.c.area).trim().toLowerCase();
+    const area = this._registries.areas.find(
+      (row) =>
+        row.area_id === this.c.area ||
+        String(row.name || "")
+          .trim()
+          .toLowerCase() === areaKey,
+    );
+    if (!area) return [];
+    const deviceAreas = new Map(
+      this._registries.devices.map((row) => [row.id, row.area_id]),
+    );
     return this._registries.entities
-      .filter(row=>row&&!row.disabled_by&&!row.hidden_by&&(row.area_id===area.area_id||deviceAreas.get(row.device_id)===area.area_id))
-      .map(row=>this._hass.states[row.entity_id])
+      .filter(
+        (row) =>
+          row &&
+          !row.disabled_by &&
+          !row.hidden_by &&
+          (row.area_id === area.area_id ||
+            deviceAreas.get(row.device_id) === area.area_id),
+      )
+      .map((row) => this._hass.states[row.entity_id])
       .filter(Boolean);
   }
-  _formatted(state){
-    try{return this._hass.formatEntityState(state)}
-    catch(error){return String(state&&state.state||"")}
+  _formatted(state) {
+    try {
+      return this._hass.formatEntityState(state);
+    } catch (error) {
+      return String((state && state.state) || "");
+    }
   }
-  _status(){
-    const states=this._entities().filter(state=>!["unknown","unavailable"].includes(state.state));
-    const climate=states.find(state=>state.entity_id.startsWith("climate.")&&state.attributes&&!Number.isNaN(Number.parseFloat(state.attributes.current_temperature)));
-    const blockedTemperature=/(_controller_temperature|_outside_air_temperature|cpu_temperature|processor_temperature|board_temperature|chip_temperature|internal_temperature)$/;
-    const byClass=deviceClass=>states.find(state=>state.entity_id.startsWith("sensor.")&&state.attributes&&state.attributes.device_class===deviceClass&&!blockedTemperature.test(state.entity_id)&&!Number.isNaN(Number.parseFloat(state.state)));
-    const temperature=byClass("temperature"),humidity=byClass("humidity");
-    const climateTemperature=climate?Number.parseFloat(climate.attributes.current_temperature):null;
-    const temperatureUnit=climate&&(climate.attributes.temperature_unit||(this._hass.config&&this._hass.config.unit_system&&this._hass.config.unit_system.temperature))||"°C";
-    const temperatureText=climate?climateTemperature.toLocaleString(this._hass.locale&&this._hass.locale.language||undefined,{maximumFractionDigits:1})+" "+temperatureUnit:temperature?this._formatted(temperature):"";
-    const lightsOn=states.filter(state=>state.entity_id.startsWith("light.")&&state.state==="on").length;
-    const critical=states.some(state=>state.entity_id.startsWith("binary_sensor.")&&state.state==="on"&&["smoke","moisture","gas"].includes(state.attributes&&state.attributes.device_class));
-    const warning=states.some(state=>(state.entity_id.startsWith("binary_sensor.")&&state.state==="on"&&state.attributes&&state.attributes.device_class==="garage_door")||(state.entity_id.startsWith("cover.")&&["open","opening"].includes(state.state)&&state.attributes&&state.attributes.device_class==="garage"));
-    const active=lightsOn>0||states.some(state=>(state.entity_id.startsWith("climate.")&&["heating","cooling","drying","fan"].includes(state.attributes&&state.attributes.hvac_action))||(state.entity_id.startsWith("media_player.")&&state.state==="playing"));
-    const parts=[];
-    if(critical)parts.push("Attention required");
-    else if(warning)parts.push("Garage open");
-    if(temperatureText)parts.push(temperatureText);
-    if(humidity)parts.push(this._formatted(humidity));
-    if(lightsOn)parts.push(lightsOn+" light"+(lightsOn===1?"":"s")+" on");
-    return{summary:parts.slice(0,3).join(" · "),severity:critical?"critical":warning?"warning":active?"active":""};
+  _status() {
+    const states = this._entities().filter(
+      (state) => !["unknown", "unavailable"].includes(state.state),
+    );
+    const climate = states.find(
+      (state) =>
+        state.entity_id.startsWith("climate.") &&
+        state.attributes &&
+        !Number.isNaN(Number.parseFloat(state.attributes.current_temperature)),
+    );
+    const blockedTemperature =
+      /(_controller_temperature|_outside_air_temperature|cpu_temperature|processor_temperature|board_temperature|chip_temperature|internal_temperature)$/;
+    const byClass = (deviceClass) =>
+      states.find(
+        (state) =>
+          state.entity_id.startsWith("sensor.") &&
+          state.attributes &&
+          state.attributes.device_class === deviceClass &&
+          !blockedTemperature.test(state.entity_id) &&
+          !Number.isNaN(Number.parseFloat(state.state)),
+      );
+    const temperature = byClass("temperature"),
+      humidity = byClass("humidity");
+    const climateTemperature = climate
+      ? Number.parseFloat(climate.attributes.current_temperature)
+      : null;
+    const temperatureUnit =
+      (climate &&
+        (climate.attributes.temperature_unit ||
+          (this._hass.config &&
+            this._hass.config.unit_system &&
+            this._hass.config.unit_system.temperature))) ||
+      "°C";
+    const temperatureText = climate
+      ? climateTemperature.toLocaleString(
+          (this._hass.locale && this._hass.locale.language) || undefined,
+          { maximumFractionDigits: 1 },
+        ) +
+        " " +
+        temperatureUnit
+      : temperature
+        ? this._formatted(temperature)
+        : "";
+    const lightsOn = states.filter(
+      (state) => state.entity_id.startsWith("light.") && state.state === "on",
+    ).length;
+    const critical = states.some(
+      (state) =>
+        state.entity_id.startsWith("binary_sensor.") &&
+        state.state === "on" &&
+        ["smoke", "moisture", "gas"].includes(
+          state.attributes && state.attributes.device_class,
+        ),
+    );
+    const warning = states.some(
+      (state) =>
+        (state.entity_id.startsWith("binary_sensor.") &&
+          state.state === "on" &&
+          state.attributes &&
+          state.attributes.device_class === "garage_door") ||
+        (state.entity_id.startsWith("cover.") &&
+          ["open", "opening"].includes(state.state) &&
+          state.attributes &&
+          state.attributes.device_class === "garage"),
+    );
+    const active =
+      lightsOn > 0 ||
+      states.some(
+        (state) =>
+          (state.entity_id.startsWith("climate.") &&
+            ["heating", "cooling", "drying", "fan"].includes(
+              state.attributes && state.attributes.hvac_action,
+            )) ||
+          (state.entity_id.startsWith("media_player.") &&
+            state.state === "playing"),
+      );
+    const parts = [];
+    if (critical) parts.push("Attention required");
+    else if (warning) parts.push("Garage open");
+    if (temperatureText) parts.push(temperatureText);
+    if (humidity) parts.push(this._formatted(humidity));
+    if (lightsOn)
+      parts.push(lightsOn + " light" + (lightsOn === 1 ? "" : "s") + " on");
+    return {
+      summary: parts.slice(0, 3).join(" · "),
+      severity: critical
+        ? "critical"
+        : warning
+          ? "warning"
+          : active
+            ? "active"
+            : "",
+    };
   }
-  _navigate(){
+  _navigate() {
     navigateTo(this.c.navigation_path);
   }
-  _render(){
-    if(!this.c)return;
-    const status=this._status(),summary=status.summary;
-    const signature=JSON.stringify([this.c.name,this.c.icon,this.c.navigation_path,status.summary,status.severity]);
-    if(signature===this._renderSignature)return;
-    this._renderSignature=signature;
-    this._interaction?.destroy();this._interaction=null;
-    const label="Open "+this.c.name+(summary?". "+summary:"");
-    this.shadowRoot.innerHTML='<style>:host{display:block;min-width:0}*{box-sizing:border-box}ha-card{overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:var(--dashboard-card-surface,var(--card-background-color));box-shadow:none;color:var(--primary-text-color)}button{appearance:none;width:100%;min-height:56px;padding:0 12px 0 10px;border:0;border-left:2px solid transparent;background:transparent;color:inherit;font:inherit;text-align:left;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:10px;cursor:pointer}.icon{width:36px;height:36px;display:grid;place-items:center;background:transparent;color:var(--secondary-text-color)}.icon ha-icon{--mdc-icon-size:21px}.copy{min-width:0}.name,.summary{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name{font-size:13px;line-height:1.25;font-weight:500}.summary{margin-top:3px;font-size:12px;line-height:1.25;font-weight:400;color:var(--secondary-text-color)}button.active{border-left-color:transparent;background:transparent}button.active .icon{color:color-mix(in srgb,var(--primary-color) 68%,var(--secondary-text-color))}button.warning{border-left-color:var(--warning-color,#f9a825);background:var(--dashboard-warning-surface,var(--card-background-color))}button.warning .icon{color:var(--warning-color,#f9a825)}button.critical{border-left-color:var(--error-color);background:var(--dashboard-critical-surface,var(--card-background-color))}button.critical .icon{color:var(--error-color)}button:active{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}button:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px}@media(max-width:420px){button{padding-right:10px;gap:8px}}</style><ha-card><button class="'+this._escape(status.severity)+'" type="button" aria-label="'+this._escape(label)+'"><span class="icon"><ha-icon icon="'+this._escape(this.c.icon)+'"></ha-icon></span><span class="copy"><span class="name">'+this._escape(this.c.name)+'</span>'+(summary?'<span class="summary">'+this._escape(summary)+'</span>':"")+'</span></button></ha-card>';
-    this._interaction=interaction(this.shadowRoot.querySelector("button"),{primary:()=>this._navigate(),feedback:true});
+  _presenceDetected() {
+    if (this.c?.demo_presence === true) return true;
+    if (this.c?.demo_presence === false) return false;
+    const explicit = this.c?.presence_entity;
+    if (explicit) {
+      const state = this._hass?.states?.[explicit];
+      return Boolean(
+        state &&
+          ["on", "home", "occupied", "present", "detected"].includes(
+            String(state.state).toLowerCase(),
+          ),
+      );
+    }
+    return this._entities().some((state) => {
+      if (
+        !state?.entity_id?.startsWith("binary_sensor.") ||
+        state.state !== "on"
+      )
+        return false;
+      const deviceClass = String(
+        state.attributes?.device_class || "",
+      ).toLowerCase();
+      const identity =
+        `${state.entity_id} ${String(state.attributes?.friendly_name || "")}`.toLowerCase();
+      return (
+        deviceClass === "occupancy" ||
+        deviceClass === "presence" ||
+        identity.includes("presence") ||
+        identity.includes("occupancy") ||
+        identity.includes("mmwave")
+      );
+    });
+  }
+  _presenceHue() {
+    const key = String(
+      this.c?.presence_colour_key || this.c?.area || this.c?.name || "room",
+    );
+    let hash = 2166136261;
+    for (let index = 0; index < key.length; index += 1) {
+      hash ^= key.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (((hash >>> 0) % 360) + 360) % 360;
+  }
+  _render() {
+    if (!this.c) return;
+    const status = this._status(),
+      summary = status.summary,
+      presence = this._presenceDetected();
+    const signature = JSON.stringify([
+      this.c.name,
+      this.c.icon,
+      this.c.navigation_path,
+      status.summary,
+      status.severity,
+      presence,
+    ]);
+    if (signature === this._renderSignature) return;
+    this._renderSignature = signature;
+    this._interaction?.destroy();
+    this._interaction = null;
+    const label = "Open " + this.c.name + (summary ? ". " + summary : "");
+    this.shadowRoot.innerHTML =
+      '<style>:host{display:block;min-width:0}*{box-sizing:border-box}ha-card{overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:var(--dashboard-card-surface,var(--card-background-color));box-shadow:none;color:var(--primary-text-color)}button{appearance:none;width:100%;min-height:56px;padding:0 12px 0 10px;border:0;border-left:2px solid transparent;background:transparent;color:inherit;font:inherit;text-align:left;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:10px;cursor:pointer}.icon{width:36px;height:36px;display:grid;place-items:center;background:transparent;color:var(--secondary-text-color)}.icon ha-icon{--mdc-icon-size:21px}.copy{min-width:0}.name,.summary{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name{font-size:13px;line-height:1.25;font-weight:500}.summary{margin-top:3px;font-size:12px;line-height:1.25;font-weight:400;color:var(--secondary-text-color)}button.active{border-left-color:transparent;background:transparent}button.active .icon{color:color-mix(in srgb,var(--primary-color) 68%,var(--secondary-text-color))}button.warning{border-left-color:var(--warning-color,#f9a825);background:var(--dashboard-warning-surface,var(--card-background-color))}button.warning .icon{color:var(--warning-color,#f9a825)}button.critical{border-left-color:var(--error-color);background:var(--dashboard-critical-surface,var(--card-background-color))}button.critical .icon{color:var(--error-color)}button:active{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}button:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px}@media(max-width:420px){button{padding-right:10px;gap:8px}}</style><ha-card><button class="' +
+      this._escape(status.severity) +
+      '" type="button" aria-label="' +
+      this._escape(label) +
+      '"><span class="icon"><ha-icon icon="' +
+      this._escape(this.c.icon) +
+      '"></ha-icon></span><span class="copy"><span class="name">' +
+      this._escape(this.c.name) +
+      "</span>" +
+      (summary
+        ? '<span class="summary">' + this._escape(summary) + "</span>"
+        : "") +
+      "</span></button></ha-card>";
+    const card = this.shadowRoot.querySelector("ha-card");
+    card.style.transition = "border-color 220ms ease, box-shadow 220ms ease";
+    if (presence) {
+      const hue = this._presenceHue();
+      card.setAttribute("data-presence", "true");
+      card.style.borderColor = `hsl(${hue} 82% 68% / .62)`;
+      card.style.boxShadow = `0 0 0 1px hsl(${hue} 82% 68% / .18), 0 0 14px 2px hsl(${hue} 82% 64% / .14)`;
+    }
+    this._interaction = interaction(this.shadowRoot.querySelector("button"), {
+      primary: () => this._navigate(),
+      feedback: true,
+    });
   }
 }
-registerCard({ type: "component-room-navigation-v1", element: ComponentRoomNavigationV1, name: "Room Navigation", description: "Area-aware room navigation with presence status." });
+registerCard({
+  type: "component-room-navigation-v1",
+  element: ComponentRoomNavigationV1,
+  name: "Room Navigation",
+  description: "Area-aware room navigation with presence status.",
+});
 }
 
 // Module: src/components/history-graph.js
@@ -4392,8 +5367,8 @@ class ComponentHistoryGraphV2 extends HTMLElement {
     clearTimeout(this.timer);
     this.timer = null;
     window.removeEventListener('pointerdown', this.outside, true);
-    for (const handle of this.interactions) handle.destroy();
-    this.interactions = [];
+    // Legend controls are bound to retained shadow DOM and remain valid while
+    // Home Assistant temporarily detaches the card.
   }
   getCardSize() { return 7; }
   build() {
@@ -4484,18 +5459,65 @@ registerCard({ type: "component-history-graph-v2", element: ComponentHistoryGrap
 {
 /** ComponentContextStripV3 — reusable Home Assistant dashboard card. */
 const { escapeHtml, interaction, navigateTo, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentContextStripV3 extends HTMLElement{
-  constructor(){super();this.attachShadow({mode:'open'});this._interaction=null;this._hass=null}
-  setConfig(c){this.c={left_text:'Left context',center_1_label:'Primary metric',center_1_value:'00%',center_2_label:'Secondary metric',center_2_value:'00%',center_3_label:'Tertiary metric',center_3_value:'00%',right_text:'Right context',navigation_path:null,entity:null,...(c||{})};this._render()}
-  set hass(h){this._hass=h}
-  connectedCallback(){if(this.c)this._render()}
-  disconnectedCallback(){this._interaction?.destroy();this._interaction=null}
-  getCardSize(){return 1}
-  _action(){if(this.c.navigation_path)return()=>navigateTo(this.c.navigation_path);if(this.c.entity)return()=>openMoreInfo(this,this.c.entity);return null}
-  _render(){
-    this._interaction?.destroy();this._interaction=null;
-    const action=this._action(),tag=action?'button':'div',rootClass=action?'':'context-static',attrs=action?' type="button"':'';
-    this.shadowRoot.innerHTML=`<style>
+
+class ComponentContextStripV3 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._interaction = null;
+    this._hass = null;
+  }
+
+  setConfig(c) {
+    this.c = {
+      left_text: "Left context",
+      center_1_label: "Primary metric",
+      center_1_value: "00%",
+      center_2_label: "Secondary metric",
+      center_2_value: "00%",
+      center_3_label: "Tertiary metric",
+      center_3_value: "00%",
+      right_text: "Right context",
+      navigation_path: null,
+      entity: null,
+      ...(c || {}),
+    };
+    this._render();
+  }
+
+  set hass(h) { this._hass = h; }
+
+  connectedCallback() {
+    if (this.c) this._render();
+  }
+
+  disconnectedCallback() {
+    // This card owns only an interaction bound to its retained shadow DOM.
+    // Keep it live while Home Assistant temporarily moves the card; reconnect
+    // renders a fresh view and releases the previous handle.
+  }
+
+  getCardSize() { return 1; }
+
+  _action() {
+    const path = this.c.navigation_path;
+    if (path) return () => navigateTo(path);
+    const entity = this.c.entity;
+    if (entity) return () => openMoreInfo(this, entity);
+    return null;
+  }
+
+  _render() {
+    this._interaction?.destroy();
+    this._interaction = null;
+
+    const action = this._action();
+    const tag = action ? "button" : "div";
+    const rootClass = action ? "" : "context-static";
+    const attributes = action ? ' type="button"' : "";
+    const metrics = [1, 2, 3].map((index) => `<span class="item"><span class="lab">${escapeHtml(this.c[`center_${index}_label`])}</span><span class="val">${escapeHtml(this.c[`center_${index}_value`])}</span></span>`).join("");
+
+    this.shadowRoot.innerHTML = `<style>
 :host{display:block;min-width:0}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
 button{appearance:none;width:100%;min-height:44px;box-sizing:border-box;border:0;background:transparent;font:inherit;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:16px;cursor:pointer;font-size:11.5px;line-height:1.3;white-space:nowrap;overflow:hidden;color:inherit}
 button:active{transform:scale(.997)}button:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px;border-radius:var(--ha-card-border-radius,16px)}
@@ -4503,10 +5525,19 @@ button:active{transform:scale(.997)}button:focus-visible{outline:2px solid var(-
 .mid{justify-self:center;display:flex;align-items:center;justify-content:center;gap:18px;min-width:0;color:var(--secondary-text-color)}.item{display:flex;align-items:baseline;gap:4px}.lab{font-weight:500}.val{font-weight:600;color:var(--primary-text-color)}
 @media(max-width:900px){button{gap:10px;padding:11px 12px;font-size:11px}.mid{gap:10px}.item{gap:3px}}
 @media(max-width:650px){button{font-size:11px;gap:6px;padding:10px}.mid{gap:7px}}
-</style><style>.context-static{width:100%;min-height:44px;box-sizing:border-box;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:16px;font-size:11.5px;line-height:1.3;white-space:nowrap;overflow:hidden}@media(max-width:900px){.context-static{gap:10px;padding:11px 12px;font-size:11px}}@media(max-width:650px){.context-static{font-size:11px;gap:6px;padding:10px}}</style><ha-card><${tag} class="${rootClass}"${attrs}><span class="phase">${escapeHtml(this.c.left_text)}</span><span class="mid">${[1,2,3].map(i=>`<span class="item"><span class="lab">${escapeHtml(this.c[`center_${i}_label`])}</span><span class="val">${escapeHtml(this.c[`center_${i}_value`])}</span></span>`).join('')}</span><span class="event">${escapeHtml(this.c.right_text)}</span></${tag}></ha-card>`;
-    if(action)this._interaction=interaction(this.shadowRoot.querySelector('button'),{primary:action,optimistic:false,repeat:false,feedback:true});
+</style><style>.context-static{width:100%;min-height:44px;box-sizing:border-box;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:16px;font-size:11.5px;line-height:1.3;white-space:nowrap;overflow:hidden}@media(max-width:900px){.context-static{gap:10px;padding:11px 12px;font-size:11px}}@media(max-width:650px){.context-static{font-size:11px;gap:6px;padding:10px}}</style><ha-card><${tag} class="${rootClass}"${attributes}><span class="phase">${escapeHtml(this.c.left_text)}</span><span class="mid">${metrics}</span><span class="event">${escapeHtml(this.c.right_text)}</span></${tag}></ha-card>`;
+
+    if (action) {
+      this._interaction = interaction(this.shadowRoot.querySelector("button"), {
+        primary: action,
+        optimistic: false,
+        repeat: false,
+        feedback: true,
+      });
+    }
   }
 }
+
 registerCard({ type: "component-context-strip-v3", element: ComponentContextStripV3, name: "Context Strip", description: "Reusable context and metric strip component." });
 }
 
@@ -4763,8 +5794,7 @@ class ComponentUpdateSummaryV3 extends HTMLElement {
   disconnectedCallback() {
     window.clearTimeout(this.messageTimer);
     this.messageTimer = null;
-    this._interaction?.destroy();
-    this._interaction = null;
+    // The retained action remains available until a reconnect render replaces it.
   }
 
   _all() {
@@ -4968,8 +5998,7 @@ class ComponentUpdateRowV3 extends HTMLElement {
   disconnectedCallback() {
     window.clearTimeout(this.startTimer);
     window.clearTimeout(this.errorTimer);
-    for (const handle of this._interactions) handle.destroy();
-    this._interactions = [];
+    // The retained detail and action controls are replaced by the next render.
   }
 
   _state() {
@@ -5340,20 +6369,51 @@ registerCard({ type: "component-energy-day-selector-v1", element: ComponentEnerg
 {
 /** ComponentTextEffectV1 — reusable Home Assistant dashboard card. */
 const { escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-class ComponentTextEffectV1 extends HTMLElement{
-  constructor(){super();this.attachShadow({mode:'open'});this.settleTimer=null}
-  setConfig(c){if(!c?.text)throw new Error('text is required');this.c={effect:'stamp',description:'',icon:null,speed:2.6,...c};this.render()}
-  set hass(h){this.h=h}
-  disconnectedCallback(){clearTimeout(this.settleTimer);this.settleTimer=null}
-  getCardSize(){return 1}
-  render(){
-    clearTimeout(this.settleTimer);this.settleTimer=null;
-    const c=this.c;
-    const effect=['stamp','typewave','overprint','signal','rainbow_stamp'].includes(c.effect)?c.effect:'stamp';
-    const speed=Math.max(1.6,Math.min(6,Number(c.speed)||2.6));
-    const text=escapeHtml(c.text);
-    const icon=c.icon?`<span class="icon"><ha-icon icon="${escapeHtml(c.icon)}"></ha-icon></span>`:'';
-    this.shadowRoot.innerHTML=`<style>
+
+class ComponentTextEffectV1 extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.settleTimer = null;
+  }
+
+  setConfig(c) {
+    if (!c?.text) throw new Error("text is required");
+    this.c = {
+      effect: "stamp",
+      description: "",
+      icon: null,
+      speed: 2.6,
+      ...c,
+    };
+    this.render();
+  }
+
+  set hass(h) { this.h = h; }
+
+  connectedCallback() {
+    const row = this.shadowRoot.querySelector(".row");
+    if (this.c && !this.settleTimer && row && !row.classList.contains("settled")) this.render();
+  }
+
+  disconnectedCallback() {
+    clearTimeout(this.settleTimer);
+    this.settleTimer = null;
+  }
+
+  getCardSize() { return 1; }
+
+  render() {
+    clearTimeout(this.settleTimer);
+    this.settleTimer = null;
+
+    const c = this.c;
+    const effect = ["stamp", "typewave", "overprint", "signal", "rainbow_stamp"].includes(c.effect) ? c.effect : "stamp";
+    const speed = Math.max(1.6, Math.min(6, Number(c.speed) || 2.6));
+    const text = escapeHtml(c.text);
+    const icon = c.icon ? `<span class="icon"><ha-icon icon="${escapeHtml(c.icon)}"></ha-icon></span>` : "";
+
+    this.shadowRoot.innerHTML = `<style>
 :host{display:block;min-width:0}*{box-sizing:border-box}ha-card{overflow:hidden;border-radius:var(--ha-card-border-radius,16px);background:var(--ha-card-background,var(--card-background-color));color:var(--primary-text-color)}
 .row{min-height:70px;padding:12px 14px;display:grid;grid-template-columns:${c.icon?'40px ':''}minmax(0,1fr);align-items:center;gap:12px}.icon{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:var(--secondary-background-color);color:var(--primary-color)}.icon ha-icon{--mdc-icon-size:20px}.copy{min-width:0}.title{position:relative;display:inline-block;max-width:100%;font-size:13px;line-height:1.25;font-weight:650;letter-spacing:-.005em;white-space:nowrap;color:var(--primary-text-color)}.base{position:relative;z-index:2}.desc{margin-top:4px;font-size:13px;line-height:1.3;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stamp .title{padding-bottom:4px}.stamp .title:after{content:'';position:absolute;z-index:1;left:0;bottom:0;width:100%;height:2px;border-radius:999px;background:linear-gradient(90deg,transparent 0%,var(--primary-color) 42%,var(--primary-color) 58%,transparent 100%);background-size:220% 100%;opacity:.72;animation:stampSweep ${speed}s cubic-bezier(.4,0,.2,1) infinite}
@@ -5364,28 +6424,3169 @@ class ComponentTextEffectV1 extends HTMLElement{
 @keyframes stampSweep{0%{background-position:210% 0;opacity:0}15%{opacity:.28}42%{opacity:.78}70%{opacity:.28}100%{background-position:-110% 0;opacity:0}}@keyframes textSweep{0%,8%{clip-path:inset(0 100% 0 0);opacity:0}22%{opacity:.75}52%{clip-path:inset(0 0 0 0);opacity:.75}72%{clip-path:inset(0 0 0 100%);opacity:.2}100%{clip-path:inset(0 0 0 100%);opacity:0}}@keyframes softPrint{0%,48%,100%{opacity:0;transform:translateX(0)}60%{opacity:.22;transform:translateX(.6px)}70%{opacity:.1;transform:translateX(0)}}@keyframes signalPulse{0%,100%{opacity:.25;transform:rotate(45deg) scale(.88)}48%{opacity:.7;transform:rotate(45deg) scale(1.06)}70%{opacity:.35;transform:rotate(45deg) scale(.96)}}@keyframes signalDot{0%,100%{opacity:.35;transform:scale(.7)}48%{opacity:1;transform:scale(1)}70%{opacity:.5;transform:scale(.8)}}@keyframes rainbow{to{background-position:260% 50%}}
 @media(prefers-reduced-motion:reduce){.stamp .title:after,.typewave .title:after,.overprint .title:after,.signal .title:before,.signal .title:after,.rainbow_stamp .title,.rainbow_stamp .title:after{animation:none!important}.stamp .title:after{opacity:.35;background:var(--primary-color)}.typewave .title:after,.overprint .title:after{display:none}.signal .title:before{opacity:.45}.signal .title:after{opacity:.7}}
 @media(max-width:700px){.row{padding:12px}.desc{font-size:12px}}
-</style><style>.row.settled .title:after,.row.settled .title:before,.row.settled .title{animation:none!important}.row.settled.typewave .title:after,.row.settled.overprint .title:after{display:none}.row.settled.stamp .title:after{opacity:.35;background:var(--primary-color)}.row.settled.signal .title:before{opacity:.45}.row.settled.signal .title:after{opacity:.7}</style><ha-card><div class="row ${effect}">${icon}<div class="copy"><div class="title" data-text="${text}"><span class="base">${text}</span></div>${c.description?`<div class="desc">${escapeHtml(c.description)}</div>`:''}</div></div></ha-card>`;
-    const row=this.shadowRoot.querySelector('.row');
-    this.settleTimer=setTimeout(()=>{this.settleTimer=null;row?.classList.add('settled')},Math.round(speed*1000)+80)
+</style><style>.row.settled .title:after,.row.settled .title:before,.row.settled .title{animation:none!important}.row.settled.typewave .title:after,.row.settled.overprint .title:after{display:none}.row.settled.stamp .title:after{opacity:.35;background:var(--primary-color)}.row.settled.signal .title:before{opacity:.45}.row.settled.signal .title:after{opacity:.7}</style><ha-card><div class="row ${effect}">${icon}<div class="copy"><div class="title" data-text="${text}"><span class="base">${text}</span></div>${c.description ? `<div class="desc">${escapeHtml(c.description)}</div>` : ""}</div></div></ha-card>`;
+
+    const row = this.shadowRoot.querySelector(".row");
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = null;
+      row?.classList.add("settled");
+    }, Math.round(speed * 1000) + 80);
   }
 }
+
 registerCard({ type: "component-text-effect-v1", element: ComponentTextEffectV1, name: "Signature Text Effect", description: "Reusable transient-status effects using the existing signature motion language." });
 }
 
 // Module: src/components/split-system-controller.js
 {
 /** ComponentSplitControllerV4 — reusable Home Assistant dashboard card. */
-const { interaction, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-const SPLIT_INVALID=new Set(["unknown","unavailable","none",""]),SPLIT_LABELS={fan_only:"Fan only"};class ComponentSplitControllerV4 extends HTMLElement{static getGridOptions(){return{columns:12,rows:"auto"}}constructor(){super(),this.attachShadow({mode:"open"}),this.t=!1,this.i="",this.o=null,this.l="",this.h=null,this.u=null,this.p=new Map,this.m=0,this.v=null,this._=null,this.k=null,this.T=null,this.S=null,this.A=null,this.C=null,this.q=null,this.L=null,this._interactionHandles=[]}setConfig(t){if(!t?.entity)throw new Error("A climate entity is required");clearTimeout(this._),this._=null;for(const t of this.p.values())this.I(t);this.p.clear(),this.v=null,this.T=null,this.t&&(this.M(!1),this.$.pb.replaceChildren()),this.S={...t},this.config={...this.S},this.A=null,this.C=null,clearTimeout(this.q),this.q=null,this.i=""}set hass(t){this.P=t,this.N(),this.O(),this.t||this.R(),this.D();const i=this.V();i!==this.i?(this.i=i,this.H()):this.F(),this.j()}O(){const t=this.S?.entity;if(!t||!this.P||this.A===t||this.C===t)return;const i=globalThis.__componentSplitRegistryV4;i?.load&&(this.C=t,i.load(this.P).then(s=>{if(this.S?.entity!==t)return;if(this.C=null,s.error){if(!this.isConnected)return;return clearTimeout(this.q),void(this.q=setTimeout(()=>{this.q=null,this.O()},31e3))}clearTimeout(this.q),this.q=null;const e=s.systems.get(t);this.config={...this.S,...e?{room_id:e.room_id,registry_entity:e.registry_entity,controller_entity:e.controller_entity,vertical_vane_entity:e.vertical_vane_entity,horizontal_vane_entity:e.horizontal_vane_entity,minimum_target:e.minimum_target,maximum_target:e.maximum_target,fan_ceiling:e.fan_ceiling,last_mode:e.last_mode,deadline:e.deadline,profiles:e.profiles}:{}},this.A=t,this.i="",this.t&&this.isConnected&&(this.H(),this.j())}))}connectedCallback(){this.N(),this.O(),this.t&&this.j()}N(){const t=globalThis.__componentSplitRegistryV4;this.isConnected&&!this.L&&this.P&&t?.subscribe&&(this.L=t.subscribe(this.P,()=>{this.A=null,this.i="",this.O()}))}disconnectedCallback(){for(const t of this._interactionHandles)t.destroy();this._interactionHandles=[];clearTimeout(this._),this._=null,clearInterval(this.k),this.k=null,clearTimeout(this.q),this.q=null,this.L?.(),this.L=null;for(const t of this.p.values())clearTimeout(t.timeoutTimer),clearTimeout(t.settleTimer);this.p.clear(),this.v=null,this.T=null,this.t&&this.M(!1)}R(){this.t=!0,this.shadowRoot.innerHTML='<style>\n        :host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}button,input{font:inherit;color:inherit}button{appearance:none;border:0;background:transparent;cursor:pointer}ha-card{container-type:inline-size;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,6px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color)}.w{padding:12px 14px}.hd{display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;gap:12px}.hd.settings{grid-template-columns:minmax(0,1fr) 44px 44px;gap:8px}.idn{min-width:0;min-height:44px;padding:0;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:12px;text-align:left;border-radius:var(--dashboard-radius-control,8px)}.iw{width:40px;height:40px;border-radius:var(--dashboard-radius-icon,6px);display:grid;place-items:center;background:transparent;color:var(--primary-color)}ha-icon{--mdc-icon-size:20px}.cp{min-width:0}.nm,.st{display:block}.nm{font-size:13px;line-height:1.25;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.st{margin-top:3px;font-size:13px;line-height:1.25;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pw{width:44px;height:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.pw.on{color:var(--primary-color)}button[disabled],button[aria-disabled=true]{opacity:.45;cursor:default}.ct{margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color)}.cr{display:grid;grid-template-columns:minmax(120px,1fr) auto;align-items:center;gap:16px}.cr.to{grid-template-columns:auto;justify-content:end}.rv{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.ml{display:block;margin-top:6px;color:var(--secondary-text-color);font-size:13px;line-height:1.2}.tc{min-height:48px;display:grid;grid-template-columns:44px minmax(82px,auto) 44px;align-items:center;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;overflow:hidden}.tb{width:44px;height:48px;padding:0;display:grid;place-items:center}.tp{min-width:0;padding:0 8px;text-align:center}.tv{font-size:18px;line-height:1.1;font-weight:650;font-variant-numeric:tabular-nums}.ts{margin-top:3px;color:var(--secondary-text-color);font-size:13px;line-height:1.1;white-space:nowrap}.os,.uv{font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.as{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.a{min-width:0;min-height:44px;flex:1 1 118px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:flex;align-items:center;justify-content:center;gap:7px;color:var(--secondary-text-color)}.a ha-icon{--mdc-icon-size:18px}.al{min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.a.av,.a[aria-expanded=true]{color:var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.pn{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;overscroll-behavior:contain;padding:16px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,color-mix(in srgb,var(--primary-text-color) 32%,transparent)))}.pd{width:min(380px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;padding:12px 14px 14px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,8px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}.ph{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px}.pt{margin:0;font-size:18px;line-height:1.2;font-weight:650}.x{width:44px;height:44px;border-radius:var(--dashboard-radius-control,8px);display:grid;place-items:center}.og+.og{margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color)}.gt{margin:0 4px 8px;font-size:13px;font-weight:650;color:var(--secondary-text-color)}.qs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.o{min-height:50px;width:100%;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:grid;grid-template-columns:20px minmax(0,1fr) 20px;align-items:center;gap:8px;text-align:left;background:transparent;font-size:13px;font-weight:600}.oi{color:var(--secondary-text-color)}.o[aria-selected=true]{color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}.o[aria-selected=true] .oi{color:var(--primary-color)}.tpr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.tpr button,.tcu button,.tac button{min-height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;font-size:13px;font-weight:650}.tpr button{display:flex;align-items:center;justify-content:center;gap:6px}.tcu{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px;margin-top:12px}.tcu label{font-size:13px;color:var(--secondary-text-color)}.tcu input{display:block;width:100%;height:44px;margin-top:6px;padding:0 11px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,5px);background:transparent}.tcu button{padding:0 14px;color:var(--primary-color)}.tac{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.tac button:first-child{color:var(--primary-color)}.tac button:last-child{color:var(--error-color)}.fb{font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.fb:not(:empty){margin-top:10px}.fb.er{color:var(--error-color)}:is(button,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}@container (max-width:400px){.w{padding:12px}.as .a{flex-basis:calc(50% - 4px)}}@container (max-width:340px){.cr{grid-template-columns:1fr;justify-content:stretch}.tc{width:100%}}\n      </style><ha-card><div class="w"><div class="hd"><button class="idn" type="button"><span class="iw"><ha-icon class="mi"></ha-icon></span><span class="cp"><span class="nm"></span><span class="st" role="status"></span></span></button><button class="pw" type="button"><ha-icon icon="mdi:power"></ha-icon></button></div><div class="ct"><div class="cr"><div class="rm"><span class="rv"></span><span class="ml">Room temperature</span></div><div class="tc"><button class="tb decrease" type="button" aria-label="Decrease target temperature"><ha-icon icon="mdi:minus"></ha-icon></button><div class="tp"><div class="tv"></div><div class="ts"></div></div><button class="tb increase" type="button" aria-label="Increase target temperature"><ha-icon icon="mdi:plus"></ha-icon></button></div></div><div class="os"></div><div class="uv"></div><div class="as"><button class="a ma" type="button" data-panel="mode" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:thermostat"></ha-icon><span class="al"></span></button><button class="a fa" type="button" data-panel="fan" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:fan"></ha-icon><span class="al"></span></button><button class="a va" type="button" data-panel="vanes" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:swap-vertical"></ha-icon><span class="al"></span></button><button class="a ta" type="button" data-panel="timer" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:timer-outline"></ha-icon><span class="al"></span></button></div></div><div class="fb" role="status" aria-live="polite"></div></div></ha-card><section class="pn" id="split-secondary" role="dialog" aria-modal="true" aria-labelledby="split-pt" hidden><div class="pd"><div class="ph"><h3 class="pt" id="split-pt"></h3><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="pb"></div></div></section>';const t=document.createElement("button");t.className="pw sg",t.type="button",t.dataset.panel="settings",t.setAttribute("aria-controls","split-secondary"),t.setAttribute("aria-expanded","false"),t.setAttribute("aria-label","Advanced settings");const i=document.createElement("ha-icon");i.setAttribute("icon","mdi:cog-outline"),t.append(i),this.shadowRoot.querySelector(".pw").before(t),this.$=Object.fromEntries([...this.shadowRoot.querySelectorAll("[class]")].flatMap(t=>[...t.classList].map(i=>[i,t]))),this._interactionHandles.push(interaction(this.$.idn,{primary:()=>this.B(),feedback:!0}),interaction(this.$.pw,{primary:()=>this.G(),optimistic:!1,feedback:!0}),interaction(this.$.decrease,{primary:()=>this.W(-1),feedback:!0}),interaction(this.$.increase,{primary:()=>this.W(1),feedback:!0})),this.shadowRoot.querySelectorAll("[data-panel]").forEach(t=>this._interactionHandles.push(interaction(t,{primary:()=>this.U(t.dataset.panel,t),feedback:!0}))),this.$.x.addEventListener("click",()=>this.M(!0)),this.$.pn.addEventListener("click",t=>{t.target===this.$.pn&&this.M(!0)}),this.shadowRoot.addEventListener("keydown",t=>{"Escape"===t.key&&this.o?(t.preventDefault(),this.M(!0)):"Tab"===t.key&&this.o&&this.J(t)})}V(){const t=[this.config.entity,this.config.vertical_vane_entity,this.config.horizontal_vane_entity,this.config.controller_entity,this.config.registry_entity||"sensor.ha_component_backend"].filter(Boolean),i=t.map(t=>{const i=this.P?.states?.[t];return[t,i?.state,i?.attributes]}),s={room_id:this.config.room_id,minimum_target:this.config.minimum_target,maximum_target:this.config.maximum_target,fan_ceiling:this.config.fan_ceiling,last_mode:this.config.last_mode,deadline:this.config.deadline,profiles:this.config.profiles};return JSON.stringify([i,s])}K(t){if(null==t||""===t)return null;const i=Number(t);return Number.isFinite(i)?i:null}X(t){return t?this.P?.states?.[t]??null:null}Y(t){return Boolean(t&&!SPLIT_INVALID.has(String(t.state).toLowerCase()))}Z(){const t=this.X(this.config.entity),i=this.X(this.config.controller_entity),s=!this.Y(t)||this.config.controller_entity&&(!i||"on"!==i.state);return{state:t,attributes:t?.attributes??{},uv:s}}tt(t){const i=String(t??"").toLowerCase();return SPLIT_LABELS[i]??i.replaceAll("_"," ").replace(/^./,t=>t.toUpperCase())}it(t){const i=this.K(t);return null===i?null:`${Number.isInteger(i)?i:i.toFixed(1)}°`}et(t,i){return"heating"===i||"heat"===t?"mdi:fire":"cooling"===i||"cool"===t?"mdi:snowflake":"auto"===t?"mdi:thermostat-auto":"dry"===t?"mdi:water-percent":"fan_only"===t?"mdi:fan":"mdi:heat-pump"}nt(t){if(t.uv)return"Controller unavailable";const{state:i,attributes:s}=t,e=i.state,n=s.hvac_action,o=this.it(s.temperature),r=this.K(s.current_temperature),a=this.K(s.temperature),l=this.K(s.target_temp_step),h=null!==r&&null!==a&&null!==l&&l>0&&Math.abs(r-a)<=l;return"off"===e?"Off":"heating"===n?o?`Heating to ${o}`:"Heating":"cooling"===n?o?`Cooling to ${o}`:"Cooling":"heat"===e?h?"Heat · At target":o?`Heat · Target ${o}`:"Heat":"cool"===e?h?"Cool · At target":o?`Cool · Target ${o}`:"Cool":"auto"===e?o?`Auto · Target ${o}`:"Auto":"dry"===e?"drying"===n?"Drying":"Dry":"fan_only"===e?"Fan only"+(this.ot(s.fan_mode)?` · ${this.tt(s.fan_mode)}`:""):this.tt(e)}ot(t){return null!=t&&!SPLIT_INVALID.has(String(t).toLowerCase())}rt(t){const i=[this.p.get("hvac"),this.p.get("temperature"),this.p.get("fan"),[...this.p].find(([t])=>t.startsWith("vane:"))?.[1],this.p.get("timer")];for(const s of i){if(!s)continue;const i=s.queued?.label??s.label;return`${this.nt(t)} · Requesting ${i}`}return this.nt(t)}H(){const t=this.Z(),{state:i,attributes:s,uv:e}=t,n=!e&&"off"!==i.state,o=this.config.title||s.friendly_name||"Split system";this.$.nm.textContent=o,this.$.st.textContent=this.rt(t),this.$.mi.setAttribute("icon",e?"mdi:heat-pump":this.et(i.state,s.hvac_action)),this.$.idn.setAttribute("aria-label",`Open details for ${o}`),this.$.pw.classList.toggle("on",n),this.$.pw.disabled=e,this.$.pw.setAttribute("aria-label",e?`${o} unavailable`:`Turn ${n?"off":"on"} ${o}`),this.$.pw.setAttribute("aria-pressed",String(n));const r=this.lt();if(this.$.sg.hidden=!r,this.$.hd.classList.toggle("settings",r),this.$.ct.hidden=!1,this.$.uv.hidden=!e,this.$.uv.textContent=e?"Controls return when the controller reconnects.":"",e)return this.$.cr.hidden=!0,this.$.os.hidden=!0,this.$.as.hidden=!0,this.M(!0),void this.ht();const a=this.K(s.current_temperature),l=this.K(s.temperature),h=this.K(s.target_temp_step),{minimum:c,maximum:d}=this.dt(),u=n&&["heat","cool","auto"].includes(i.state)&&null!==l&&null!==h&&h>0;this.$.cr.hidden=!n||null===a&&!u,this.$.cr.classList.toggle("to",null===a&&u),this.$.rm.hidden=null===a,this.$.rv.textContent=this.it(a)??"",this.$.tc.hidden=!u;const p=this.v??l;if(this.$.tv.textContent=this.it(p)??"",this.$.ts.textContent=this.ut(l),this.$.decrease.disabled=!u||null!==c&&p<=c,this.$.increase.disabled=!u||null!==d&&p>=d,this.$.os.hidden=n,!n){const t=[];null!==a&&t.push(`Room ${this.it(a)}`);const i=this.gt();i&&t.push(`Resume ${this.tt(i)}`),this.$.os.textContent=t.join(" · ")||"Ready when needed"}const m=this.ft(),g=this.bt(),f=this.vt(),b=this.xt();this.$.as.hidden=!n,this.$.ma.hidden=!n||m.length<2,this.$.fa.hidden=!n||g.length<2,this.$.va.hidden=!n||0===f.length,this.$.ta.hidden=!n||!b,this.$.ma.querySelector(".al").textContent=`Mode · ${this.tt(i.state)}`,this.$.fa.querySelector(".al").textContent=`Fan · ${this.tt(s.fan_mode)}`,this.$.va.querySelector(".al").textContent=this.yt(f),this.$.ta.querySelector(".al").textContent=this.wt(),this.$.ta.classList.toggle("av",this._t().av),this.o&&!this.kt()?(this.Tt("That control is no longer available.","error"),this.M(!0)):this.o&&this.St(),this.ht()}F(){if(!this.t||!this.P)return;const t=this.Z();this.$.st.textContent=this.rt(t),this.ht(),this.o&&this.St()}ut(t){if(this.p.get("temperature")||this._){const i=this.it(t);return i?`Requesting · Current ${i}`:"Requesting"}return"Target"}ft(){const t=this.Z().attributes.hvac_modes;return Array.isArray(t)?t.filter(t=>"off"!==t&&this.ot(t)):[]}bt(){const{attributes:t}=this.Z(),i=Array.isArray(t.fan_modes)&&this.ot(t.fan_mode)?t.fan_modes.filter(t=>this.ot(t)):[],s=this.config.fan_ceiling;if(!s||"unrestricted"===String(s).toLowerCase())return i;const e={quiet:0,low:1,medium:2,high:3},n=e[String(s).toLowerCase()];return void 0===n?i:i.filter(t=>void 0!==e[String(t).toLowerCase()]&&e[String(t).toLowerCase()]<=n)}lt(){const t=this.Z(),i=this.K(t.attributes.min_temp),s=this.K(t.attributes.max_temp),e=this.K(t.attributes.target_temp_step),n=this.K(this.config.minimum_target),o=this.K(this.config.maximum_target),r=["Quiet","Low","Medium","High","Unrestricted"];return!t.uv&&this.config.room_id&&null!==i&&null!==s&&i<s&&null!==e&&e>0&&null!==n&&null!==o&&n>=i&&o<=s&&n<o&&r.includes(this.config.fan_ceiling)}dt(){const t=this.Z().attributes,i=this.K(t.min_temp),s=this.K(t.max_temp),e=this.K(this.config.minimum_target),n=this.K(this.config.maximum_target),o=null!==e&&null!==n&&e<n&&(null===i||e>=i)&&(null===s||n<=s);return{minimum:o&&null!==i?Math.max(i,e):i,maximum:o&&null!==s?Math.min(s,n):s}}gt(){const t=this.config.last_mode;return this.ft().includes(t)?t:null}vt(){return[["vertical","Vertical vane",this.config.vertical_vane_entity],["horizontal","Horizontal vane",this.config.horizontal_vane_entity]].flatMap(([t,i,s])=>{const e=this.X(s),n=Array.isArray(e?.attributes?.options)?e.attributes.options.filter(t=>this.ot(t)):[];return s&&e&&"unavailable"!==String(e.state).toLowerCase()&&n.length?[{axis:t,title:i,entityId:s,state:e.state,qs:n}]:[]})}$t(t,i){return("vertical"===i?{AUTO:"Auto","↑↑":"Highest","↑":"High","—":"Centre","↓":"Low","↓↓":"Lowest",SWING:"Swing"}:{"←←":"Far left","←":"Left","|":"Centre","→":"Right","→→":"Far right","←→":"Wide",SWING:"Swing","AIRFLOW CONTROL":"Airflow control"})[t]??this.tt(t)}At(t,i){return"mode"===t.key?this.et(i):"fan"===t.key?{auto:"mdi:fan-auto",quiet:"mdi:volume-low",low:"mdi:fan-speed-1",medium:"mdi:fan-speed-2",high:"mdi:fan-speed-3"}[String(i).toLowerCase()]??"mdi:fan":"vertical"===t.axis?{AUTO:"mdi:autorenew","↑↑":"mdi:arrow-up-bold","↑":"mdi:arrow-up","—":"mdi:minus","↓":"mdi:arrow-down","↓↓":"mdi:arrow-down-bold",SWING:"mdi:swap-vertical"}[i]??"mdi:swap-vertical":"mdi:swap-horizontal"}yt(t){return 1===t.length?`Vanes · ${this.$t(t[0].state,t[0].axis)}`:t.length>1?`Vanes · V ${this.$t(t[0].state,"vertical")} · H ${this.$t(t[1].state,"horizontal")}`:"Vanes"}xt(){return Boolean(this.config.room_id&&this.config.entity)}_t(){const t=this.config.deadline?Date.parse(String(this.config.deadline)):NaN;return Number.isFinite(t)?{av:t>Date.now(),deadline:t}:{av:!1,deadline:null}}wt(){const t=this._t();if(!t.av)return"Timer";const i=Math.max(0,Math.ceil((t.deadline-Date.now())/6e4));return i>=60&&i%60==0?`Timer · ${i/60} hr`:`Timer · ${i} min`}j(){const t=this._t().av;t&&!this.k?this.k=setInterval(()=>{this.$.ta?.querySelector(".al")?.replaceChildren(this.wt()),"timer"===this.o&&this.St()},3e4):!t&&this.k&&(clearInterval(this.k),this.k=null)}U(t,i){this.o!==t?(this.o=t,this.h=i,this.l="",this.u=null,this.shadowRoot.querySelectorAll("[data-panel]").forEach(t=>t.setAttribute("aria-expanded",String(t===i))),this.$.pn.hidden=!1,this.St(!0)):this.M(!0)}M(t){if(!this.t)return;const i=Boolean(this.o),s=this.h;this.o=null,this.h=null,this.l="",this.u=null,this.$.pn.hidden=!0,this.shadowRoot.querySelectorAll("[data-panel]").forEach(t=>t.setAttribute("aria-expanded","false")),t&&i&&(!s?.isConnected||s.hidden||s.disabled?this.$.idn.focus():s.focus())}J(t){const i="settings"===this.o?this.$.pb.querySelector("component-split-settings-v1"):null,s=i?.shadowRoot?[this.$.x,...i.shadowRoot.querySelectorAll('button:not([disabled]):not([tabindex="-1"]),input:not([disabled])')]:[...this.$.pn.querySelectorAll('button:not([disabled]):not([tabindex="-1"]),input:not([disabled])')];if(!s.length)return;const e=s[0],n=s.at(-1),o=this.shadowRoot.activeElement,r=i&&o===i?i.shadowRoot.activeElement:o;!t.shiftKey||r!==e&&s.includes(r)?t.shiftKey||r!==n||(t.preventDefault(),e.focus()):(t.preventDefault(),n.focus())}kt(){return"settings"===this.o?this.lt():"mode"===this.o?this.ft().length>0:"fan"===this.o?this.bt().length>0:"vanes"===this.o?this.vt().length>0:"timer"===this.o&&this.xt()}St(t=!1){if(!this.o||!this.kt())return;if("settings"===this.o){if(this.$.pt.textContent="Advanced settings",!customElements.get("component-split-settings-v1"))return this.$.pb.textContent="Loading settings…",void customElements.whenDefined("component-split-settings-v1").then(()=>{"settings"===this.o&&this.St(!0)});let i=this.$.pb.querySelector("component-split-settings-v1");return i||(i=document.createElement("component-split-settings-v1"),i.setConfig({entity:this.config.entity,room_id:this.config.room_id,minimum_target:this.config.minimum_target,maximum_target:this.config.maximum_target,fan_ceiling:this.config.fan_ceiling}),this.$.pb.replaceChildren(i)),i.hass=this.P,void(t&&i.focusInitial())}const i=this.u,s=this.$.pb,e=s.querySelector('input[type="number"]')?.value,n=this.Ct(),o=JSON.stringify(n);if(o===this.l)return;if(this.l=o,this.$.pt.textContent=n.title,s.replaceChildren(),"timer"===this.o)this.qt(s,e);else for(const t of n.groups)s.append(this.Lt(t));const r=i?s.querySelector(`[data-focus-key="${CSS.escape(i)}"]`):s.querySelector('[aria-selected="true"]')??s.querySelector("button");(i||t)&&queueMicrotask(()=>r?.focus())}zt(t){const i=this.p.get(t);return i?.queued?.requested??i?.requested??null}It(t,i){t.dataset.focusKey=i,t.addEventListener("focus",()=>{this.u=i})}Ct(){const t=this.Z();if("mode"===this.o)return{title:"Mode",groups:[{title:null,key:"mode",current:t.state.state,pending:this.zt("hvac"),qs:this.ft().map(t=>({value:t,label:this.tt(t)}))}]};if("fan"===this.o)return{title:"Fan",groups:[{title:null,key:"fan",current:t.attributes.fan_mode,pending:this.zt("fan"),qs:this.bt().map(t=>({value:t,label:this.tt(t)}))}]};if("vanes"===this.o)return{title:"Vanes",groups:this.vt().map(t=>({title:t.title,key:t.entityId,current:t.state,pending:this.zt(`vane:${t.entityId}`),axis:t.axis,qs:t.qs.map(i=>({value:i,label:this.$t(i,t.axis)}))}))};const i=this._t();return{title:"Off timer",active:i.av,deadline:i.deadline,pending:this.p.has("timer")}}Lt(t){const i=document.createElement("div");if(i.className="og",t.title){const s=document.createElement("div");s.className="gt",s.textContent=t.title,i.append(s)}const s=document.createElement("div");s.className="qs",s.setAttribute("role","listbox"),s.setAttribute("aria-label",t.title||this.tt(t.key));const e=t.pending,n=t.qs.some(i=>i.value===t.current);for(const[i,o]of t.qs.entries()){const r=document.createElement("button");r.type="button",r.className="o",r.dataset.key=`${t.key}|${o.value}`,this.It(r,r.dataset.key),r.setAttribute("role","option"),r.setAttribute("aria-selected",String(t.current===o.value)),r.setAttribute("aria-disabled",String(e===o.value)),r.tabIndex=t.current===o.value||!n&&0===i?0:-1;const a=document.createElement("ha-icon");if(a.className="oi",a.setAttribute("icon",this.At(t,o.value)),r.append(a,o.label),e===o.value){const t=document.createElement("ha-icon");t.setAttribute("icon","mdi:progress-clock"),r.append(t)}else if(t.current===o.value){const t=document.createElement("ha-icon");t.setAttribute("icon","mdi:check"),r.append(t)}r.addEventListener("click",()=>this.Mt(t,o)),r.addEventListener("keydown",t=>this.Pt(t,s)),s.append(r)}return i.append(s),i}Pt(t,i){if(!["ArrowDown","ArrowRight","ArrowUp","ArrowLeft","Home","End"].includes(t.key))return;t.preventDefault();const s=[...i.querySelectorAll("button:not([disabled])")];if(!s.length)return;const e=s.indexOf(t.currentTarget),n="Home"===t.key?0:"End"===t.key?s.length-1:(e+(["ArrowDown","ArrowRight"].includes(t.key)?1:-1)+s.length)%s.length;s.forEach((t,i)=>{t.tabIndex=i===n?0:-1}),s[n].focus()}Mt(t,i){t.current!==i.value&&t.pending!==i.value&&("mode"===t.key?this.Nt("hvac",{requested:i.value,label:i.label,call:()=>this.P.callService("climate","set_hvac_mode",{entity_id:this.config.entity,hvac_mode:i.value}),matches:()=>this.X(this.config.entity)?.state===i.value,closePanel:!0}):"fan"===t.key?this.Nt("fan",{requested:i.value,label:i.label,call:()=>this.P.callService("climate","set_fan_mode",{entity_id:this.config.entity,fan_mode:i.value}),matches:()=>this.X(this.config.entity)?.attributes?.fan_mode===i.value,closePanel:!0}):this.Nt(`vane:${t.key}`,{requested:i.value,label:i.label,call:()=>this.P.callService("select","select_option",{entity_id:t.key,option:i.value}),matches:()=>this.X(t.key)?.state===i.value,closePanel:!1}))}qt(t,i){const s=this.p.has("timer"),e=document.createElement("div");e.className="tpr";for(const[t,i]of[[30,"30 min"],[60,"1 hr"],[120,"2 hr"]]){const n=document.createElement("button");n.type="button";const o=document.createElement("ha-icon");o.setAttribute("icon","mdi:clock-outline"),n.append(o,i),this.It(n,`timer-preset-${t}`),n.setAttribute("aria-disabled",String(s)),n.addEventListener("click",()=>{s||this.Ot("set",t,i)}),e.append(n)}const n=document.createElement("div");n.className="tcu";const o=document.createElement("label");o.textContent="Custom minutes";const r=document.createElement("input");r.type="number",r.min="1",r.max="720",r.step="1",r.value=i||"90",this.It(r,"timer-custom-input"),o.append(r);const a=document.createElement("button");if(a.type="button",a.textContent="Start",a.setAttribute("aria-disabled",String(s)),this.It(a,"timer-custom-start"),a.addEventListener("click",()=>{if(s)return;const t=Number(r.value);if(!Number.isInteger(t)||t<1||t>720)return this.Tt("Enter a timer between 1 and 720 minutes.","error"),void r.focus();this.Ot("set",t,`${t} min`)}),n.append(o,a),t.append(e,n),this._t().av){const i=document.createElement("div");i.className="tac";const e=document.createElement("button");e.type="button",e.textContent="+30 min",e.setAttribute("aria-disabled",String(s)),this.It(e,"timer-extend"),e.addEventListener("click",()=>{s||this.Ot("extend",30,"30 more minutes")});const n=document.createElement("button");n.type="button",n.textContent="Cancel timer",n.setAttribute("aria-disabled",String(s)),this.It(n,"timer-cancel"),n.addEventListener("click",()=>{s||this.Ot("cancel",0,"timer cancellation")}),i.append(e,n),t.append(i)}}Ot(t,i,s){const e=this._t(),n="extend"===t&&null!==e.deadline?e.deadline+6e4*i:null;this.Nt("timer",{requested:t,label:s,call:()=>this.P.callService("ha_component_backend","set_timer",{room_id:this.config.room_id,operation:t,minutes:i||void 0}),matches:()=>{const i=this._t();return"cancel"===t?!i.av:"extend"===t?i.av&&null!==n&&i.deadline>=n-5e3:i.av&&i.deadline!==e.deadline},closePanel:!0,timeout:1e4})}G(){const t=this.Z();if(t.uv)return;if("off"!==t.state.state)return void this.Rt("hvac",{requested:"off",label:"Off",call:()=>this.P.callService("climate","set_hvac_mode",{entity_id:this.config.entity,hvac_mode:"off"}),matches:()=>"off"===this.X(this.config.entity)?.state,closePanel:!0,timeout:1e4},!0);const i=this.gt();i?this.Rt("hvac",{requested:i,label:this.tt(i),call:()=>this.P.callService("climate","set_hvac_mode",{entity_id:this.config.entity,hvac_mode:i}),matches:()=>this.X(this.config.entity)?.state===i,closePanel:!1,timeout:1e4},!0):this.U("mode",this.$.pw)}Dt(t,i,s){const e=s??0,n=Math.max(0,String(i).split(".")[1]?.length??0);return Number((e+Math.round((t-e)/i)*i).toFixed(n))}Et(t){const i=this.K(t);if(null===i)return null;const{minimum:s,maximum:e}=this.dt();return Math.min(e??i,Math.max(s??i,i))}W(t){const i=this.Z().attributes,s=this.K(i.temperature),e=this.K(i.target_temp_step);if(null===s||null===e||e<=0)return;const{minimum:n}=this.dt(),o=this.v??s,r=this.Dt(o+t*e,e,n??s);this.v=this.Et(r),this.T=null,clearTimeout(this._),this.p.has("temperature")||(this._=setTimeout(()=>{this._=null,this.Vt()},300)),this.H()}Vt(){const t=this.Et(this.v);null!==t&&(this.v=t,this.Rt("temperature",{requested:t,label:this.it(t),call:()=>this.P.callService("climate","set_temperature",{entity_id:this.config.entity,temperature:t}),matches:()=>{const i=this.Et(t),s=this.K(this.X(this.config.entity)?.attributes?.temperature);return null!==i&&null!==s&&Math.abs(s-i)<.001},closePanel:!1,timeout:1e4}))}Nt(t,i){this.T=null;const s=this.p.get(t);if(s)return s.queued=i,void this.H();this.Rt(t,i)}Rt(t,i,s=!1){this.T=null;const e=this.p.get(t);if(e&&!s)return e.queued=i,void this.H();e&&this.I(e);const n=++this.m,o=Date.now(),r={...i,id:n,settleAfter:o+1800,queued:null};this.p.set(t,r),r.timeoutTimer=setTimeout(()=>this.Ht(t,n,`No confirmation for ${r.label}.`),i.timeout??8e3),r.settleTimer=setTimeout(()=>this.D(),1820),this.H(),Promise.resolve().then(()=>r.call()).then(()=>{const i=this.p.get(t);i&&i.id===n&&this.D()}).catch(()=>this.Ht(t,n,`Could not request ${r.label}.`))}D(){const t=this.Z();if(this.p.size&&t.uv){for(const t of this.p.values())this.I(t);return this.p.clear(),clearTimeout(this._),this._=null,this.v=null,void(this.T={text:"Controller disconnected before the request was confirmed.",type:"error"})}if("off"===t.state?.state){for(const[t,i]of[...this.p])("temperature"===t||"fan"===t||"timer"===t||t.startsWith("vane:"))&&(this.I(i),this.p.delete(t));clearTimeout(this._),this._=null,this.v=null}const i=Date.now();for(const[t,s]of[...this.p])i>=s.settleAfter&&s.matches()&&this.Ft(t,s.id)}Ft(t,i){const s=this.p.get(t);if(!s||s.id!==i)return;this.I(s),this.p.delete(t);const e=s.queued;if("temperature"===t){const t=this.K(this.X(this.config.entity)?.attributes?.temperature),i=this.Et(s.requested);this.v=this.Et(this.v),null!==i&&null!==this.v&&Math.abs(this.v-i)>.001?queueMicrotask(()=>this.Vt()):null!==i&&null!==t&&Math.abs(t-i)<.001&&(this.v=null)}e?queueMicrotask(()=>this.Rt(t,e)):s.closePanel&&this.o&&this.M(!0),this.i="",this.H()}Ht(t,i,s){const e=this.p.get(t);e&&e.id===i&&(this.I(e),this.p.delete(t),"temperature"===t&&(this.v=null),this.Tt(s,"error"),e.queued&&queueMicrotask(()=>this.Rt(t,e.queued)),this.i="",this.H())}I(t){clearTimeout(t.timeoutTimer),clearTimeout(t.settleTimer)}Tt(t,i="info"){this.T={text:t,type:i},this.ht()}ht(){this.t&&(this.$.fb.textContent=this.T?.text??"",this.$.fb.classList.toggle("er","error"===this.T?.type))}B(){this.dispatchEvent(new CustomEvent("hass-action",{bubbles:!0,composed:!0,detail:{config:{entity:this.config.entity,tap_action:{action:"more-info"}},action:"tap"}}))}}
-registerCard({ type: "component-split-controller-v4", element: ComponentSplitControllerV4, name: "Split-System Controller", description: "Registry-aware split-system controller with settings and timer support." });
+const { interaction, registerCard } =
+  globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const SPLIT_INVALID = new Set(["unknown", "unavailable", "none", ""]),
+  SPLIT_LABELS = { fan_only: "Fan only" };
+const SPLIT_PROFILE_SLOT_COUNT = 5;
+
+function splitProfileRoomId(card) {
+  return (
+    card?.config?.room_id ||
+    card?.config?.profile_area_id ||
+    globalThis.__componentSplitRegistryV4?.result?.systems?.get(
+      card?.config?.entity,
+    )?.room_id ||
+    null
+  );
+}
+
+class ComponentSplitControllerV4 extends HTMLElement {
+  static getGridOptions() {
+    return { columns: 12, rows: "auto" };
+  }
+  constructor() {
+    super(),
+      this.attachShadow({ mode: "open" }),
+      (this.t = !1),
+      (this.i = ""),
+      (this.o = null),
+      (this.l = ""),
+      (this.h = null),
+      (this.u = null),
+      (this.p = new Map()),
+      (this.m = 0),
+      (this.v = null),
+      (this._ = null),
+      (this.k = null),
+      (this.T = null),
+      (this.S = null),
+      (this.A = null),
+      (this.C = null),
+      (this.q = null),
+      (this.L = null),
+      (this._interactionHandles = []);
+  }
+  _setConfigCore(t) {
+    if (!t?.entity) throw new Error("A climate entity is required");
+    clearTimeout(this._), (this._ = null);
+    for (const t of this.p.values()) this.I(t);
+    this.p.clear(),
+      (this.v = null),
+      (this.T = null),
+      this.t && (this.M(!1), this.$.pb.replaceChildren()),
+      (this.S = { ...t }),
+      (this.config = { ...this.S }),
+      (this.A = null),
+      (this.C = null),
+      clearTimeout(this.q),
+      (this.q = null),
+      (this.i = "");
+  }
+  set hass(t) {
+    (this.P = t), this.N(), this.O(), this.t || this.R(), this.D();
+    const i = this.V();
+    i !== this.i ? ((this.i = i), this.H()) : this.F(), this.j();
+  }
+  O() {
+    const t = this.S?.entity;
+    if (!t || !this.P || this.A === t || this.C === t) return;
+    const i = globalThis.__componentSplitRegistryV4;
+    i?.load &&
+      ((this.C = t),
+      i.load(this.P).then((s) => {
+        if (this.S?.entity !== t) return;
+        if (((this.C = null), s.error)) {
+          if (!this.isConnected) return;
+          return (
+            clearTimeout(this.q),
+            void (this.q = setTimeout(() => {
+              (this.q = null), this.O();
+            }, 31e3))
+          );
+        }
+        clearTimeout(this.q), (this.q = null);
+        const e = s.systems.get(t);
+        (this.config = {
+          ...this.S,
+          ...(e
+            ? {
+                room_id: e.room_id,
+                registry_entity: e.registry_entity,
+                controller_entity: e.controller_entity,
+                vertical_vane_entity: e.vertical_vane_entity,
+                horizontal_vane_entity: e.horizontal_vane_entity,
+                minimum_target: e.minimum_target,
+                maximum_target: e.maximum_target,
+                fan_ceiling: e.fan_ceiling,
+                last_mode: e.last_mode,
+                deadline: e.deadline,
+                profiles: e.profiles,
+              }
+            : {}),
+        }),
+          (this.A = t),
+          (this.i = ""),
+          this.t && this.isConnected && (this.H(), this.j());
+      }));
+  }
+  connectedCallback() {
+    this.N(), this.O(), this.t && this.j();
+  }
+  N() {
+    const t = globalThis.__componentSplitRegistryV4;
+    this.isConnected &&
+      !this.L &&
+      this.P &&
+      t?.subscribe &&
+      (this.L = t.subscribe(this.P, () => {
+        (this.A = null), (this.i = ""), this.O();
+      }));
+  }
+  disconnectedCallback() {
+    // These local controls remain bound to the retained shadow DOM. Timers,
+    // service state and registry subscriptions are still released below.
+    clearTimeout(this._),
+      (this._ = null),
+      clearInterval(this.k),
+      (this.k = null),
+      clearTimeout(this.q),
+      (this.q = null),
+      this.L?.(),
+      (this.L = null);
+    for (const t of this.p.values())
+      clearTimeout(t.timeoutTimer), clearTimeout(t.settleTimer);
+    this.p.clear(), (this.v = null), (this.T = null), this.t && this.M(!1);
+  }
+  _renderCore() {
+    (this.t = !0),
+      (this.shadowRoot.innerHTML =
+        '<style>\n        :host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}button,input{font:inherit;color:inherit}button{appearance:none;border:0;background:transparent;cursor:pointer}ha-card{container-type:inline-size;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,6px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color)}.w{padding:12px 14px}.hd{display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;gap:12px}.hd.settings{grid-template-columns:minmax(0,1fr) 44px 44px;gap:8px}.idn{min-width:0;min-height:44px;padding:0;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:12px;text-align:left;border-radius:var(--dashboard-radius-control,8px)}.iw{width:40px;height:40px;border-radius:var(--dashboard-radius-icon,6px);display:grid;place-items:center;background:transparent;color:var(--primary-color)}ha-icon{--mdc-icon-size:20px}.cp{min-width:0}.nm,.st{display:block}.nm{font-size:13px;line-height:1.25;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.st{margin-top:3px;font-size:13px;line-height:1.25;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pw{width:44px;height:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.pw.on{color:var(--primary-color)}button[disabled],button[aria-disabled=true]{opacity:.45;cursor:default}.ct{margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color)}.cr{display:grid;grid-template-columns:minmax(120px,1fr) auto;align-items:center;gap:16px}.cr.to{grid-template-columns:auto;justify-content:end}.rv{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.ml{display:block;margin-top:6px;color:var(--secondary-text-color);font-size:13px;line-height:1.2}.tc{min-height:48px;display:grid;grid-template-columns:44px minmax(82px,auto) 44px;align-items:center;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;overflow:hidden}.tb{width:44px;height:48px;padding:0;display:grid;place-items:center}.tp{min-width:0;padding:0 8px;text-align:center}.tv{font-size:18px;line-height:1.1;font-weight:650;font-variant-numeric:tabular-nums}.ts{margin-top:3px;color:var(--secondary-text-color);font-size:13px;line-height:1.1;white-space:nowrap}.os,.uv{font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.as{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.a{min-width:0;min-height:44px;flex:1 1 118px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:flex;align-items:center;justify-content:center;gap:7px;color:var(--secondary-text-color)}.a ha-icon{--mdc-icon-size:18px}.al{min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.a.av,.a[aria-expanded=true]{color:var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.pn{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;overscroll-behavior:contain;padding:16px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,color-mix(in srgb,var(--primary-text-color) 32%,transparent)))}.pd{width:min(380px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;padding:12px 14px 14px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,8px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}.ph{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px}.pt{margin:0;font-size:18px;line-height:1.2;font-weight:650}.x{width:44px;height:44px;border-radius:var(--dashboard-radius-control,8px);display:grid;place-items:center}.og+.og{margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color)}.gt{margin:0 4px 8px;font-size:13px;font-weight:650;color:var(--secondary-text-color)}.qs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.o{min-height:50px;width:100%;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:grid;grid-template-columns:20px minmax(0,1fr) 20px;align-items:center;gap:8px;text-align:left;background:transparent;font-size:13px;font-weight:600}.oi{color:var(--secondary-text-color)}.o[aria-selected=true]{color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}.o[aria-selected=true] .oi{color:var(--primary-color)}.tpr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.tpr button,.tcu button,.tac button{min-height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;font-size:13px;font-weight:650}.tpr button{display:flex;align-items:center;justify-content:center;gap:6px}.tcu{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px;margin-top:12px}.tcu label{font-size:13px;color:var(--secondary-text-color)}.tcu input{display:block;width:100%;height:44px;margin-top:6px;padding:0 11px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,5px);background:transparent}.tcu button{padding:0 14px;color:var(--primary-color)}.tac{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.tac button:first-child{color:var(--primary-color)}.tac button:last-child{color:var(--error-color)}.fb{font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.fb:not(:empty){margin-top:10px}.fb.er{color:var(--error-color)}:is(button,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}@container (max-width:400px){.w{padding:12px}.as .a{flex-basis:calc(50% - 4px)}}@container (max-width:340px){.cr{grid-template-columns:1fr;justify-content:stretch}.tc{width:100%}}\n      </style><ha-card><div class="w"><div class="hd"><button class="idn" type="button"><span class="iw"><ha-icon class="mi"></ha-icon></span><span class="cp"><span class="nm"></span><span class="st" role="status"></span></span></button><button class="pw" type="button"><ha-icon icon="mdi:power"></ha-icon></button></div><div class="ct"><div class="cr"><div class="rm"><span class="rv"></span><span class="ml">Room temperature</span></div><div class="tc"><button class="tb decrease" type="button" aria-label="Decrease target temperature"><ha-icon icon="mdi:minus"></ha-icon></button><div class="tp"><div class="tv"></div><div class="ts"></div></div><button class="tb increase" type="button" aria-label="Increase target temperature"><ha-icon icon="mdi:plus"></ha-icon></button></div></div><div class="os"></div><div class="uv"></div><div class="as"><button class="a ma" type="button" data-panel="mode" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:thermostat"></ha-icon><span class="al"></span></button><button class="a fa" type="button" data-panel="fan" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:fan"></ha-icon><span class="al"></span></button><button class="a va" type="button" data-panel="vanes" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:swap-vertical"></ha-icon><span class="al"></span></button><button class="a ta" type="button" data-panel="timer" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:timer-outline"></ha-icon><span class="al"></span></button></div></div><div class="fb" role="status" aria-live="polite"></div></div></ha-card><section class="pn" id="split-secondary" role="dialog" aria-modal="true" aria-labelledby="split-pt" hidden><div class="pd"><div class="ph"><h3 class="pt" id="split-pt"></h3><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="pb"></div></div></section>');
+    const t = document.createElement("button");
+    (t.className = "pw sg"),
+      (t.type = "button"),
+      (t.dataset.panel = "settings"),
+      t.setAttribute("aria-controls", "split-secondary"),
+      t.setAttribute("aria-expanded", "false"),
+      t.setAttribute("aria-label", "Advanced settings");
+    const i = document.createElement("ha-icon");
+    i.setAttribute("icon", "mdi:cog-outline"),
+      t.append(i),
+      this.shadowRoot.querySelector(".pw").before(t),
+      (this.$ = Object.fromEntries(
+        [...this.shadowRoot.querySelectorAll("[class]")].flatMap((t) =>
+          [...t.classList].map((i) => [i, t]),
+        ),
+      )),
+      this._interactionHandles.push(
+        interaction(this.$.idn, { primary: () => this.B(), feedback: !0 }),
+        interaction(this.$.pw, {
+          primary: () => this.G(),
+          optimistic: !1,
+          feedback: !0,
+        }),
+        interaction(this.$.decrease, {
+          primary: () => this.W(-1),
+          feedback: !0,
+        }),
+        interaction(this.$.increase, {
+          primary: () => this.W(1),
+          feedback: !0,
+        }),
+      ),
+      this.shadowRoot
+        .querySelectorAll("[data-panel]")
+        .forEach((t) =>
+          this._interactionHandles.push(
+            interaction(t, {
+              primary: () => this.U(t.dataset.panel, t),
+              feedback: !0,
+            }),
+          ),
+        ),
+      this.$.x.addEventListener("click", () => this.M(!0)),
+      this.$.pn.addEventListener("click", (t) => {
+        t.target === this.$.pn && this.M(!0);
+      }),
+      this.shadowRoot.addEventListener("keydown", (t) => {
+        "Escape" === t.key && this.o
+          ? (t.preventDefault(), this.M(!0))
+          : "Tab" === t.key && this.o && this.J(t);
+      });
+  }
+  _signatureCore() {
+    const t = [
+        this.config.entity,
+        this.config.vertical_vane_entity,
+        this.config.horizontal_vane_entity,
+        this.config.controller_entity,
+        this.config.registry_entity || "sensor.ha_component_backend",
+      ].filter(Boolean),
+      i = t.map((t) => {
+        const i = this.P?.states?.[t];
+        return [t, i?.state, i?.attributes];
+      }),
+      s = {
+        room_id: this.config.room_id,
+        minimum_target: this.config.minimum_target,
+        maximum_target: this.config.maximum_target,
+        fan_ceiling: this.config.fan_ceiling,
+        last_mode: this.config.last_mode,
+        deadline: this.config.deadline,
+        profiles: this.config.profiles,
+      };
+    return JSON.stringify([i, s]);
+  }
+  K(t) {
+    if (null == t || "" === t) return null;
+    const i = Number(t);
+    return Number.isFinite(i) ? i : null;
+  }
+  X(t) {
+    return t ? (this.P?.states?.[t] ?? null) : null;
+  }
+  Y(t) {
+    return Boolean(t && !SPLIT_INVALID.has(String(t.state).toLowerCase()));
+  }
+  Z() {
+    const t = this.X(this.config.entity),
+      i = this.X(this.config.controller_entity),
+      s =
+        !this.Y(t) ||
+        (this.config.controller_entity && (!i || "on" !== i.state));
+    return { state: t, attributes: t?.attributes ?? {}, uv: s };
+  }
+  tt(t) {
+    const i = String(t ?? "").toLowerCase();
+    return (
+      SPLIT_LABELS[i] ??
+      i.replaceAll("_", " ").replace(/^./, (t) => t.toUpperCase())
+    );
+  }
+  it(t) {
+    const i = this.K(t);
+    return null === i ? null : `${Number.isInteger(i) ? i : i.toFixed(1)}°`;
+  }
+  et(t, i) {
+    return "heating" === i || "heat" === t
+      ? "mdi:fire"
+      : "cooling" === i || "cool" === t
+        ? "mdi:snowflake"
+        : "auto" === t
+          ? "mdi:thermostat-auto"
+          : "dry" === t
+            ? "mdi:water-percent"
+            : "fan_only" === t
+              ? "mdi:fan"
+              : "mdi:heat-pump";
+  }
+  nt(t) {
+    if (t.uv) return "Controller unavailable";
+    const { state: i, attributes: s } = t,
+      e = i.state,
+      n = s.hvac_action,
+      o = this.it(s.temperature),
+      r = this.K(s.current_temperature),
+      a = this.K(s.temperature),
+      l = this.K(s.target_temp_step),
+      h =
+        null !== r && null !== a && null !== l && l > 0 && Math.abs(r - a) <= l;
+    return "off" === e
+      ? "Off"
+      : "heating" === n
+        ? o
+          ? `Heating to ${o}`
+          : "Heating"
+        : "cooling" === n
+          ? o
+            ? `Cooling to ${o}`
+            : "Cooling"
+          : "heat" === e
+            ? h
+              ? "Heat · At target"
+              : o
+                ? `Heat · Target ${o}`
+                : "Heat"
+            : "cool" === e
+              ? h
+                ? "Cool · At target"
+                : o
+                  ? `Cool · Target ${o}`
+                  : "Cool"
+              : "auto" === e
+                ? o
+                  ? `Auto · Target ${o}`
+                  : "Auto"
+                : "dry" === e
+                  ? "drying" === n
+                    ? "Drying"
+                    : "Dry"
+                  : "fan_only" === e
+                    ? "Fan only" +
+                      (this.ot(s.fan_mode) ? ` · ${this.tt(s.fan_mode)}` : "")
+                    : this.tt(e);
+  }
+  ot(t) {
+    return null != t && !SPLIT_INVALID.has(String(t).toLowerCase());
+  }
+  rt(t) {
+    const i = [
+      this.p.get("hvac"),
+      this.p.get("temperature"),
+      this.p.get("fan"),
+      [...this.p].find(([t]) => t.startsWith("vane:"))?.[1],
+      this.p.get("timer"),
+    ];
+    for (const s of i) {
+      if (!s) continue;
+      const i = s.queued?.label ?? s.label;
+      return `${this.nt(t)} · Requesting ${i}`;
+    }
+    return this.nt(t);
+  }
+  _refreshCore() {
+    const t = this.Z(),
+      { state: i, attributes: s, uv: e } = t,
+      n = !e && "off" !== i.state,
+      o = this.config.title || s.friendly_name || "Split system";
+    (this.$.nm.textContent = o),
+      (this.$.st.textContent = this.rt(t)),
+      this.$.mi.setAttribute(
+        "icon",
+        e ? "mdi:heat-pump" : this.et(i.state, s.hvac_action),
+      ),
+      this.$.idn.setAttribute("aria-label", `Open details for ${o}`),
+      this.$.pw.classList.toggle("on", n),
+      (this.$.pw.disabled = e),
+      this.$.pw.setAttribute(
+        "aria-label",
+        e ? `${o} unavailable` : `Turn ${n ? "off" : "on"} ${o}`,
+      ),
+      this.$.pw.setAttribute("aria-pressed", String(n));
+    const r = this.lt();
+    if (
+      ((this.$.sg.hidden = !r),
+      this.$.hd.classList.toggle("settings", r),
+      (this.$.ct.hidden = !1),
+      (this.$.uv.hidden = !e),
+      (this.$.uv.textContent = e
+        ? "Controls return when the controller reconnects."
+        : ""),
+      e)
+    )
+      return (
+        (this.$.cr.hidden = !0),
+        (this.$.os.hidden = !0),
+        (this.$.as.hidden = !0),
+        this.M(!0),
+        void this.ht()
+      );
+    const a = this.K(s.current_temperature),
+      l = this.K(s.temperature),
+      h = this.K(s.target_temp_step),
+      { minimum: c, maximum: d } = this.dt(),
+      u =
+        n &&
+        ["heat", "cool", "auto"].includes(i.state) &&
+        null !== l &&
+        null !== h &&
+        h > 0;
+    (this.$.cr.hidden = !n || (null === a && !u)),
+      this.$.cr.classList.toggle("to", null === a && u),
+      (this.$.rm.hidden = null === a),
+      (this.$.rv.textContent = this.it(a) ?? ""),
+      (this.$.tc.hidden = !u);
+    const p = this.v ?? l;
+    if (
+      ((this.$.tv.textContent = this.it(p) ?? ""),
+      (this.$.ts.textContent = this.ut(l)),
+      (this.$.decrease.disabled = !u || (null !== c && p <= c)),
+      (this.$.increase.disabled = !u || (null !== d && p >= d)),
+      (this.$.os.hidden = n),
+      !n)
+    ) {
+      const t = [];
+      null !== a && t.push(`Room ${this.it(a)}`);
+      const i = this.gt();
+      i && t.push(`Resume ${this.tt(i)}`),
+        (this.$.os.textContent = t.join(" · ") || "Ready when needed");
+    }
+    const m = this.ft(),
+      g = this.bt(),
+      f = this.vt(),
+      b = this.xt();
+    (this.$.as.hidden = !n),
+      (this.$.ma.hidden = !n || m.length < 2),
+      (this.$.fa.hidden = !n || g.length < 2),
+      (this.$.va.hidden = !n || 0 === f.length),
+      (this.$.ta.hidden = !n || !b),
+      (this.$.ma.querySelector(".al").textContent =
+        `Mode · ${this.tt(i.state)}`),
+      (this.$.fa.querySelector(".al").textContent =
+        `Fan · ${this.tt(s.fan_mode)}`),
+      (this.$.va.querySelector(".al").textContent = this.yt(f)),
+      (this.$.ta.querySelector(".al").textContent = this.wt()),
+      this.$.ta.classList.toggle("av", this._t().av),
+      this.o && !this.kt()
+        ? (this.Tt("That control is no longer available.", "error"), this.M(!0))
+        : this.o && this.St(),
+      this.ht();
+  }
+  F() {
+    if (!this.t || !this.P) return;
+    const t = this.Z();
+    (this.$.st.textContent = this.rt(t)), this.ht(), this.o && this.St();
+  }
+  ut(t) {
+    if (this.p.get("temperature") || this._) {
+      const i = this.it(t);
+      return i ? `Requesting · Current ${i}` : "Requesting";
+    }
+    return "Target";
+  }
+  ft() {
+    const t = this.Z().attributes.hvac_modes;
+    return Array.isArray(t) ? t.filter((t) => "off" !== t && this.ot(t)) : [];
+  }
+  bt() {
+    const { attributes: t } = this.Z(),
+      i =
+        Array.isArray(t.fan_modes) && this.ot(t.fan_mode)
+          ? t.fan_modes.filter((t) => this.ot(t))
+          : [],
+      s = this.config.fan_ceiling;
+    if (!s || "unrestricted" === String(s).toLowerCase()) return i;
+    const e = { quiet: 0, low: 1, medium: 2, high: 3 },
+      n = e[String(s).toLowerCase()];
+    return void 0 === n
+      ? i
+      : i.filter(
+          (t) =>
+            void 0 !== e[String(t).toLowerCase()] &&
+            e[String(t).toLowerCase()] <= n,
+        );
+  }
+  lt() {
+    const t = this.Z(),
+      i = this.K(t.attributes.min_temp),
+      s = this.K(t.attributes.max_temp),
+      e = this.K(t.attributes.target_temp_step),
+      n = this.K(this.config.minimum_target),
+      o = this.K(this.config.maximum_target),
+      r = ["Quiet", "Low", "Medium", "High", "Unrestricted"];
+    return (
+      !t.uv &&
+      this.config.room_id &&
+      null !== i &&
+      null !== s &&
+      i < s &&
+      null !== e &&
+      e > 0 &&
+      null !== n &&
+      null !== o &&
+      n >= i &&
+      o <= s &&
+      n < o &&
+      r.includes(this.config.fan_ceiling)
+    );
+  }
+  dt() {
+    const t = this.Z().attributes,
+      i = this.K(t.min_temp),
+      s = this.K(t.max_temp),
+      e = this.K(this.config.minimum_target),
+      n = this.K(this.config.maximum_target),
+      o =
+        null !== e &&
+        null !== n &&
+        e < n &&
+        (null === i || e >= i) &&
+        (null === s || n <= s);
+    return {
+      minimum: o && null !== i ? Math.max(i, e) : i,
+      maximum: o && null !== s ? Math.min(s, n) : s,
+    };
+  }
+  gt() {
+    const t = this.config.last_mode;
+    return this.ft().includes(t) ? t : null;
+  }
+  vt() {
+    return [
+      ["vertical", "Vertical vane", this.config.vertical_vane_entity],
+      ["horizontal", "Horizontal vane", this.config.horizontal_vane_entity],
+    ].flatMap(([t, i, s]) => {
+      const e = this.X(s),
+        n = Array.isArray(e?.attributes?.options)
+          ? e.attributes.options.filter((t) => this.ot(t))
+          : [];
+      return s &&
+        e &&
+        "unavailable" !== String(e.state).toLowerCase() &&
+        n.length
+        ? [{ axis: t, title: i, entityId: s, state: e.state, qs: n }]
+        : [];
+    });
+  }
+  $t(t, i) {
+    return (
+      ("vertical" === i
+        ? {
+            AUTO: "Auto",
+            "↑↑": "Highest",
+            "↑": "High",
+            "—": "Centre",
+            "↓": "Low",
+            "↓↓": "Lowest",
+            SWING: "Swing",
+          }
+        : {
+            "←←": "Far left",
+            "←": "Left",
+            "|": "Centre",
+            "→": "Right",
+            "→→": "Far right",
+            "←→": "Wide",
+            SWING: "Swing",
+            "AIRFLOW CONTROL": "Airflow control",
+          })[t] ?? this.tt(t)
+    );
+  }
+  At(t, i) {
+    return "mode" === t.key
+      ? this.et(i)
+      : "fan" === t.key
+        ? ({
+            auto: "mdi:fan-auto",
+            quiet: "mdi:volume-low",
+            low: "mdi:fan-speed-1",
+            medium: "mdi:fan-speed-2",
+            high: "mdi:fan-speed-3",
+          }[String(i).toLowerCase()] ?? "mdi:fan")
+        : "vertical" === t.axis
+          ? ({
+              AUTO: "mdi:autorenew",
+              "↑↑": "mdi:arrow-up-bold",
+              "↑": "mdi:arrow-up",
+              "—": "mdi:minus",
+              "↓": "mdi:arrow-down",
+              "↓↓": "mdi:arrow-down-bold",
+              SWING: "mdi:swap-vertical",
+            }[i] ?? "mdi:swap-vertical")
+          : "mdi:swap-horizontal";
+  }
+  yt(t) {
+    return 1 === t.length
+      ? `Vanes · ${this.$t(t[0].state, t[0].axis)}`
+      : t.length > 1
+        ? `Vanes · V ${this.$t(t[0].state, "vertical")} · H ${this.$t(t[1].state, "horizontal")}`
+        : "Vanes";
+  }
+  xt() {
+    return Boolean(this.config.room_id && this.config.entity);
+  }
+  _t() {
+    const t = this.config.deadline
+      ? Date.parse(String(this.config.deadline))
+      : NaN;
+    return Number.isFinite(t)
+      ? { av: t > Date.now(), deadline: t }
+      : { av: !1, deadline: null };
+  }
+  wt() {
+    const t = this._t();
+    if (!t.av) return "Timer";
+    const i = Math.max(0, Math.ceil((t.deadline - Date.now()) / 6e4));
+    return i >= 60 && i % 60 == 0 ? `Timer · ${i / 60} hr` : `Timer · ${i} min`;
+  }
+  j() {
+    const t = this._t().av;
+    t && !this.k
+      ? (this.k = setInterval(() => {
+          this.$.ta?.querySelector(".al")?.replaceChildren(this.wt()),
+            "timer" === this.o && this.St();
+        }, 3e4))
+      : !t && this.k && (clearInterval(this.k), (this.k = null));
+  }
+  U(t, i) {
+    this.o !== t
+      ? ((this.o = t),
+        (this.h = i),
+        (this.l = ""),
+        (this.u = null),
+        this.shadowRoot
+          .querySelectorAll("[data-panel]")
+          .forEach((t) => t.setAttribute("aria-expanded", String(t === i))),
+        (this.$.pn.hidden = !1),
+        this.St(!0))
+      : this.M(!0);
+  }
+  _closePanelCore(t) {
+    if (!this.t) return;
+    const i = Boolean(this.o),
+      s = this.h;
+    (this.o = null),
+      (this.h = null),
+      (this.l = ""),
+      (this.u = null),
+      (this.$.pn.hidden = !0),
+      this.shadowRoot
+        .querySelectorAll("[data-panel]")
+        .forEach((t) => t.setAttribute("aria-expanded", "false")),
+      t &&
+        i &&
+        (!s?.isConnected || s.hidden || s.disabled
+          ? this.$.idn.focus()
+          : s.focus());
+  }
+  J(t) {
+    const i =
+        "settings" === this.o
+          ? this.$.pb.querySelector("component-split-settings-v1")
+          : null,
+      s = i?.shadowRoot
+        ? [
+            this.$.x,
+            ...i.shadowRoot.querySelectorAll(
+              'button:not([disabled]):not([tabindex="-1"]),input:not([disabled])',
+            ),
+          ]
+        : [
+            ...this.$.pn.querySelectorAll(
+              'button:not([disabled]):not([tabindex="-1"]),input:not([disabled])',
+            ),
+          ];
+    if (!s.length) return;
+    const e = s[0],
+      n = s.at(-1),
+      o = this.shadowRoot.activeElement,
+      r = i && o === i ? i.shadowRoot.activeElement : o;
+    !t.shiftKey || (r !== e && s.includes(r))
+      ? t.shiftKey || r !== n || (t.preventDefault(), e.focus())
+      : (t.preventDefault(), n.focus());
+  }
+  _panelAvailableCore() {
+    return "settings" === this.o
+      ? this.lt()
+      : "mode" === this.o
+        ? this.ft().length > 0
+        : "fan" === this.o
+          ? this.bt().length > 0
+          : "vanes" === this.o
+            ? this.vt().length > 0
+            : "timer" === this.o && this.xt();
+  }
+  _renderPanelCore(t = !1) {
+    if (!this.o || !this.kt()) return;
+    if ("settings" === this.o) {
+      if (
+        ((this.$.pt.textContent = "Advanced settings"),
+        !customElements.get("component-split-settings-v1"))
+      )
+        return (
+          (this.$.pb.textContent = "Loading settings…"),
+          void customElements
+            .whenDefined("component-split-settings-v1")
+            .then(() => {
+              "settings" === this.o && this.St(!0);
+            })
+        );
+      let i = this.$.pb.querySelector("component-split-settings-v1");
+      return (
+        i ||
+          ((i = document.createElement("component-split-settings-v1")),
+          i.setConfig({
+            entity: this.config.entity,
+            room_id: this.config.room_id,
+            minimum_target: this.config.minimum_target,
+            maximum_target: this.config.maximum_target,
+            fan_ceiling: this.config.fan_ceiling,
+          }),
+          this.$.pb.replaceChildren(i)),
+        (i.hass = this.P),
+        void (t && i.focusInitial())
+      );
+    }
+    const i = this.u,
+      s = this.$.pb,
+      e = s.querySelector('input[type="number"]')?.value,
+      n = this.Ct(),
+      o = JSON.stringify(n);
+    if (o === this.l) return;
+    if (
+      ((this.l = o),
+      (this.$.pt.textContent = n.title),
+      s.replaceChildren(),
+      "timer" === this.o)
+    )
+      this.qt(s, e);
+    else for (const t of n.groups) s.append(this.Lt(t));
+    const r = i
+      ? s.querySelector(`[data-focus-key="${CSS.escape(i)}"]`)
+      : (s.querySelector('[aria-selected="true"]') ??
+        s.querySelector("button"));
+    (i || t) && queueMicrotask(() => r?.focus());
+  }
+  zt(t) {
+    const i = this.p.get(t);
+    return i?.queued?.requested ?? i?.requested ?? null;
+  }
+  It(t, i) {
+    (t.dataset.focusKey = i),
+      t.addEventListener("focus", () => {
+        this.u = i;
+      });
+  }
+  Ct() {
+    const t = this.Z();
+    if ("mode" === this.o)
+      return {
+        title: "Mode",
+        groups: [
+          {
+            title: null,
+            key: "mode",
+            current: t.state.state,
+            pending: this.zt("hvac"),
+            qs: this.ft().map((t) => ({ value: t, label: this.tt(t) })),
+          },
+        ],
+      };
+    if ("fan" === this.o)
+      return {
+        title: "Fan",
+        groups: [
+          {
+            title: null,
+            key: "fan",
+            current: t.attributes.fan_mode,
+            pending: this.zt("fan"),
+            qs: this.bt().map((t) => ({ value: t, label: this.tt(t) })),
+          },
+        ],
+      };
+    if ("vanes" === this.o)
+      return {
+        title: "Vanes",
+        groups: this.vt().map((t) => ({
+          title: t.title,
+          key: t.entityId,
+          current: t.state,
+          pending: this.zt(`vane:${t.entityId}`),
+          axis: t.axis,
+          qs: t.qs.map((i) => ({ value: i, label: this.$t(i, t.axis) })),
+        })),
+      };
+    const i = this._t();
+    return {
+      title: "Off timer",
+      active: i.av,
+      deadline: i.deadline,
+      pending: this.p.has("timer"),
+    };
+  }
+  Lt(t) {
+    const i = document.createElement("div");
+    if (((i.className = "og"), t.title)) {
+      const s = document.createElement("div");
+      (s.className = "gt"), (s.textContent = t.title), i.append(s);
+    }
+    const s = document.createElement("div");
+    (s.className = "qs"),
+      s.setAttribute("role", "listbox"),
+      s.setAttribute("aria-label", t.title || this.tt(t.key));
+    const e = t.pending,
+      n = t.qs.some((i) => i.value === t.current);
+    for (const [i, o] of t.qs.entries()) {
+      const r = document.createElement("button");
+      (r.type = "button"),
+        (r.className = "o"),
+        (r.dataset.key = `${t.key}|${o.value}`),
+        this.It(r, r.dataset.key),
+        r.setAttribute("role", "option"),
+        r.setAttribute("aria-selected", String(t.current === o.value)),
+        r.setAttribute("aria-disabled", String(e === o.value)),
+        (r.tabIndex = t.current === o.value || (!n && 0 === i) ? 0 : -1);
+      const a = document.createElement("ha-icon");
+      if (
+        ((a.className = "oi"),
+        a.setAttribute("icon", this.At(t, o.value)),
+        r.append(a, o.label),
+        e === o.value)
+      ) {
+        const t = document.createElement("ha-icon");
+        t.setAttribute("icon", "mdi:progress-clock"), r.append(t);
+      } else if (t.current === o.value) {
+        const t = document.createElement("ha-icon");
+        t.setAttribute("icon", "mdi:check"), r.append(t);
+      }
+      r.addEventListener("click", () => this.Mt(t, o)),
+        r.addEventListener("keydown", (t) => this.Pt(t, s)),
+        s.append(r);
+    }
+    return i.append(s), i;
+  }
+  Pt(t, i) {
+    if (
+      ![
+        "ArrowDown",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowLeft",
+        "Home",
+        "End",
+      ].includes(t.key)
+    )
+      return;
+    t.preventDefault();
+    const s = [...i.querySelectorAll("button:not([disabled])")];
+    if (!s.length) return;
+    const e = s.indexOf(t.currentTarget),
+      n =
+        "Home" === t.key
+          ? 0
+          : "End" === t.key
+            ? s.length - 1
+            : (e +
+                (["ArrowDown", "ArrowRight"].includes(t.key) ? 1 : -1) +
+                s.length) %
+              s.length;
+    s.forEach((t, i) => {
+      t.tabIndex = i === n ? 0 : -1;
+    }),
+      s[n].focus();
+  }
+  Mt(t, i) {
+    t.current !== i.value &&
+      t.pending !== i.value &&
+      ("mode" === t.key
+        ? this.Nt("hvac", {
+            requested: i.value,
+            label: i.label,
+            call: () =>
+              this.P.callService("climate", "set_hvac_mode", {
+                entity_id: this.config.entity,
+                hvac_mode: i.value,
+              }),
+            matches: () => this.X(this.config.entity)?.state === i.value,
+            closePanel: !0,
+          })
+        : "fan" === t.key
+          ? this.Nt("fan", {
+              requested: i.value,
+              label: i.label,
+              call: () =>
+                this.P.callService("climate", "set_fan_mode", {
+                  entity_id: this.config.entity,
+                  fan_mode: i.value,
+                }),
+              matches: () =>
+                this.X(this.config.entity)?.attributes?.fan_mode === i.value,
+              closePanel: !0,
+            })
+          : this.Nt(`vane:${t.key}`, {
+              requested: i.value,
+              label: i.label,
+              call: () =>
+                this.P.callService("select", "select_option", {
+                  entity_id: t.key,
+                  option: i.value,
+                }),
+              matches: () => this.X(t.key)?.state === i.value,
+              closePanel: !1,
+            }));
+  }
+  qt(t, i) {
+    const s = this.p.has("timer"),
+      e = document.createElement("div");
+    e.className = "tpr";
+    for (const [t, i] of [
+      [30, "30 min"],
+      [60, "1 hr"],
+      [120, "2 hr"],
+    ]) {
+      const n = document.createElement("button");
+      n.type = "button";
+      const o = document.createElement("ha-icon");
+      o.setAttribute("icon", "mdi:clock-outline"),
+        n.append(o, i),
+        this.It(n, `timer-preset-${t}`),
+        n.setAttribute("aria-disabled", String(s)),
+        n.addEventListener("click", () => {
+          s || this.Ot("set", t, i);
+        }),
+        e.append(n);
+    }
+    const n = document.createElement("div");
+    n.className = "tcu";
+    const o = document.createElement("label");
+    o.textContent = "Custom minutes";
+    const r = document.createElement("input");
+    (r.type = "number"),
+      (r.min = "1"),
+      (r.max = "720"),
+      (r.step = "1"),
+      (r.value = i || "90"),
+      this.It(r, "timer-custom-input"),
+      o.append(r);
+    const a = document.createElement("button");
+    if (
+      ((a.type = "button"),
+      (a.textContent = "Start"),
+      a.setAttribute("aria-disabled", String(s)),
+      this.It(a, "timer-custom-start"),
+      a.addEventListener("click", () => {
+        if (s) return;
+        const t = Number(r.value);
+        if (!Number.isInteger(t) || t < 1 || t > 720)
+          return (
+            this.Tt("Enter a timer between 1 and 720 minutes.", "error"),
+            void r.focus()
+          );
+        this.Ot("set", t, `${t} min`);
+      }),
+      n.append(o, a),
+      t.append(e, n),
+      this._t().av)
+    ) {
+      const i = document.createElement("div");
+      i.className = "tac";
+      const e = document.createElement("button");
+      (e.type = "button"),
+        (e.textContent = "+30 min"),
+        e.setAttribute("aria-disabled", String(s)),
+        this.It(e, "timer-extend"),
+        e.addEventListener("click", () => {
+          s || this.Ot("extend", 30, "30 more minutes");
+        });
+      const n = document.createElement("button");
+      (n.type = "button"),
+        (n.textContent = "Cancel timer"),
+        n.setAttribute("aria-disabled", String(s)),
+        this.It(n, "timer-cancel"),
+        n.addEventListener("click", () => {
+          s || this.Ot("cancel", 0, "timer cancellation");
+        }),
+        i.append(e, n),
+        t.append(i);
+    }
+  }
+  Ot(t, i, s) {
+    const e = this._t(),
+      n = "extend" === t && null !== e.deadline ? e.deadline + 6e4 * i : null;
+    this.Nt("timer", {
+      requested: t,
+      label: s,
+      call: () =>
+        this.P.callService("ha_component_backend", "set_timer", {
+          room_id: this.config.room_id,
+          operation: t,
+          minutes: i || void 0,
+        }),
+      matches: () => {
+        const i = this._t();
+        return "cancel" === t
+          ? !i.av
+          : "extend" === t
+            ? i.av && null !== n && i.deadline >= n - 5e3
+            : i.av && i.deadline !== e.deadline;
+      },
+      closePanel: !0,
+      timeout: 1e4,
+    });
+  }
+  _powerCore() {
+    const t = this.Z();
+    if (t.uv) return;
+    if ("off" !== t.state.state)
+      return void this.Rt(
+        "hvac",
+        {
+          requested: "off",
+          label: "Off",
+          call: () =>
+            this.P.callService("climate", "set_hvac_mode", {
+              entity_id: this.config.entity,
+              hvac_mode: "off",
+            }),
+          matches: () => "off" === this.X(this.config.entity)?.state,
+          closePanel: !0,
+          timeout: 1e4,
+        },
+        !0,
+      );
+    const i = this.gt();
+    i
+      ? this.Rt(
+          "hvac",
+          {
+            requested: i,
+            label: this.tt(i),
+            call: () =>
+              this.P.callService("climate", "set_hvac_mode", {
+                entity_id: this.config.entity,
+                hvac_mode: i,
+              }),
+            matches: () => this.X(this.config.entity)?.state === i,
+            closePanel: !1,
+            timeout: 1e4,
+          },
+          !0,
+        )
+      : this.U("mode", this.$.pw);
+  }
+  Dt(t, i, s) {
+    const e = s ?? 0,
+      n = Math.max(0, String(i).split(".")[1]?.length ?? 0);
+    return Number((e + Math.round((t - e) / i) * i).toFixed(n));
+  }
+  Et(t) {
+    const i = this.K(t);
+    if (null === i) return null;
+    const { minimum: s, maximum: e } = this.dt();
+    return Math.min(e ?? i, Math.max(s ?? i, i));
+  }
+  W(t) {
+    const i = this.Z().attributes,
+      s = this.K(i.temperature),
+      e = this.K(i.target_temp_step);
+    if (null === s || null === e || e <= 0) return;
+    const { minimum: n } = this.dt(),
+      o = this.v ?? s,
+      r = this.Dt(o + t * e, e, n ?? s);
+    (this.v = this.Et(r)),
+      (this.T = null),
+      clearTimeout(this._),
+      this.p.has("temperature") ||
+        (this._ = setTimeout(() => {
+          (this._ = null), this.Vt();
+        }, 300)),
+      this.H();
+  }
+  Vt() {
+    const t = this.Et(this.v);
+    null !== t &&
+      ((this.v = t),
+      this.Rt("temperature", {
+        requested: t,
+        label: this.it(t),
+        call: () =>
+          this.P.callService("climate", "set_temperature", {
+            entity_id: this.config.entity,
+            temperature: t,
+          }),
+        matches: () => {
+          const i = this.Et(t),
+            s = this.K(this.X(this.config.entity)?.attributes?.temperature);
+          return null !== i && null !== s && Math.abs(s - i) < 0.001;
+        },
+        closePanel: !1,
+        timeout: 1e4,
+      }));
+  }
+  Nt(t, i) {
+    this.T = null;
+    const s = this.p.get(t);
+    if (s) return (s.queued = i), void this.H();
+    this.Rt(t, i);
+  }
+  Rt(t, i, s = !1) {
+    this.T = null;
+    const e = this.p.get(t);
+    if (e && !s) return (e.queued = i), void this.H();
+    e && this.I(e);
+    const n = ++this.m,
+      o = Date.now(),
+      r = { ...i, id: n, settleAfter: o + 1800, queued: null };
+    this.p.set(t, r),
+      (r.timeoutTimer = setTimeout(
+        () => this.Ht(t, n, `No confirmation for ${r.label}.`),
+        i.timeout ?? 8e3,
+      )),
+      (r.settleTimer = setTimeout(() => this.D(), 1820)),
+      this.H(),
+      Promise.resolve()
+        .then(() => r.call())
+        .then(() => {
+          const i = this.p.get(t);
+          i && i.id === n && this.D();
+        })
+        .catch(() => this.Ht(t, n, `Could not request ${r.label}.`));
+  }
+  D() {
+    const t = this.Z();
+    if (this.p.size && t.uv) {
+      for (const t of this.p.values()) this.I(t);
+      return (
+        this.p.clear(),
+        clearTimeout(this._),
+        (this._ = null),
+        (this.v = null),
+        void (this.T = {
+          text: "Controller disconnected before the request was confirmed.",
+          type: "error",
+        })
+      );
+    }
+    if ("off" === t.state?.state) {
+      for (const [t, i] of [...this.p])
+        ("temperature" === t ||
+          "fan" === t ||
+          "timer" === t ||
+          t.startsWith("vane:")) &&
+          (this.I(i), this.p.delete(t));
+      clearTimeout(this._), (this._ = null), (this.v = null);
+    }
+    const i = Date.now();
+    for (const [t, s] of [...this.p])
+      i >= s.settleAfter && s.matches() && this.Ft(t, s.id);
+  }
+  Ft(t, i) {
+    const s = this.p.get(t);
+    if (!s || s.id !== i) return;
+    this.I(s), this.p.delete(t);
+    const e = s.queued;
+    if ("temperature" === t) {
+      const t = this.K(this.X(this.config.entity)?.attributes?.temperature),
+        i = this.Et(s.requested);
+      (this.v = this.Et(this.v)),
+        null !== i && null !== this.v && Math.abs(this.v - i) > 0.001
+          ? queueMicrotask(() => this.Vt())
+          : null !== i &&
+            null !== t &&
+            Math.abs(t - i) < 0.001 &&
+            (this.v = null);
+    }
+    e
+      ? queueMicrotask(() => this.Rt(t, e))
+      : s.closePanel && this.o && this.M(!0),
+      (this.i = ""),
+      this.H();
+  }
+  Ht(t, i, s) {
+    const e = this.p.get(t);
+    e &&
+      e.id === i &&
+      (this.I(e),
+      this.p.delete(t),
+      "temperature" === t && (this.v = null),
+      this.Tt(s, "error"),
+      e.queued && queueMicrotask(() => this.Rt(t, e.queued)),
+      (this.i = ""),
+      this.H());
+  }
+  I(t) {
+    clearTimeout(t.timeoutTimer), clearTimeout(t.settleTimer);
+  }
+  Tt(t, i = "info") {
+    (this.T = { text: t, type: i }), this.ht();
+  }
+  ht() {
+    this.t &&
+      ((this.$.fb.textContent = this.T?.text ?? ""),
+      this.$.fb.classList.toggle("er", "error" === this.T?.type));
+  }
+  B() {
+    this.dispatchEvent(
+      new CustomEvent("hass-action", {
+        bubbles: !0,
+        composed: !0,
+        detail: {
+          config: {
+            entity: this.config.entity,
+            tap_action: { action: "more-info" },
+          },
+          action: "tap",
+        },
+      }),
+    );
+  }
+  setConfig(config) {
+    this._profileEditV1 = null;
+    this._profileBusyV1 = false;
+    this._profileMessageV1 = null;
+    this._profileLocalProfilesV1 = null;
+    return this._setConfigCore(config);
+  }
+
+  profileSlotsV1() {
+    const roomId = splitProfileRoomId(this);
+    return roomId
+      ? Array.from(
+          { length: SPLIT_PROFILE_SLOT_COUNT },
+          (_, index) => `${roomId}:${index}`,
+        )
+      : [];
+  }
+
+  profileRowsV1() {
+    const roomId = splitProfileRoomId(this);
+    if (!roomId) return [];
+    const profiles = Array.isArray(this._profileLocalProfilesV1)
+      ? this._profileLocalProfilesV1
+      : Array.isArray(this.config?.profiles)
+        ? this.config.profiles
+        : [];
+    return Array.from({ length: SPLIT_PROFILE_SLOT_COUNT }, (_, index) => {
+      const profile = profiles[index] ?? null;
+      if (!profile)
+        return {
+          index,
+          entityId: `${roomId}:${index}`,
+          available: true,
+          raw: "",
+          profile: null,
+          invalid: false,
+        };
+      try {
+        if (
+          profile.v !== 1 ||
+          typeof profile.n !== "string" ||
+          !profile.n.trim() ||
+          typeof profile.m !== "string"
+        ) {
+          throw new Error("Invalid profile");
+        }
+        return {
+          index,
+          entityId: `${roomId}:${index}`,
+          available: true,
+          raw: JSON.stringify(profile),
+          profile,
+          invalid: false,
+        };
+      } catch {
+        return {
+          index,
+          entityId: `${roomId}:${index}`,
+          available: true,
+          raw: JSON.stringify(profile),
+          profile: null,
+          invalid: true,
+        };
+      }
+    });
+  }
+
+  profileReadyV1() {
+    return Boolean(
+      splitProfileRoomId(this) &&
+        this.profileRowsV1().length === SPLIT_PROFILE_SLOT_COUNT,
+    );
+  }
+
+  profileActiveV1(profile) {
+    if (!profile) return false;
+    const state = this.Z();
+    if (
+      state.uv ||
+      state.state?.state === "off" ||
+      state.state?.state !== profile.m
+    )
+      return false;
+    if (
+      Number.isFinite(profile.t) &&
+      ["heat", "cool", "auto"].includes(profile.m)
+    ) {
+      const current = this.K(state.attributes?.temperature);
+      const target = this.Et(profile.t);
+      if (
+        current === null ||
+        target === null ||
+        Math.abs(current - target) > 0.001
+      )
+        return false;
+    }
+    if (profile.f && state.attributes?.fan_mode !== profile.f) return false;
+    for (const vane of this.vt()) {
+      const key = vane.axis === "vertical" ? "vv" : "hv";
+      if (profile[key] && vane.state !== profile[key]) return false;
+    }
+    return true;
+  }
+
+  profileSummaryV1(profile) {
+    const parts = [this.tt(profile.m)];
+    if (
+      Number.isFinite(profile.t) &&
+      ["heat", "cool", "auto"].includes(profile.m)
+    )
+      parts.push(this.it(profile.t));
+    if (profile.f) parts.push(this.tt(profile.f));
+    if (profile.vv) parts.push(`V ${this.$t(profile.vv, "vertical")}`);
+    if (profile.hv) parts.push(`H ${this.$t(profile.hv, "horizontal")}`);
+    return parts.filter(Boolean).join(" · ");
+  }
+
+  profileDraftV1(profile = null) {
+    const state = this.Z();
+    const modes = this.ft();
+    let mode = profile?.m;
+    if (!modes.includes(mode)) {
+      const current = state.state?.state;
+      mode =
+        (modes.includes(current) && current !== "off" && current) ||
+        this.gt() ||
+        (modes.includes("cool") ? "cool" : modes[0]) ||
+        "";
+    }
+    let temperature = Number.isFinite(profile?.t)
+      ? profile.t
+      : this.K(state.attributes?.temperature);
+    if (temperature === null || !Number.isFinite(temperature)) temperature = 22;
+    temperature = this.Et(temperature) ?? temperature;
+    let fan = profile?.f ?? null;
+    if (fan && !this.bt().includes(fan)) fan = null;
+    if (!profile && this.bt().includes(state.attributes?.fan_mode))
+      fan = state.attributes.fan_mode;
+    const draft = {
+      n: profile?.n ?? "",
+      m: mode,
+      t: temperature,
+      f: fan,
+      vv: null,
+      hv: null,
+    };
+    for (const vane of this.vt()) {
+      const key = vane.axis === "vertical" ? "vv" : "hv";
+      const saved = profile?.[key];
+      draft[key] =
+        saved && vane.qs.includes(saved)
+          ? saved
+          : !profile && vane.qs.includes(vane.state)
+            ? vane.state
+            : null;
+    }
+    return draft;
+  }
+
+  profileNormaliseV1(draft) {
+    const name = String(draft?.n ?? "").trim();
+    const modes = this.ft();
+    if (!name) throw new Error("Enter a profile name.");
+    if (name.length > 24)
+      throw new Error("Profile names can be up to 24 characters.");
+    if (!modes.includes(draft.m)) throw new Error("Choose an available mode.");
+    const profile = { v: 1, n: name, m: draft.m };
+    if (["heat", "cool", "auto"].includes(draft.m)) {
+      const temperature = this.Et(draft.t);
+      if (temperature === null)
+        throw new Error("Choose a valid target temperature.");
+      profile.t = temperature;
+    }
+    if (draft.f && this.bt().includes(draft.f)) profile.f = draft.f;
+    for (const vane of this.vt()) {
+      const key = vane.axis === "vertical" ? "vv" : "hv";
+      if (draft[key] && vane.qs.includes(draft[key])) profile[key] = draft[key];
+    }
+    return profile;
+  }
+
+  async profileStoreV1() {
+    const roomId = splitProfileRoomId(this);
+    if (this._profileBusyV1 || !this._profileEditV1 || !roomId) return;
+    const rows = this.profileRowsV1();
+    let profile;
+    try {
+      profile = this.profileNormaliseV1(this._profileEditV1.draft);
+    } catch (error) {
+      this._profileMessageV1 = { text: error.message, type: "error" };
+      this.St();
+      return;
+    }
+    const duplicate = rows.find(
+      (row) =>
+        row.profile &&
+        row.index !== this._profileEditV1.index &&
+        row.profile.n.trim().toLowerCase() === profile.n.trim().toLowerCase(),
+    );
+    if (duplicate) {
+      this._profileMessageV1 = {
+        text: "A profile with that name already exists.",
+        type: "error",
+      };
+      this.St();
+      return;
+    }
+    const row =
+      this._profileEditV1.index === null
+        ? rows.find(
+            (candidate) =>
+              candidate.available && !candidate.profile && !candidate.invalid,
+          )
+        : rows[this._profileEditV1.index];
+    if (!row) {
+      this._profileMessageV1 = {
+        text: `Maximum of ${SPLIT_PROFILE_SLOT_COUNT} profiles reached.`,
+        type: "error",
+      };
+      this.St();
+      return;
+    }
+    this._profileBusyV1 = true;
+    this._profileMessageV1 = { text: "Saving profile…", type: "info" };
+    this.St();
+    try {
+      await this.P.callService("ha_component_backend", "upsert_profile", {
+        room_id: roomId,
+        index: row.index,
+        profile,
+      });
+      const profiles = rows
+        .filter((candidate) => candidate.profile)
+        .map((candidate) => candidate.profile);
+      profiles[row.index] = profile;
+      this._profileLocalProfilesV1 = profiles.filter(Boolean);
+      this._profileEditV1 = null;
+      this._profileMessageV1 = { text: `${profile.n} saved.`, type: "info" };
+    } catch {
+      this._profileMessageV1 = {
+        text: "Could not save the profile.",
+        type: "error",
+      };
+    } finally {
+      this._profileBusyV1 = false;
+      this.St(true);
+      this.H();
+    }
+  }
+
+  async profileDeleteV1() {
+    const roomId = splitProfileRoomId(this);
+    if (this._profileBusyV1 || this._profileEditV1?.index === null || !roomId)
+      return;
+    const row = this.profileRowsV1()[this._profileEditV1.index];
+    if (!row?.available) return;
+    const name = row.profile?.n || "Profile";
+    this._profileBusyV1 = true;
+    this._profileMessageV1 = { text: "Deleting profile…", type: "info" };
+    this.St();
+    try {
+      await this.P.callService("ha_component_backend", "remove_profile", {
+        room_id: roomId,
+        index: row.index,
+      });
+      this._profileLocalProfilesV1 = this.profileRowsV1()
+        .filter(
+          (candidate) => candidate.profile && candidate.index !== row.index,
+        )
+        .map((candidate) => candidate.profile);
+      this._profileEditV1 = null;
+      this._profileMessageV1 = { text: `${name} deleted.`, type: "info" };
+    } catch {
+      this._profileMessageV1 = {
+        text: "Could not delete the profile.",
+        type: "error",
+      };
+    } finally {
+      this._profileBusyV1 = false;
+      this.St(true);
+      this.H();
+    }
+  }
+
+  async profileApplyV1(profile) {
+    if (this._profileBusyV1 || !profile) return;
+    const state = this.Z();
+    if (state.uv) {
+      this._profileMessageV1 = {
+        text: "The split system is currently unavailable.",
+        type: "error",
+      };
+      this.St();
+      return;
+    }
+    if (!this.ft().includes(profile.m)) {
+      this._profileMessageV1 = {
+        text: `${profile.n} uses a mode that is no longer available.`,
+        type: "error",
+      };
+      this.St();
+      return;
+    }
+    this._profileBusyV1 = true;
+    this._profileMessageV1 = { text: `Applying ${profile.n}…`, type: "info" };
+    this.St();
+    try {
+      if (
+        Number.isFinite(profile.t) &&
+        ["heat", "cool", "auto"].includes(profile.m)
+      ) {
+        const temperature = this.Et(profile.t);
+        if (temperature === null) throw new Error("Invalid target");
+        await this.P.callService("climate", "set_temperature", {
+          entity_id: this.config.entity,
+          temperature,
+          hvac_mode: profile.m,
+        });
+      } else {
+        await this.P.callService("climate", "set_hvac_mode", {
+          entity_id: this.config.entity,
+          hvac_mode: profile.m,
+        });
+      }
+      const calls = [];
+      if (profile.f && this.bt().includes(profile.f))
+        calls.push(
+          this.P.callService("climate", "set_fan_mode", {
+            entity_id: this.config.entity,
+            fan_mode: profile.f,
+          }),
+        );
+      for (const vane of this.vt()) {
+        const key = vane.axis === "vertical" ? "vv" : "hv";
+        if (profile[key] && vane.qs.includes(profile[key]))
+          calls.push(
+            this.P.callService("select", "select_option", {
+              entity_id: vane.entityId,
+              option: profile[key],
+            }),
+          );
+      }
+      await Promise.all(calls);
+      this._profileMessageV1 = null;
+      this.Tt(`${profile.n} profile requested.`);
+      this.M(true);
+    } catch {
+      this._profileMessageV1 = {
+        text: `Could not apply ${profile.n}.`,
+        type: "error",
+      };
+      this.St();
+    } finally {
+      this._profileBusyV1 = false;
+      this.H();
+    }
+  }
+
+  profileChoiceV1({
+    title,
+    key,
+    options,
+    value,
+    optional = false,
+    label,
+    icon,
+    onChange,
+  }) {
+    const group = document.createElement("div");
+    group.className = "og";
+    if (title) {
+      const heading = document.createElement("div");
+      heading.className = "gt";
+      heading.textContent = title;
+      group.append(heading);
+    }
+    const list = document.createElement("div");
+    list.className = "qs";
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", title || key);
+    const choices = optional ? [null, ...options] : options;
+    choices.forEach((choice, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "o";
+      button.dataset.focusKey = `profile-${key}-${choice ?? "keep"}`;
+      this.It(button, button.dataset.focusKey);
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", String(choice === value));
+      button.disabled = this._profileBusyV1;
+      button.tabIndex =
+        choice === value || (!choices.includes(value) && index === 0) ? 0 : -1;
+      const choiceIcon = document.createElement("ha-icon");
+      choiceIcon.className = "oi";
+      choiceIcon.setAttribute(
+        "icon",
+        choice === null ? "mdi:minus-circle-outline" : icon(choice),
+      );
+      const text = document.createElement("span");
+      text.textContent = choice === null ? "Keep current" : label(choice);
+      button.append(choiceIcon, text);
+      if (choice === value) {
+        const check = document.createElement("ha-icon");
+        check.setAttribute("icon", "mdi:check");
+        button.append(check);
+      } else {
+        button.append(document.createElement("span"));
+      }
+      button.addEventListener("click", () => {
+        if (this._profileBusyV1 || choice === value) return;
+        onChange(choice);
+        this.St();
+      });
+      button.addEventListener("keydown", (event) => this.Pt(event, list));
+      list.append(button);
+    });
+    group.append(list);
+    return group;
+  }
+
+  profileRenderListV1(focusInitial = false) {
+    const rows = this.profileRowsV1();
+    const saved = rows.filter((row) => row.profile);
+    const invalid = rows.filter((row) => row.invalid);
+    const body = this.$.pb;
+    body.replaceChildren();
+    if (!saved.length) {
+      const empty = document.createElement("div");
+      empty.className = "pempty";
+      empty.innerHTML =
+        '<ha-icon icon="mdi:account-plus-outline"></ha-icon><strong>No saved profiles</strong><span>Create one from the split system\'s current settings, then adjust it before saving.</span>';
+      body.append(empty);
+    } else {
+      const list = document.createElement("div");
+      list.className = "plist";
+      for (const row of saved) {
+        const profile = row.profile;
+        const active = this.profileActiveV1(profile);
+        const wrap = document.createElement("div");
+        wrap.className = "prow";
+        const apply = document.createElement("button");
+        apply.type = "button";
+        apply.className = "papply";
+        apply.dataset.focusKey = `profile-apply-${row.index}`;
+        this.It(apply, apply.dataset.focusKey);
+        apply.disabled = this._profileBusyV1 || this.Z().uv;
+        apply.setAttribute("aria-current", active ? "true" : "false");
+        const modeIcon = document.createElement("ha-icon");
+        modeIcon.className = "pmi";
+        modeIcon.setAttribute("icon", this.et(profile.m));
+        const copy = document.createElement("span");
+        copy.className = "pcopy";
+        const name = document.createElement("strong");
+        name.textContent = profile.n;
+        const summary = document.createElement("small");
+        summary.textContent = this.profileSummaryV1(profile);
+        copy.append(name, summary);
+        const status = document.createElement("ha-icon");
+        status.className = "pstatus";
+        status.setAttribute(
+          "icon",
+          active ? "mdi:check-circle" : "mdi:chevron-right",
+        );
+        apply.append(modeIcon, copy, status);
+        apply.addEventListener("click", () => this.profileApplyV1(profile));
+
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "pedit";
+        edit.dataset.focusKey = `profile-edit-${row.index}`;
+        this.It(edit, edit.dataset.focusKey);
+        edit.disabled = this._profileBusyV1;
+        edit.setAttribute("aria-label", `Edit ${profile.n}`);
+        const editIcon = document.createElement("ha-icon");
+        editIcon.setAttribute("icon", "mdi:pencil-outline");
+        edit.append(editIcon);
+        edit.addEventListener("click", () => {
+          this._profileEditV1 = {
+            index: row.index,
+            draft: this.profileDraftV1(profile),
+          };
+          this._profileMessageV1 = null;
+          this.u = "profile-name";
+          this.St(true);
+        });
+        wrap.append(apply, edit);
+        list.append(wrap);
+      }
+      body.append(list);
+    }
+    if (invalid.length) {
+      const warning = document.createElement("div");
+      warning.className = "pmsg error";
+      warning.textContent =
+        "One saved profile could not be read. Delete or recreate the affected profile.";
+      body.append(warning);
+    }
+    const create = document.createElement("button");
+    create.type = "button";
+    create.className = "pnew";
+    create.dataset.focusKey = "profile-new";
+    this.It(create, create.dataset.focusKey);
+    const emptySlot = rows.some(
+      (row) => row.available && !row.profile && !row.invalid,
+    );
+    create.disabled = this._profileBusyV1 || !emptySlot;
+    const addIcon = document.createElement("ha-icon");
+    addIcon.setAttribute("icon", "mdi:plus");
+    const addText = document.createElement("span");
+    addText.textContent = emptySlot
+      ? "Create profile"
+      : `${SPLIT_PROFILE_SLOT_COUNT} profile limit reached`;
+    create.append(addIcon, addText);
+    create.addEventListener("click", () => {
+      if (!emptySlot || this._profileBusyV1) return;
+      this._profileEditV1 = { index: null, draft: this.profileDraftV1() };
+      this._profileMessageV1 = null;
+      this.u = "profile-name";
+      this.St(true);
+    });
+    body.append(create);
+    this.profileAppendMessageV1(body);
+    const focusKey = this.u;
+    if (focusKey || focusInitial) {
+      queueMicrotask(() => {
+        const target = focusKey
+          ? body.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`)
+          : body.querySelector("button:not([disabled])");
+        target?.focus();
+      });
+    }
+  }
+
+  profileAppendMessageV1(body) {
+    if (!this._profileMessageV1) return;
+    const message = document.createElement("div");
+    message.className = `pmsg ${this._profileMessageV1.type === "error" ? "error" : ""}`;
+    message.setAttribute("role", "status");
+    message.textContent = this._profileMessageV1.text;
+    body.append(message);
+  }
+
+  profileRenderEditorV1(focusInitial = false) {
+    const edit = this._profileEditV1;
+    if (!edit) return;
+    const draft = edit.draft;
+    const body = this.$.pb;
+    body.replaceChildren();
+    const intro = document.createElement("p");
+    intro.className = "pintro";
+    intro.textContent =
+      edit.index === null
+        ? "Current settings are used as the starting point. Only settings saved here will change when the profile is applied."
+        : "Adjust the saved settings below. Changes do not affect the split system until the profile is applied.";
+    body.append(intro);
+
+    const nameWrap = document.createElement("label");
+    nameWrap.className = "pname";
+    nameWrap.textContent = "Profile name";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 24;
+    input.placeholder = "e.g. Sleep";
+    input.value = draft.n;
+    input.dataset.focusKey = "profile-name";
+    this.It(input, input.dataset.focusKey);
+    input.disabled = this._profileBusyV1;
+    input.addEventListener("input", () => {
+      draft.n = input.value;
+      this._profileMessageV1 = null;
+    });
+    nameWrap.append(input);
+    body.append(nameWrap);
+
+    body.append(
+      this.profileChoiceV1({
+        title: "Mode",
+        key: "mode",
+        options: this.ft(),
+        value: draft.m,
+        label: (value) => this.tt(value),
+        icon: (value) => this.et(value),
+        onChange: (value) => {
+          draft.m = value;
+        },
+      }),
+    );
+    if (["heat", "cool", "auto"].includes(draft.m)) {
+      const attrs = this.Z().attributes;
+      const step = this.K(attrs.target_temp_step) ?? 0.5;
+      const { minimum, maximum } = this.dt();
+      const group = document.createElement("div");
+      group.className = "og";
+      const heading = document.createElement("div");
+      heading.className = "gt";
+      heading.textContent = "Target temperature";
+      const stepper = document.createElement("div");
+      stepper.className = "pstep";
+      const createTemperatureButton = (direction, label) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.focusKey = `profile-temp-${direction < 0 ? "down" : "up"}`;
+        this.It(button, button.dataset.focusKey);
+        button.disabled =
+          this._profileBusyV1 ||
+          (direction < 0
+            ? minimum !== null && Number(draft.t) <= minimum
+            : maximum !== null && Number(draft.t) >= maximum);
+        button.setAttribute("aria-label", label);
+        const icon = document.createElement("ha-icon");
+        icon.setAttribute("icon", direction < 0 ? "mdi:minus" : "mdi:plus");
+        button.append(icon);
+        button.addEventListener("click", () => {
+          const base = Number(draft.t);
+          if (!Number.isFinite(base)) return;
+          const next = this.Dt(base + direction * step, step, minimum ?? base);
+          draft.t = this.Et(next) ?? next;
+          this.St();
+        });
+        return button;
+      };
+      const value = document.createElement("strong");
+      value.textContent = this.it(draft.t) ?? "—";
+      stepper.append(
+        createTemperatureButton(-1, "Decrease profile target temperature"),
+        value,
+        createTemperatureButton(1, "Increase profile target temperature"),
+      );
+      group.append(heading, stepper);
+      body.append(group);
+    }
+    const fans = this.bt();
+    if (fans.length) {
+      body.append(
+        this.profileChoiceV1({
+          title: "Fan",
+          key: "fan",
+          options: fans,
+          value: draft.f,
+          optional: true,
+          label: (value) => this.tt(value),
+          icon: (value) =>
+            ({
+              auto: "mdi:fan-auto",
+              quiet: "mdi:volume-low",
+              low: "mdi:fan-speed-1",
+              medium: "mdi:fan-speed-2",
+              high: "mdi:fan-speed-3",
+            })[String(value).toLowerCase()] ?? "mdi:fan",
+          onChange: (value) => {
+            draft.f = value;
+          },
+        }),
+      );
+    }
+    for (const vane of this.vt()) {
+      const key = vane.axis === "vertical" ? "vv" : "hv";
+      body.append(
+        this.profileChoiceV1({
+          title: vane.title,
+          key,
+          options: vane.qs,
+          value: draft[key],
+          optional: true,
+          label: (value) => this.$t(value, vane.axis),
+          icon: (value) => this.At(vane, value),
+          onChange: (value) => {
+            draft[key] = value;
+          },
+        }),
+      );
+    }
+    this.profileAppendMessageV1(body);
+    const actions = document.createElement("div");
+    actions.className = `pactions ${edit.index !== null ? "editing" : ""}`;
+    if (edit.index !== null) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "pdelete";
+      remove.dataset.focusKey = "profile-delete";
+      this.It(remove, remove.dataset.focusKey);
+      remove.disabled = this._profileBusyV1;
+      remove.textContent = "Delete";
+      remove.addEventListener("click", () => this.profileDeleteV1());
+      actions.append(remove);
+    }
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.dataset.focusKey = "profile-cancel";
+    this.It(cancel, cancel.dataset.focusKey);
+    cancel.disabled = this._profileBusyV1;
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => {
+      this._profileEditV1 = null;
+      this._profileMessageV1 = null;
+      this.u = "profile-new";
+      this.St(true);
+    });
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "psave";
+    save.dataset.focusKey = "profile-save";
+    this.It(save, save.dataset.focusKey);
+    save.disabled = this._profileBusyV1 || !String(draft.n ?? "").trim();
+    save.textContent = this._profileBusyV1 ? "Saving…" : "Save";
+    save.addEventListener("click", () => this.profileStoreV1());
+    actions.append(cancel, save);
+    body.append(actions);
+    const focusKey = this.u;
+    if (focusKey || focusInitial) {
+      queueMicrotask(() => {
+        const target = focusKey
+          ? body.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`)
+          : input;
+        target?.focus();
+      });
+    }
+  }
+
+  G() {
+    const split = this.Z();
+    if (split.uv || split.state?.state !== "off")
+      return this._powerCore();
+    const mode = this.gt();
+    if (!mode || !this.config.room_id) return this._powerCore();
+    this.Rt(
+      "hvac",
+      {
+        requested: mode,
+        label: this.tt(mode),
+        call: () =>
+          this.P.callService("ha_component_backend", "resume_room", {
+            room_id: this.config.room_id,
+          }),
+        matches: () => this.X(this.config.entity)?.state === mode,
+        closePanel: true,
+        timeout: 10000,
+      },
+      true,
+    );
+  }
+
+  R(...args) {
+    const result = this._renderCore(...args);
+    if (this.$?.pr) return result;
+    this._profileEditV1 ??= null;
+    this._profileBusyV1 ??= false;
+    this._profileMessageV1 ??= null;
+    const button = document.createElement("button");
+    button.className = "pw pr";
+    button.type = "button";
+    button.dataset.panel = "profiles";
+    button.setAttribute("aria-controls", "split-secondary");
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-label", "Saved profiles");
+    const icon = document.createElement("ha-icon");
+    icon.setAttribute("icon", "mdi:account-circle-outline");
+    button.append(icon);
+    this.$.sg?.before(button);
+    this.$.pr = button;
+    button.addEventListener("click", () => this.U("profiles", button));
+    const style = document.createElement("style");
+    style.textContent = SPLIT_PROFILE_STYLES;
+    this.shadowRoot.append(style);
+    return result;
+  }
+
+  V() {
+    return `${this._signatureCore()}|${JSON.stringify(this.profileRowsV1().map((row) => row.raw))}`;
+  }
+
+  kt() {
+    return this.o === "profiles"
+      ? this.profileReadyV1()
+      : this._panelAvailableCore();
+  }
+
+  H() {
+    const result = this._refreshCore();
+    if (!this.$?.pr) return result;
+    const ready = this.profileReadyV1();
+    this.$.pr.hidden = !ready;
+    this.$.hd.classList.toggle("profiled", ready);
+    const active = ready
+      ? this.profileRowsV1().find(
+          (row) => row.profile && this.profileActiveV1(row.profile),
+        )
+      : null;
+    this.$.pr.classList.toggle("on", Boolean(active));
+    this.$.pr
+      .querySelector("ha-icon")
+      ?.setAttribute(
+        "icon",
+        active ? "mdi:account-check-outline" : "mdi:account-circle-outline",
+      );
+    this.$.pr.setAttribute(
+      "aria-label",
+      active ? `Saved profiles · ${active.profile.n} active` : "Saved profiles",
+    );
+    this.$.pr.setAttribute("aria-expanded", String(this.o === "profiles"));
+    return result;
+  }
+
+  St(focusInitial = false) {
+    if (this.o !== "profiles")
+      return this._renderPanelCore(focusInitial);
+    if (!this.profileReadyV1()) return;
+    this.$.pt.textContent =
+      this._profileEditV1?.index === null
+        ? "New profile"
+        : this._profileEditV1
+          ? "Edit profile"
+          : "Saved profiles";
+    if (this._profileEditV1) this.profileRenderEditorV1(focusInitial);
+    else this.profileRenderListV1(focusInitial);
+  }
+
+  M(restoreFocus) {
+    const wasProfiles = this.o === "profiles";
+    const result = this._closePanelCore(restoreFocus);
+    if (wasProfiles) {
+      this._profileEditV1 = null;
+      this._profileMessageV1 = null;
+      this.u = null;
+    }
+    return result;
+  }
+}
+
+const SPLIT_PROFILE_STYLES = `
+  .hd.profiled{grid-template-columns:minmax(0,1fr) 44px 44px;gap:8px}.hd.settings.profiled{grid-template-columns:minmax(0,1fr) 44px 44px 44px;gap:8px}
+  .plist{display:grid;gap:8px}.prow{display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:8px}.papply{min-height:58px;padding:8px 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:grid;grid-template-columns:24px minmax(0,1fr) 20px;align-items:center;gap:10px;text-align:left;background:transparent}.papply[aria-current=true]{color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.pmi{color:var(--secondary-text-color);--mdc-icon-size:20px}.papply[aria-current=true] .pmi{color:var(--primary-color)}.pcopy{min-width:0}.pcopy strong,.pcopy small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pcopy strong{font-size:13px;line-height:1.25;font-weight:650}.pcopy small{margin-top:4px;color:var(--secondary-text-color);font-size:12px;line-height:1.2;font-weight:400}.pstatus{color:var(--secondary-text-color);--mdc-icon-size:18px}.papply[aria-current=true] .pstatus{color:var(--primary-color)}.pedit{width:44px;min-height:58px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:grid;place-items:center;background:transparent;color:var(--secondary-text-color)}.pnew{width:100%;min-height:46px;margin-top:12px;border:1px dashed var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:flex;align-items:center;justify-content:center;gap:8px;background:transparent;color:var(--primary-color);font-size:13px;font-weight:650}.pempty{min-height:126px;padding:20px 16px;border:1px dashed var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--secondary-text-color)}.pempty ha-icon{--mdc-icon-size:28px;color:var(--primary-color)}.pempty strong{margin-top:10px;color:var(--primary-text-color);font-size:14px}.pempty span{max-width:280px;margin-top:5px;font-size:12px;line-height:1.4}.pintro{margin:0 0 12px;color:var(--secondary-text-color);font-size:12px;line-height:1.4}.pname{display:block;margin-bottom:12px;color:var(--secondary-text-color);font-size:13px;font-weight:600}.pname input{display:block;width:100%;height:44px;margin-top:6px;padding:0 11px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent}.pstep{display:grid;grid-template-columns:44px minmax(90px,1fr) 44px;align-items:center;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);overflow:hidden}.pstep button{width:44px;height:46px;display:grid;place-items:center}.pstep strong{text-align:center;font-size:18px;font-variant-numeric:tabular-nums}.pmsg{margin-top:10px;color:var(--secondary-text-color);font-size:12px;line-height:1.35}.pmsg.error{color:var(--error-color)}.pactions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--divider-color)}.pactions.editing{grid-template-columns:1fr 1fr 1fr}.pactions button{min-height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;font-size:13px;font-weight:650}.pactions .psave{color:var(--primary-color)}.pactions .pdelete{color:var(--error-color)}@media(max-width:420px){.pactions.editing{grid-template-columns:1fr 1fr}.pactions.editing .pdelete{grid-column:1/-1;grid-row:2}}
+`;
+
+registerCard({
+  type: "component-split-controller-v4",
+  element: ComponentSplitControllerV4,
+  name: "Split-System Controller",
+  description:
+    "Registry-aware split-system controller with settings, timer, saved-profile, and durable resume support.",
+});
 }
 
 // Module: src/components/favourites.js
 {
 /** ComponentFavouritesV3 — reusable Home Assistant dashboard card. */
-const { escapeHtml, interaction, openMoreInfo, registerCard, waitForEntityState } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-const FAVOURITES_V3_DOMAINS=new Set(["automation","button","climate","cover","fan","humidifier","input_boolean","input_button","light","lock","media_player","scene","script","select","switch","vacuum","water_heater"]),FAVOURITES_V3_INVALID=new Set(["unavailable","unknown"]);class ComponentFavouritesV3 extends HTMLElement{constructor(){super(),this.attachShadow({mode:"open"}),this._registry=null,this._registryPromise=null,this._selected=[],this._draft=[],this._originalDraft="",this._pending=new Map,this._flash=new Map,this._flashTimers=new Map,this._lastStorageSignature="",this._noticeTimer=null,this._registrySubscription=null,this._registryRefreshTimer=null,this._renderSignature="",this._editorStorageSignature="",this._connection=null,this._interactionHandles=[],this._optimistic=new Map}setConfig(t){const e=Array.isArray(t?.helpers)?t.helpers.filter(t=>"string"==typeof t):[],i=Array.isArray(t?.items)?t.items.slice(0,4):[];if(!e.length&&!i.length)throw new Error("helpers or items is required");this.config={title:"Favourites",max:4,show_header:e.length>0,...t,helpers:e.slice(0,4),items:i},this._build(),this._syncStored(),this._renderGrid()}set hass(t){const e=this._connection;this._hass=t,this._connection=t?.connection||null,this._built||this._build(),e!==this._connection&&(this._unsubscribeRegistryEvents(),this._subscribeRegistryEvents()),this._syncStored(),this._ensureRegistry();const i=this._gridSignature();i!==this._renderSignature&&(this._renderSignature=i,this._renderGrid()),this.$?.editor?.open&&this._updateEditorState(),this._controllerCard&&(this._controllerCard.hass=t)}getCardSize(){return 2}connectedCallback(){this._connection=this._hass?.connection||null,this._subscribeRegistryEvents(),this._ensureRegistry()}disconnectedCallback(){for(const t of this._interactionHandles)t.destroy();this._interactionHandles=[];this._optimistic.clear();clearTimeout(this._noticeTimer),clearTimeout(this._registryRefreshTimer),this._registryRefreshTimer=null,this._unsubscribeRegistryEvents();for(const t of this._flashTimers.values())clearTimeout(t);this._flashTimers.clear()}_subscribeRegistryEvents(){if(!this.isConnected||this._registrySubscription||!this._connection?.subscribeEvents)return;const t=Promise.all(["entity_registry_updated","device_registry_updated","area_registry_updated"].map(e=>this._connection.subscribeEvents(()=>this._queueRegistryRefresh(),e))).then(t=>()=>{for(const e of t)e?.()});this._registrySubscription=t,t.catch(()=>{this._registrySubscription===t&&(this._registrySubscription=null)})}_unsubscribeRegistryEvents(){const t=this._registrySubscription;this._registrySubscription=null,t&&Promise.resolve(t).then(t=>t?.()).catch(()=>{})}_queueRegistryRefresh(){clearTimeout(this._registryRefreshTimer),this._registryRefreshTimer=setTimeout(()=>{this._registryRefreshTimer=null,this._registry=null,this._registryPromise=null,this._registryError=null,this._renderSignature="",this.isConnected&&this._ensureRegistry()},180)}_storageSignature(){return JSON.stringify((this.config?.helpers||[]).map(t=>this._hass?.states?.[t]?.state))}_gridSignature(){if(!this.config)return"";return JSON.stringify([this._storageSignature(),this._selected.map((t,s)=>{const e=this._record(t),i=this._companion(e);return[this._refKey(t),this._name(e),this._icon(e),e.state?.state,this._stateLabel(e),this._isActive(e),i?.state?.state,this._pending.get(s)?.label||"",this._flash.get(s)?.kind||"",this._flash.get(s)?.label||""]})])}_build(){if(this.config&&!this._built){this._built=!0,this.shadowRoot.innerHTML='\n      <style>\n        :host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}button,input{font:inherit;color:inherit}button{appearance:none;border:0;cursor:pointer}ha-card{border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}.wrap{padding:0}.head{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.heading{display:flex;align-items:center;gap:8px;min-width:0}.heading ha-icon{color:var(--primary-color);--mdc-icon-size:19px}.heading h2{margin:0;font-size:18px;line-height:1.2;font-weight:650}.edit{min-width:44px;min-height:44px;padding:0 10px;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--primary-color);display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:600}.edit:hover,.edit:focus-visible{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.edit ha-icon{--mdc-icon-size:18px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-width:448px}.item{position:relative;min-width:0;min-height:52px;display:grid;grid-template-columns:minmax(0,1fr) auto;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:var(--dashboard-card-surface,var(--card-background-color));overflow:hidden}.main{min-width:0;min-height:52px;padding:6px 8px;text-align:left;background:transparent;display:grid;grid-template-columns:32px minmax(0,1fr);align-items:center;gap:8px}.item.has-quick .main{padding-right:4px}.main:active,.quick:active{background:color-mix(in srgb,var(--primary-color) 10%,transparent)}.main:focus-visible,.quick:focus-visible,.edit:focus-visible,.dialog-button:focus-visible,.choice:focus-visible,.order:focus-visible,.remove:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px}.icon{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--primary-color)}.icon ha-icon{--mdc-icon-size:20px}.copy{min-width:0}.name,.state{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name{font-size:13px;font-weight:650}.state{margin-top:2px;font-size:13px;color:var(--secondary-text-color)}.item.active{background:var(--dashboard-active-surface,var(--card-background-color));box-shadow:inset 2px 0 0 var(--primary-color)}.item.active .icon{background:transparent;color:var(--primary-color)}.item.active .state{color:var(--primary-color);font-weight:600}.item.unavailable{opacity:.55}.quick{width:44px;min-height:52px;padding:0;border-left:1px solid var(--dashboard-card-border-color,var(--divider-color));background:transparent;color:var(--primary-color);display:grid;place-items:center}.quick ha-icon{--mdc-icon-size:21px}.item:after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;opacity:0;transform-origin:left}.item.pending:after{opacity:1;background:linear-gradient(90deg,transparent,var(--primary-color),transparent);animation:favourite-progress 1.05s linear infinite}.item.success:after{opacity:1;background:var(--success-color,#43a047)}.item.error:after{opacity:1;background:var(--error-color)}@keyframes favourite-progress{from{transform:translateX(-100%)}to{transform:translateX(100%)}}.empty,.load-error{grid-column:1/-1;min-height:44px;padding:9px 11px;border:1px dashed var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:transparent;color:var(--secondary-text-color);font-size:13px;line-height:1.35}.notice{min-height:0;margin-top:0;font-size:13px;color:var(--secondary-text-color)}.notice:not(:empty){margin-top:7px}.notice.error{color:var(--error-color)}dialog{box-sizing:border-box;border:var(--dashboard-card-border,1px solid var(--divider-color));padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}.editor{width:min(580px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 24px));border-radius:var(--dashboard-radius-dialog,8px)}.dialog-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;background:transparent;border-bottom:1px solid var(--divider-color)}.dialog-title{font-size:20px;font-weight:650}.close{width:44px;height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.editor-body{padding:14px 16px 96px}.editor-copy{font-size:13px;line-height:1.4;color:var(--secondary-text-color);margin-bottom:12px}.subheading{margin:14px 0 7px;font-size:13px;font-weight:650;color:var(--primary-text-color)}.selected{display:grid;gap:7px}.selected-row{min-height:62px;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:9px;padding:6px 7px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:var(--dashboard-card-surface,var(--card-background-color))}.selected-row .icon{background:transparent}.selected-copy{min-width:0}.selected-meta{font-size:13px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.alias{width:100%;height:44px;margin-top:3px;padding:0 8px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,8px);background:transparent;font-size:13px;outline:none}.alias:focus{border-color:var(--primary-color)}.selected-actions{display:flex;align-items:center;gap:2px}.order,.remove{width:44px;height:44px;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.order[disabled]{opacity:.3;cursor:default}.remove{color:var(--error-color)}.order ha-icon,.remove ha-icon{--mdc-icon-size:18px}.search{width:100%;min-height:46px;padding:0 13px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;outline:none}.search:focus{border-color:var(--primary-color)}.available{margin-top:8px}.group-title{padding:10px 4px 5px;font-size:13px;font-weight:650;color:var(--secondary-text-color)}.choice{width:100%;min-height:58px;padding:6px 7px;border-radius:var(--dashboard-radius-control,8px);background:transparent;text-align:left;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:9px}.choice:hover{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.choice-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.choice-meta{margin-top:2px;font-size:13px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.add{color:var(--primary-color);font-size:13px;font-weight:650;padding-right:4px}.available-empty{padding:10px 7px;color:var(--secondary-text-color);font-size:13px}.editor-actions{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 18px;background:transparent;border-top:1px solid var(--divider-color)}.count{font-size:13px;color:var(--secondary-text-color)}.action-buttons{display:flex;gap:8px}.dialog-button{min-height:44px;padding:0 13px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;font-size:13px;font-weight:650}.dialog-button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff)}.dialog-button[disabled]{opacity:.45;cursor:default}.editor-error{min-height:0;margin-top:8px;color:var(--error-color);font-size:13px}.confirm{width:min(430px,calc(100vw - 28px));border-radius:var(--dashboard-radius-dialog,8px)}.confirm-body{padding:18px}.confirm-title{font-size:18px;font-weight:650}.confirm-message{margin-top:7px;font-size:13px;line-height:1.45;color:var(--secondary-text-color)}.confirm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.controller{width:min(620px,calc(100vw - 20px));max-height:calc(100vh - 20px);border-radius:var(--dashboard-radius-dialog,8px);overflow:auto}.controller-body{padding:12px}.controller-body>*{display:block}.controller .dialog-head{border-bottom:0}@media(max-width:420px){.head{margin-bottom:6px}.edit span{display:none}.edit{padding:0}.grid{gap:8px}.main{padding:6px}.editor-body{padding:12px 12px 94px}.dialog-head{padding:12px}.editor-actions{padding:11px 12px}.selected-row{grid-template-columns:30px minmax(0,1fr) auto;gap:7px;padding:5px}.selected-actions{gap:0}.order,.remove{width:44px}.choice{padding:5px}}\n      </style>\n      <ha-card>\n        <div class="wrap">\n          <div class="head">\n            <div class="heading"><ha-icon icon="mdi:star-outline"></ha-icon><h2></h2></div>\n            <button class="edit" type="button"><ha-icon icon="mdi:pencil-outline"></ha-icon><span>Edit</span></button>\n          </div>\n          <div class="grid"></div>\n          <div class="notice" role="status" aria-live="polite"></div>\n        </div>\n      </ha-card>\n      <dialog class="editor" aria-labelledby="favourites-editor-title">\n        <div class="dialog-head"><div class="dialog-title" id="favourites-editor-title">Edit favourites</div><button class="close editor-close" type="button" aria-label="Close editor"><ha-icon icon="mdi:close"></ha-icon></button></div>\n        <div class="editor-body">\n          <div class="editor-copy">Choose up to four household controls. Their order here is their order on Home.</div>\n          <div class="subheading">Selected</div>\n          <div class="selected"></div>\n          <div class="subheading">Available controls</div>\n          <input class="search" type="search" placeholder="Search by name, room or entity" aria-label="Search available controls">\n          <div class="available"></div>\n          <div class="editor-error" role="alert"></div>\n        </div>\n        <div class="editor-actions"><div class="count"></div><div class="action-buttons"><button class="dialog-button cancel" type="button">Cancel</button><button class="dialog-button primary save" type="button">Save</button></div></div>\n      </dialog>\n      <dialog class="confirm" aria-labelledby="favourites-confirm-title">\n        <div class="confirm-body"><div class="confirm-title" id="favourites-confirm-title"></div><div class="confirm-message"></div><div class="confirm-actions"><button class="dialog-button confirm-cancel" type="button">Cancel</button><button class="dialog-button primary confirm-run" type="button">Run</button></div></div>\n      </dialog>\n      <dialog class="controller" aria-labelledby="favourites-controller-title">\n        <div class="dialog-head"><div class="dialog-title" id="favourites-controller-title">Climate</div><button class="close controller-close" type="button" aria-label="Close climate controller"><ha-icon icon="mdi:close"></ha-icon></button></div>\n        <div class="controller-body"></div>\n      </dialog>\n    ',this.$=Object.fromEntries([...this.shadowRoot.querySelectorAll("[class]")].flatMap(t=>[...t.classList].map(e=>[e,t]))),Object.assign(this.$,{editorClose:this.shadowRoot.querySelector(".editor-close"),confirmCancel:this.shadowRoot.querySelector(".confirm-cancel"),confirmRun:this.shadowRoot.querySelector(".confirm-run"),confirmTitle:this.shadowRoot.querySelector(".confirm-title"),confirmMessage:this.shadowRoot.querySelector(".confirm-message"),controllerClose:this.shadowRoot.querySelector(".controller-close"),controllerTitle:this.shadowRoot.querySelector("#favourites-controller-title"),controllerBody:this.shadowRoot.querySelector(".controller-body"),editorError:this.shadowRoot.querySelector(".editor-error")}),this.shadowRoot.querySelector("h2").textContent=this.config.title,this.$.head.hidden=!1===this.config.show_header,this.$.edit.hidden=!this.config.helpers.length,this.$.edit.addEventListener("click",()=>this._openEditor()),this.$.editorClose.addEventListener("click",()=>this.$.editor.close()),this.$.cancel.addEventListener("click",()=>this.$.editor.close()),this.$.search.addEventListener("input",()=>this._renderAvailable()),this.$.save.addEventListener("click",()=>this._save()),this.$.confirmCancel.addEventListener("click",()=>this.$.confirm.close()),this.$.controllerClose.addEventListener("click",()=>this.$.controller.close());for(const t of[this.$.editor,this.$.confirm,this.$.controller])t.addEventListener("click",e=>{e.target===t&&t.close()})}}_escape(t){return escapeHtml(t)}_domain(t){return String(t||"").split(".")[0]}_normaliseRef(t){return t&&"object"==typeof t&&[t.d,t.p,t.u].every(t=>"string"==typeof t&&t)?{v:1,d:t.d,p:t.p,u:t.u,n:"string"==typeof t.n?t.n.slice(0,64):""}:null}_parseSlot(t){if(!t||FAVOURITES_V3_INVALID.has(String(t).toLowerCase()))return null;try{return this._normaliseRef(JSON.parse(t))}catch(t){return null}}_syncStored(){if(!this.config||!this._hass||!this.config.helpers.length)return;const t=JSON.stringify(this.config.helpers.map(t=>this._hass.states?.[t]?.state));t!==this._lastStorageSignature&&(this._lastStorageSignature=t,this._selected=this.config.helpers.map(t=>this._parseSlot(this._hass.states?.[t]?.state)).filter(Boolean).slice(0,this.config.max))}async _ensureRegistry(){return this._registry||this._registryPromise||!this._hass?.connection?.sendMessagePromise||(this._registryPromise=Promise.all([this._hass.connection.sendMessagePromise({type:"config/entity_registry/list"}),this._hass.connection.sendMessagePromise({type:"config/device_registry/list"}),this._hass.connection.sendMessagePromise({type:"config/area_registry/list"})]).then(async([t,e,i])=>{const s=Array.isArray(t)?t:[],r=Array.isArray(e)?e:[],a=Array.isArray(i)?i:[],o=new Map,n=new Map;for(const t of s){const e=this._entryKey(t);e&&o.set(e,t),t.device_id&&(n.has(t.device_id)||n.set(t.device_id,[]),n.get(t.device_id).push(t))}return this._registry={entities:s,devices:new Map(r.map(t=>[t.id,t])),areas:new Map(a.map(t=>[t.area_id,t.name])),byKey:o,byDevice:n,claimed:new Set,splitSystems:new Map},await this._refreshSplitRegistry(),this._renderSignature="",this._renderGrid(),this.$?.editor?.open&&this._renderEditor(),this._registry}).catch(t=>(this._registryError=t,this._registryPromise=null,this._renderGrid(),null))),this._registryPromise}async _refreshSplitRegistry(){const t=globalThis.__componentSplitRegistryV4;if(this._registry&&t?.load&&this._hass)try{const e=await t.load(this._hass);this._registry.claimed=e?.claimed||new Set,this._registry.splitSystems=e?.systems||new Map}catch(t){this._registry.claimed=new Set,this._registry.splitSystems=new Map}}_entryKey(t){return t?.entity_id&&t.platform&&t.unique_id?`${this._domain(t.entity_id)}|${t.platform}|${t.unique_id}`:null}_refKey(t){return t?`${t.d}|${t.p}|${t.u}`:""}_refForEntry(t,e=""){return{v:1,d:this._domain(t.entity_id),p:t.platform,u:t.unique_id,n:e}}_record(t){const e=this._registry?.byKey.get(this._refKey(t))||null;return{ref:t,entry:e,state:e&&this._hass?.states?.[e.entity_id]||null}}_name(t){return t.ref?.n?.trim()||t.entry?.name||t.entry?.original_name||t.state?.attributes?.friendly_name||t.entry?.entity_id||"Favourite not found"}_icon(t){if(t.state?.attributes?.icon)return t.state.attributes.icon;return{automation:"mdi:robot-outline",button:"mdi:gesture-tap-button",climate:"mdi:thermostat",cover:"mdi:window-shutter",fan:"mdi:fan",humidifier:"mdi:air-humidifier",input_boolean:"mdi:toggle-switch-outline",input_button:"mdi:gesture-tap-button",light:"mdi:lightbulb-outline",lock:"mdi:lock-outline",media_player:"mdi:play-circle-outline",scene:"mdi:palette-outline",script:"mdi:script-text-outline",select:"mdi:format-list-bulleted",switch:"mdi:toggle-switch-outline",vacuum:"mdi:robot-vacuum",water_heater:"mdi:water-boiler"}[t.entry?this._domain(t.entry.entity_id):t.ref?.d]||"mdi:star-outline"}_companion(t){if(!t.entry?.device_id||!this._registry)return null;const e=(this._registry.byDevice.get(t.entry.device_id)||[]).filter(t=>"binary_sensor"===this._domain(t.entity_id)).map(t=>({entry:t,state:this._hass?.states?.[t.entity_id]})).filter(({state:t})=>["garage_door","door","opening"].includes(t?.attributes?.device_class));return e.find(({state:t})=>"garage_door"===t?.attributes?.device_class)||e[0]||null}_companionLabel(t){return t?.state?"on"===t.state.state?"Open":"off"===t.state.state?"Closed":"unavailable"===t.state.state?"Status unavailable":"Status unknown":null}_stateLabel(t){if(!t.entry||!t.state)return"Not found";if("unavailable"===t.state.state)return"Unavailable";if("unknown"===t.state.state)return"Status unknown";const e=this._domain(t.entry.entity_id),i=this._companion(t);if(["button","input_button"].includes(e)){const t=this._companionLabel(i);return t?`${t} · Tap to operate`:"Tap to run"}if(["automation","script"].includes(e))return"Tap to start";if("scene"===e)return"Tap to activate";if("media_player"===e){const e=t.state.attributes?.media_title,i=this._label(t.state.state);return e?`${i} · ${e}`:i}if("climate"===e){const e=t.state.attributes?.hvac_action;return this._label(e&&"idle"!==e?e:t.state.state)}return this._label(t.state.state)}_label(t){return String(t??"").replaceAll("_"," ").replace(/^./,t=>t.toUpperCase())}_isActive(t){if(!t.state||FAVOURITES_V3_INVALID.has(String(t.state.state).toLowerCase()))return!1;const e=this._domain(t.entry?.entity_id);return["light","switch","fan","input_boolean"].includes(e)?"on"===t.state.state:"media_player"===e?["playing","paused","buffering","on"].includes(t.state.state):"climate"===e?"off"!==t.state.state:"cover"===e?"closed"!==t.state.state:"lock"===e&&"unlocked"===t.state.state}_hasMediaQuick(t){return"media_player"===this._domain(t.entry?.entity_id)&&["playing","paused"].includes(t.state?.state)}_actionLabel(t){const e=this._domain(t.entry?.entity_id);return["light","switch","fan","input_boolean"].includes(e)?"on"===t.state?.state?"turn off":"turn on":["button","input_button"].includes(e)?"run":["automation","script"].includes(e)?"start":"scene"===e?"activate":"climate"===e?"open climate controls":"open details"}_renderGrid(){for(const t of this._interactionHandles)t.destroy();this._interactionHandles=[];if(!this.$?.grid||!this.config)return;if(this.config.items.length&&!this.config.helpers.length)return void this._renderDemo();this.$.grid.replaceChildren();this.config.helpers.some(t=>{const e=this._hass?.states?.[t];return this._hass&&(!e||FAVOURITES_V3_INVALID.has(String(e.state).toLowerCase()))})?this.$.grid.innerHTML='<div class="load-error">Favourites storage is unavailable.</div>':this._registry?this._selected.length?this._selected.forEach((t,e)=>{const i=this._record(t),s=this._name(i),r=this._stateLabel(i),a=this._pending.get(e),o=this._flash.get(e),n=a?.label||o?.label||r,l=this._hasMediaQuick(i),u=!i.state||FAVOURITES_V3_INVALID.has(String(i.state.state).toLowerCase()),c=document.createElement("div");c.className=["item",l?"has-quick":"",(this._optimistic.has(e)?this._optimistic.get(e):this._isActive(i))?"active":"",u?"unavailable":"",a?"pending":"",o?.kind||""].filter(Boolean).join(" ");const d=document.createElement("button");d.type="button",d.className="main",d.setAttribute("aria-label",`${s}, ${r}, ${this._actionLabel(i)}`),u&&(d.disabled=!0,d.setAttribute("aria-disabled","true"));const h=this._domain(i.entry?.entity_id);if(["light","switch","fan","input_boolean"].includes(h)&&d.setAttribute("aria-pressed",String(this._optimistic.has(e)?this._optimistic.get(e):"on"===i.state?.state)),d.innerHTML=`<span class="icon"><ha-icon icon="${this._escape(this._icon(i))}"></ha-icon></span><span class="copy"><div class="name">${this._escape(s)}</div><div class="state">${this._escape(n)}</div></span>`,this._interactionHandles.push(interaction(d,{primary:()=>this._activate(e),hold:()=>this._moreInfo(i.entry?.entity_id),optimistic:!1,repeat:!1,feedback:!0})),c.append(d),l){const t=document.createElement("button");t.type="button",t.className="quick";const r="playing"===i.state.state;t.setAttribute("aria-label",`${r?"Pause":"Play"} ${s}`),t.innerHTML=`<ha-icon icon="mdi:${r?"pause":"play"}"></ha-icon>`,this._interactionHandles.push(interaction(t,{primary:()=>this._mediaAction(e),optimistic:!1,repeat:!1,feedback:!0})),c.append(t)}this.$.grid.append(c)}):this.$.grid.innerHTML='<div class="empty">Add up to four everyday controls here.</div>':this.$.grid.innerHTML=`<div class="${this._registryError?"load-error":"empty"}">${this._registryError?"Favourites could not load the entity registry.":"Loading favourites…"}</div>`}_renderDemo(){this.$.grid.replaceChildren(),this.config.items.slice(0,4).forEach(t=>{const e=document.createElement("div");e.className="item",e.innerHTML=`<div class="main"><span class="icon"><ha-icon icon="${this._escape(t.icon||"mdi:star-outline")}"></ha-icon></span><span class="copy"><div class="name">${this._escape(t.title||"Favourite")}</div><div class="state">${this._escape(t.state||"Supporting state")}</div></span></div>`,this.$.grid.append(e)})}async _activate(t){if(this._pending.has(t))return;const e=this._record(this._selected[t]);if(!e.entry||!e.state)return void this._openEditor();const i=e.entry.entity_id,s=this._domain(i);if(!FAVOURITES_V3_INVALID.has(String(e.state.state).toLowerCase()))if(["button","input_button"].includes(s))this._confirmButton(t,e);else{if(["light","switch","fan","input_boolean"].includes(s)){const s=e.state.state;this._optimistic.set(t,"on"!==s),this._setPending(t,"on"===s?"Turning off…":"Turning on…");try{await this._hass.callService("homeassistant","toggle",{entity_id:i}),await this._waitFor(i,t=>t!==s,9e3),this._setFlash(t,"success","on"===s?"Off":"On")}catch(e){this._setFlash(t,"error","Could not update")}return}if(["automation","script","scene"].includes(s)){const e="automation"===s?"trigger":"turn_on",r="scene"===s?"Activating…":"Starting…",a="scene"===s?"Activated":"Started";this._setPending(t,r);try{await this._hass.callService(s,e,{entity_id:i}),this._setFlash(t,"success",a)}catch(e){this._setFlash(t,"error","Could not start")}return}"climate"===s&&this._registry?.splitSystems?.has(i)?this._openSplit(e):this._moreInfo(i)}else this._moreInfo(i)}async _mediaAction(t){if(this._pending.has(t))return;const e=this._record(this._selected[t]);if(!e.entry||!e.state)return;const i=e.entry.entity_id,s="playing"===e.state.state,r=s?"media_pause":"media_play";this._optimistic.set(t,!s),this._setPending(t,s?"Pausing…":"Playing…");try{await this._hass.callService("media_player",r,{entity_id:i}),await this._waitFor(i,t=>s?"playing"!==t:"playing"===t,9e3),this._setFlash(t,"success",s?"Paused":"Playing")}catch(e){this._setFlash(t,"error","Could not update")}}_confirmButton(t,e){const i=this._name(e),s=this._companion(e),r=this._companionLabel(s);this.$.confirmTitle.textContent=r?`Operate ${i}?`:`Run ${i}?`,this.$.confirmMessage.textContent=r?`The current reported state is ${r.toLowerCase()}.`:"This action runs immediately and cannot be reversed from this button.",this.$.confirmRun.textContent=r?"Operate":"Run",this.$.confirmRun.onclick=()=>{this.$.confirm.close(),this._runButton(t,e)},this.$.confirm.showModal(),this.$.confirmCancel.focus()}async _runButton(t,e){const i=e.entry.entity_id,s=this._domain(i);this._setPending(t,"Sending command…");try{await this._hass.callService(s,"press",{entity_id:i}),this._setFlash(t,"success","Command sent")}catch(e){this._setFlash(t,"error","Command failed")}}_setPending(t,e){this._pending.set(t,{label:e}),this._flash.delete(t),this._renderGrid()}_setFlash(t,e,i){this._optimistic.delete(t),this._pending.delete(t),this._flash.set(t,{kind:e,label:i}),clearTimeout(this._flashTimers.get(t)),this._flashTimers.set(t,setTimeout(()=>{this._flash.delete(t),this._flashTimers.delete(t),this._renderGrid()},3200)),this._renderGrid()}_waitFor(t,e,i){return waitForEntityState(()=>this._hass,t,e,{timeout:i})}_moreInfo(t){openMoreInfo(this,t)}_openSplit(t){const e="component-split-controller-v4";if(!customElements.get(e))return void this._moreInfo(t.entry.entity_id);this.$.controllerTitle.textContent=this._name(t),this.$.controllerBody.replaceChildren();const i=document.createElement(e);i.setConfig({entity:t.entry.entity_id}),i.hass=this._hass,this._controllerCard=i,this.$.controllerBody.append(i),this.$.controller.showModal(),this.$.controllerClose.focus()}async _openEditor(){await this._ensureRegistry(),await this._refreshSplitRegistry(),this._editorStorageSignature=this._storageSignature(),this._draft=this._selected.map(t=>({...t})),this._originalDraft=JSON.stringify(this._draft),this.$.search.value="",this.$.editorError.textContent="",this._renderEditor(),this.$.editor.showModal(),setTimeout(()=>this.$.search.focus(),30)}_renderEditor(){this._renderSelected(),this._renderAvailable(),this._updateEditorState()}_renderSelected(){this.$.selected.replaceChildren(),this._draft.length?this._draft.forEach((t,e)=>{const i=this._record(t),s=document.createElement("div");s.className="selected-row",s.innerHTML=`<span class="icon"><ha-icon icon="${this._escape(this._icon(i))}"></ha-icon></span><span class="selected-copy"><div class="selected-meta">${this._escape(this._name({...i,ref:{...t,n:""}}))}</div><input class="alias" type="text" maxlength="64" value="${this._escape(t.n)}" placeholder="Optional shorter label" aria-label="Custom label for ${this._escape(this._name(i))}"></span><span class="selected-actions"><button class="order up" type="button" aria-label="Move ${this._escape(this._name(i))} earlier" ${0===e?"disabled":""}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="order down" type="button" aria-label="Move ${this._escape(this._name(i))} later" ${e===this._draft.length-1?"disabled":""}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="remove" type="button" aria-label="Remove ${this._escape(this._name(i))}"><ha-icon icon="mdi:close"></ha-icon></button></span>`,s.querySelector(".alias").addEventListener("input",t=>{this._draft[e].n=t.target.value.slice(0,64),this._updateEditorState()}),s.querySelector(".up").addEventListener("click",()=>this._move(e,-1)),s.querySelector(".down").addEventListener("click",()=>this._move(e,1)),s.querySelector(".remove").addEventListener("click",()=>{this._draft.splice(e,1),this._renderEditor()}),this.$.selected.append(s)}):this.$.selected.innerHTML='<div class="available-empty">No favourites selected.</div>'}_move(t,e){const i=t+e;i<0||i>=this._draft.length||([this._draft[t],this._draft[i]]=[this._draft[i],this._draft[t]],this._renderEditor())}_eligibleEntries(){if(!this._registry||!this._hass)return[];const t=new Set(this._draft.map(t=>this._refKey(t))),e=new Set(this.config.helpers);return this._registry.entities.filter(i=>{const s=this._domain(i.entity_id);return FAVOURITES_V3_DOMAINS.has(s)&&i.unique_id&&i.platform&&!i.disabled_by&&!i.hidden_by&&!i.entity_category&&this._hass.states?.[i.entity_id]&&!e.has(i.entity_id)&&!this._registry.claimed.has(i.entity_id)&&!t.has(this._entryKey(i))})}_areaName(t){if(!t)return"Missing";const e=t.device_id?this._registry?.devices.get(t.device_id):null,i=t.area_id||e?.area_id;return i&&this._registry?.areas.has(i)?this._registry.areas.get(i):["automation","scene","script"].includes(this._domain(t.entity_id))?"Routines":"Household"}_renderAvailable(){if(!this.$?.available)return;if(this.$.available.replaceChildren(),!this._registry)return void(this.$.available.innerHTML='<div class="available-empty">Loading household controls…</div>');const t=this.$.search.value.trim().toLowerCase(),e=this._eligibleEntries().map(t=>{const e=this._record(this._refForEntry(t));return{entry:t,record:e,name:this._name(e),area:this._areaName(t)}}).filter(({entry:e,name:i,area:s})=>`${i} ${s} ${e.entity_id} ${this._domain(e.entity_id)}`.toLowerCase().includes(t)).sort((t,e)=>`${t.area}\0${t.name}`.localeCompare(`${e.area}\0${e.name}`,void 0,{sensitivity:"base"}));if(!e.length)return void(this.$.available.innerHTML=`<div class="available-empty">${this._draft.length>=this.config.max?"Four favourites selected. Remove one to choose another.":"No matching household controls."}</div>`);let i="";for(const t of e){if(t.area!==i){i=t.area;const e=document.createElement("div");e.className="group-title",e.textContent=i,this.$.available.append(e)}const e=document.createElement("button");e.type="button",e.className="choice",e.disabled=this._draft.length>=this.config.max,e.innerHTML=`<span class="icon"><ha-icon icon="${this._escape(this._icon(t.record))}"></ha-icon></span><span><div class="choice-name">${this._escape(t.name)}</div><div class="choice-meta">${this._escape(`${this._label(this._domain(t.entry.entity_id))} · ${this._stateLabel(t.record)}`)}</div></span><span class="add">Add</span>`,e.addEventListener("click",()=>{this._draft.length>=this.config.max||(this._draft.push(this._refForEntry(t.entry)),this._renderEditor())}),this.$.available.append(e)}}_slotValue(t){return t?JSON.stringify(this._normaliseRef(t)):""} _updateEditorState(){const t=this.config.helpers.map((t,e)=>this._slotValue(this._draft[e]||null)).every((t,e)=>{const i=Number(this._hass?.states?.[this.config.helpers[e]]?.attributes?.max||255);return t.length<=i}),e=this.config.helpers.every(t=>{const e=this._hass?.states?.[t];return e&&!FAVOURITES_V3_INVALID.has(String(e.state).toLowerCase())}),i=JSON.stringify(this._draft)!==this._originalDraft,s=Boolean(this.$?.editor?.open&&this._editorStorageSignature&&this._editorStorageSignature!==this._storageSignature());this.$.count.textContent=`${this._draft.length} of ${this.config.max} selected`,this.$.save.disabled=!i||!t||!e||s,this.$.editorError.textContent=s?"Favourites changed on another dashboard. Close and reopen the editor before trying again.":e?t?"":"A stored favourite is too long. Shorten its custom label.":"Favourites storage is unavailable."}async _save(){if(this.$.save.disabled)return;if(this._editorStorageSignature!==this._storageSignature())return void(this._updateEditorState());const t=this.config.helpers.map(t=>this._hass.states?.[t]?.state||""),e=this.config.helpers.map((t,e)=>this._slotValue(this._draft[e]||null));this.$.save.disabled=!0,this.$.save.textContent="Saving…",this.$.editorError.textContent="";try{for(let t=0;t<this.config.helpers.length;t+=1)await this._hass.callService("input_text","set_value",{entity_id:this.config.helpers[t],value:e[t]});this._selected=this._draft.map(t=>({...t})),this._lastStorageSignature="",this._renderSignature="",this._editorStorageSignature=this._storageSignature(),this.$.editor.close(),this._renderGrid(),this._notice("Favourites saved.")}catch(e){let i=!0;for(let e=0;e<this.config.helpers.length;e+=1)try{await this._hass.callService("input_text","set_value",{entity_id:this.config.helpers[e],value:t[e]})}catch(t){i=!1}this.$.editorError.textContent=i?"Favourites could not be saved. No changes were kept.":"Favourites could not be saved, and some stored slots may have changed. Close and reopen the editor before trying again."}finally{const t=this.$.editorError.textContent;this.$.save.textContent="Save",this._updateEditorState(),t&&(this.$.editorError.textContent=t)}}_notice(t,e=!1){clearTimeout(this._noticeTimer),this.$.notice.textContent=t,this.$.notice.classList.toggle("error",e),this._noticeTimer=setTimeout(()=>{this.$.notice.textContent="",this.$.notice.classList.remove("error")},3600)}}
-registerCard({ type: "component-favourites-v3", element: ComponentFavouritesV3, name: "Favourites", description: "Registry-aware persistent household favourites with safe actions." });
+const {
+  escapeHtml,
+  interaction,
+  openMoreInfo,
+  registerCard,
+  waitForEntityState,
+} = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const FAVOURITES_V3_DOMAINS = new Set([
+    "automation",
+    "button",
+    "climate",
+    "cover",
+    "fan",
+    "humidifier",
+    "input_boolean",
+    "input_button",
+    "light",
+    "lock",
+    "media_player",
+    "scene",
+    "script",
+    "select",
+    "switch",
+    "vacuum",
+    "water_heater",
+  ]),
+  FAVOURITES_V3_INVALID = new Set(["unavailable", "unknown"]);
+class ComponentFavouritesV3 extends HTMLElement {
+  constructor() {
+    super(),
+      this.attachShadow({ mode: "open" }),
+      (this._registry = null),
+      (this._registryPromise = null),
+      (this._selected = []),
+      (this._draft = []),
+      (this._originalDraft = ""),
+      (this._pending = new Map()),
+      (this._flash = new Map()),
+      (this._flashTimers = new Map()),
+      (this._lastStorageSignature = ""),
+      (this._noticeTimer = null),
+      (this._registrySubscription = null),
+      (this._registryRefreshTimer = null),
+      (this._renderSignature = ""),
+      (this._editorStorageSignature = ""),
+      (this._connection = null),
+      (this._interactionHandles = []),
+      (this._optimistic = new Map()),
+      (this._preferenceLoaded = false),
+      (this._preferenceError = null),
+      (this._preferencePromise = null),
+      (this._preferenceSubscription = null),
+      (this._preferenceReloadPending = false);
+  }
+  setConfig(t) {
+    this._unsubscribePreferenceEvents();
+    const e = Array.isArray(t?.helpers)
+        ? t.helpers.filter((t) => "string" == typeof t)
+        : [],
+      i = Array.isArray(t?.items) ? t.items.slice(0, 4) : [],
+      s = String(t?.preference_key || "").trim();
+    if (!e.length && !i.length && !s)
+      throw new Error("helpers, items or preference_key is required");
+    this._legacyFavouriteHelpers = s ? e.slice(0, 4) : [];
+    this._preferenceLoaded = !s;
+    this._preferenceError = null;
+    this._preferencePromise = null;
+    this._preferenceReloadPending = false;
+    (this.config = {
+      title: "Favourites",
+      max: 4,
+      show_header: e.length > 0 || Boolean(s),
+      ...t,
+      helpers: s ? [] : e.slice(0, 4),
+      items: i,
+      preference_key: s || null,
+    }),
+      this._build(),
+      this._subscribePreferenceEvents(),
+      this._syncStored(),
+      this._renderGrid();
+  }
+  set hass(t) {
+    const e = this._connection;
+    (this._hass = t),
+      (this._connection = t?.connection || null),
+      this._built || this._build(),
+      e !== this._connection &&
+        (this._unsubscribeRegistryEvents(), this._subscribeRegistryEvents()),
+      this._syncStored(),
+      this._ensureRegistry();
+    const i = this._gridSignature();
+    i !== this._renderSignature &&
+      ((this._renderSignature = i), this._renderGrid()),
+      this.$?.editor?.open && this._updateEditorState(),
+      this._controllerCard && (this._controllerCard.hass = t);
+  }
+  getCardSize() {
+    return 2;
+  }
+  connectedCallback() {
+    (this._connection = this._hass?.connection || null),
+      this._subscribeRegistryEvents(),
+      this._ensureRegistry();
+  }
+  disconnectedCallback() {
+    // Controls are bound to retained shadow DOM and are replaced on render.
+    this._optimistic.clear();
+    clearTimeout(this._noticeTimer),
+      clearTimeout(this._registryRefreshTimer),
+      (this._registryRefreshTimer = null),
+      this._unsubscribeRegistryEvents();
+    for (const t of this._flashTimers.values()) clearTimeout(t);
+    this._flashTimers.clear();
+  }
+  _subscribeRegistryEvents() {
+    if (
+      !this.isConnected ||
+      this._registrySubscription ||
+      !this._connection?.subscribeEvents
+    )
+      return;
+    const t = Promise.all(
+      [
+        "entity_registry_updated",
+        "device_registry_updated",
+        "area_registry_updated",
+      ].map((e) =>
+        this._connection.subscribeEvents(() => this._queueRegistryRefresh(), e),
+      ),
+    ).then((t) => () => {
+      for (const e of t) e?.();
+    });
+    (this._registrySubscription = t),
+      t.catch(() => {
+        this._registrySubscription === t && (this._registrySubscription = null);
+      });
+    this._subscribePreferenceEvents();
+  }
+  _subscribePreferenceEvents() {
+    if (
+      !this.isConnected ||
+      this._preferenceSubscription ||
+      !this.config?.preference_key ||
+      !this._connection?.subscribeEvents
+    ) {
+      return;
+    }
+    const subscription = this._connection
+      .subscribeEvents((event) => {
+        if (event?.data?.key === this.config?.preference_key) {
+          void this._loadBackendFavourites(true);
+        }
+      }, "ha_component_backend_preferences_updated")
+      .then((unsubscribe) => unsubscribe);
+    this._preferenceSubscription = subscription;
+    subscription.catch(() => {
+      if (this._preferenceSubscription === subscription) {
+        this._preferenceSubscription = null;
+      }
+    });
+  }
+  _unsubscribeRegistryEvents() {
+    const t = this._registrySubscription;
+    (this._registrySubscription = null),
+      t &&
+        Promise.resolve(t)
+          .then((t) => t?.())
+          .catch(() => {});
+    this._unsubscribePreferenceEvents();
+  }
+  _unsubscribePreferenceEvents() {
+    const preferenceSubscription = this._preferenceSubscription;
+    this._preferenceSubscription = null;
+    preferenceSubscription &&
+      Promise.resolve(preferenceSubscription)
+        .then((unsubscribe) => unsubscribe?.())
+        .catch(() => {});
+  }
+  _queueRegistryRefresh() {
+    clearTimeout(this._registryRefreshTimer),
+      (this._registryRefreshTimer = setTimeout(() => {
+        (this._registryRefreshTimer = null),
+          (this._registry = null),
+          (this._registryPromise = null),
+          (this._registryError = null),
+          (this._renderSignature = ""),
+          this.isConnected && this._ensureRegistry();
+      }, 180));
+  }
+  _storageSignature() {
+    if (this.config?.preference_key) return JSON.stringify(this._selected);
+    return JSON.stringify(
+      (this.config?.helpers || []).map((t) => this._hass?.states?.[t]?.state),
+    );
+  }
+  _gridSignature() {
+    if (!this.config) return "";
+    return JSON.stringify([
+      this._storageSignature(),
+      this._selected.map((t, s) => {
+        const e = this._record(t),
+          i = this._companion(e);
+        return [
+          this._refKey(t),
+          this._name(e),
+          this._icon(e),
+          e.state?.state,
+          this._stateLabel(e),
+          this._isActive(e),
+          i?.state?.state,
+          this._pending.get(s)?.label || "",
+          this._flash.get(s)?.kind || "",
+          this._flash.get(s)?.label || "",
+        ];
+      }),
+    ]);
+  }
+  _build() {
+    if (this.config && !this._built) {
+      (this._built = !0),
+        (this.shadowRoot.innerHTML =
+          '\n      <style>\n        :host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}button,input{font:inherit;color:inherit}button{appearance:none;border:0;cursor:pointer}ha-card{border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}.wrap{padding:0}.head{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.heading{display:flex;align-items:center;gap:8px;min-width:0}.heading ha-icon{color:var(--primary-color);--mdc-icon-size:19px}.heading h2{margin:0;font-size:18px;line-height:1.2;font-weight:650}.edit{min-width:44px;min-height:44px;padding:0 10px;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--primary-color);display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:600}.edit:hover,.edit:focus-visible{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.edit ha-icon{--mdc-icon-size:18px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-width:448px}.item{position:relative;min-width:0;min-height:52px;display:grid;grid-template-columns:minmax(0,1fr) auto;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:var(--dashboard-card-surface,var(--card-background-color));overflow:hidden}.main{min-width:0;min-height:52px;padding:6px 8px;text-align:left;background:transparent;display:grid;grid-template-columns:32px minmax(0,1fr);align-items:center;gap:8px}.item.has-quick .main{padding-right:4px}.main:active,.quick:active{background:color-mix(in srgb,var(--primary-color) 10%,transparent)}.main:focus-visible,.quick:focus-visible,.edit:focus-visible,.dialog-button:focus-visible,.choice:focus-visible,.order:focus-visible,.remove:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px}.icon{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--primary-color)}.icon ha-icon{--mdc-icon-size:20px}.copy{min-width:0}.name,.state{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name{font-size:13px;font-weight:650}.state{margin-top:2px;font-size:13px;color:var(--secondary-text-color)}.item.active{background:var(--dashboard-active-surface,var(--card-background-color));box-shadow:inset 2px 0 0 var(--primary-color)}.item.active .icon{background:transparent;color:var(--primary-color)}.item.active .state{color:var(--primary-color);font-weight:600}.item.unavailable{opacity:.55}.quick{width:44px;min-height:52px;padding:0;border-left:1px solid var(--dashboard-card-border-color,var(--divider-color));background:transparent;color:var(--primary-color);display:grid;place-items:center}.quick ha-icon{--mdc-icon-size:21px}.item:after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;opacity:0;transform-origin:left}.item.pending:after{opacity:1;background:linear-gradient(90deg,transparent,var(--primary-color),transparent);animation:favourite-progress 1.05s linear infinite}.item.success:after{opacity:1;background:var(--success-color,#43a047)}.item.error:after{opacity:1;background:var(--error-color)}@keyframes favourite-progress{from{transform:translateX(-100%)}to{transform:translateX(100%)}}.empty,.load-error{grid-column:1/-1;min-height:44px;padding:9px 11px;border:1px dashed var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:transparent;color:var(--secondary-text-color);font-size:13px;line-height:1.35}.notice{min-height:0;margin-top:0;font-size:13px;color:var(--secondary-text-color)}.notice:not(:empty){margin-top:7px}.notice.error{color:var(--error-color)}dialog{box-sizing:border-box;border:var(--dashboard-card-border,1px solid var(--divider-color));padding:0;color:var(--primary-text-color);background:var(--card-background-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.12));backdrop-filter:blur(3px)}.editor{width:min(580px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 24px));border-radius:var(--dashboard-radius-dialog,8px)}.dialog-head{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;background:transparent;border-bottom:1px solid var(--divider-color)}.dialog-title{font-size:20px;font-weight:650}.close{width:44px;height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.editor-body{padding:14px 16px 96px}.editor-copy{font-size:13px;line-height:1.4;color:var(--secondary-text-color);margin-bottom:12px}.subheading{margin:14px 0 7px;font-size:13px;font-weight:650;color:var(--primary-text-color)}.selected{display:grid;gap:7px}.selected-row{min-height:62px;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:9px;padding:6px 7px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,6px);background:var(--dashboard-card-surface,var(--card-background-color))}.selected-row .icon{background:transparent}.selected-copy{min-width:0}.selected-meta{font-size:13px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.alias{width:100%;height:44px;margin-top:3px;padding:0 8px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,8px);background:transparent;font-size:13px;outline:none}.alias:focus{border-color:var(--primary-color)}.selected-actions{display:flex;align-items:center;gap:2px}.order,.remove{width:44px;height:44px;border-radius:var(--dashboard-radius-icon,6px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.order[disabled]{opacity:.3;cursor:default}.remove{color:var(--error-color)}.order ha-icon,.remove ha-icon{--mdc-icon-size:18px}.search{width:100%;min-height:46px;padding:0 13px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;outline:none}.search:focus{border-color:var(--primary-color)}.available{margin-top:8px}.group-title{padding:10px 4px 5px;font-size:13px;font-weight:650;color:var(--secondary-text-color)}.choice{width:100%;min-height:58px;padding:6px 7px;border-radius:var(--dashboard-radius-control,8px);background:transparent;text-align:left;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:9px}.choice:hover{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.choice-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.choice-meta{margin-top:2px;font-size:13px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.add{color:var(--primary-color);font-size:13px;font-weight:650;padding-right:4px}.available-empty{padding:10px 7px;color:var(--secondary-text-color);font-size:13px}.editor-actions{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 18px;background:transparent;border-top:1px solid var(--divider-color)}.count{font-size:13px;color:var(--secondary-text-color)}.action-buttons{display:flex;gap:8px}.dialog-button{min-height:44px;padding:0 13px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;font-size:13px;font-weight:650}.dialog-button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff)}.dialog-button[disabled]{opacity:.45;cursor:default}.editor-error{min-height:0;margin-top:8px;color:var(--error-color);font-size:13px}.confirm{width:min(430px,calc(100vw - 28px));border-radius:var(--dashboard-radius-dialog,8px)}.confirm-body{padding:18px}.confirm-title{font-size:18px;font-weight:650}.confirm-message{margin-top:7px;font-size:13px;line-height:1.45;color:var(--secondary-text-color)}.confirm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.controller{width:min(620px,calc(100vw - 20px));max-height:calc(100vh - 20px);border-radius:var(--dashboard-radius-dialog,8px);overflow:auto}.controller-body{padding:12px}.controller-body>*{display:block}.controller .dialog-head{border-bottom:0}@media(max-width:420px){.head{margin-bottom:6px}.edit span{display:none}.edit{padding:0}.grid{gap:8px}.main{padding:6px}.editor-body{padding:12px 12px 94px}.dialog-head{padding:12px}.editor-actions{padding:11px 12px}.selected-row{grid-template-columns:30px minmax(0,1fr) auto;gap:7px;padding:5px}.selected-actions{gap:0}.order,.remove{width:44px}.choice{padding:5px}}\n      </style>\n      <ha-card>\n        <div class="wrap">\n          <div class="head">\n            <div class="heading"><ha-icon icon="mdi:star-outline"></ha-icon><h2></h2></div>\n            <button class="edit" type="button"><ha-icon icon="mdi:pencil-outline"></ha-icon><span>Edit</span></button>\n          </div>\n          <div class="grid"></div>\n          <div class="notice" role="status" aria-live="polite"></div>\n        </div>\n      </ha-card>\n      <dialog class="editor" aria-labelledby="favourites-editor-title">\n        <div class="dialog-head"><div class="dialog-title" id="favourites-editor-title">Edit favourites</div><button class="close editor-close" type="button" aria-label="Close editor"><ha-icon icon="mdi:close"></ha-icon></button></div>\n        <div class="editor-body">\n          <div class="editor-copy">Choose up to four household controls. Their order here is their order on Home.</div>\n          <div class="subheading">Selected</div>\n          <div class="selected"></div>\n          <div class="subheading">Available controls</div>\n          <input class="search" type="search" placeholder="Search by name, room or entity" aria-label="Search available controls">\n          <div class="available"></div>\n          <div class="editor-error" role="alert"></div>\n        </div>\n        <div class="editor-actions"><div class="count"></div><div class="action-buttons"><button class="dialog-button cancel" type="button">Cancel</button><button class="dialog-button primary save" type="button">Save</button></div></div>\n      </dialog>\n      <dialog class="confirm" aria-labelledby="favourites-confirm-title">\n        <div class="confirm-body"><div class="confirm-title" id="favourites-confirm-title"></div><div class="confirm-message"></div><div class="confirm-actions"><button class="dialog-button confirm-cancel" type="button">Cancel</button><button class="dialog-button primary confirm-run" type="button">Run</button></div></div>\n      </dialog>\n      <dialog class="controller" aria-labelledby="favourites-controller-title">\n        <div class="dialog-head"><div class="dialog-title" id="favourites-controller-title">Climate</div><button class="close controller-close" type="button" aria-label="Close climate controller"><ha-icon icon="mdi:close"></ha-icon></button></div>\n        <div class="controller-body"></div>\n      </dialog>\n    '),
+        (this.$ = Object.fromEntries(
+          [...this.shadowRoot.querySelectorAll("[class]")].flatMap((t) =>
+            [...t.classList].map((e) => [e, t]),
+          ),
+        )),
+        Object.assign(this.$, {
+          editorClose: this.shadowRoot.querySelector(".editor-close"),
+          confirmCancel: this.shadowRoot.querySelector(".confirm-cancel"),
+          confirmRun: this.shadowRoot.querySelector(".confirm-run"),
+          confirmTitle: this.shadowRoot.querySelector(".confirm-title"),
+          confirmMessage: this.shadowRoot.querySelector(".confirm-message"),
+          controllerClose: this.shadowRoot.querySelector(".controller-close"),
+          controllerTitle: this.shadowRoot.querySelector(
+            "#favourites-controller-title",
+          ),
+          controllerBody: this.shadowRoot.querySelector(".controller-body"),
+          editorError: this.shadowRoot.querySelector(".editor-error"),
+        }),
+        (this.shadowRoot.querySelector("h2").textContent = this.config.title),
+        (this.$.head.hidden = !1 === this.config.show_header),
+        (this.$.edit.hidden =
+          !this.config.helpers.length && !this.config.preference_key),
+        this.$.edit.addEventListener("click", () => this._openEditor()),
+        this.$.editorClose.addEventListener("click", () =>
+          this.$.editor.close(),
+        ),
+        this.$.cancel.addEventListener("click", () => this.$.editor.close()),
+        this.$.search.addEventListener("input", () => this._renderAvailable()),
+        this.$.save.addEventListener("click", () => this._save()),
+        this.$.confirmCancel.addEventListener("click", () =>
+          this.$.confirm.close(),
+        ),
+        this.$.controllerClose.addEventListener("click", () =>
+          this.$.controller.close(),
+        );
+      for (const t of [this.$.editor, this.$.confirm, this.$.controller])
+        t.addEventListener("click", (e) => {
+          e.target === t && t.close();
+        });
+    }
+  }
+  _escape(t) {
+    return escapeHtml(t);
+  }
+  _domain(t) {
+    return String(t || "").split(".")[0];
+  }
+  _normaliseRef(t) {
+    return t &&
+      "object" == typeof t &&
+      [t.d, t.p, t.u].every((t) => "string" == typeof t && t)
+      ? {
+          v: 1,
+          d: t.d,
+          p: t.p,
+          u: t.u,
+          n: "string" == typeof t.n ? t.n.slice(0, 64) : "",
+        }
+      : null;
+  }
+  _parseSlot(t) {
+    if (!t || FAVOURITES_V3_INVALID.has(String(t).toLowerCase())) return null;
+    try {
+      return this._normaliseRef(JSON.parse(t));
+    } catch (t) {
+      return null;
+    }
+  }
+  _syncStored() {
+    if (this.config?.preference_key) {
+      if (!this._hass) return;
+      void this._loadBackendFavourites();
+      return;
+    }
+    if (!this.config || !this._hass || !this.config.helpers.length) return;
+    const t = JSON.stringify(
+      this.config.helpers.map((t) => this._hass.states?.[t]?.state),
+    );
+    t !== this._lastStorageSignature &&
+      ((this._lastStorageSignature = t),
+      (this._selected = this.config.helpers
+        .map((t) => this._parseSlot(this._hass.states?.[t]?.state))
+        .filter(Boolean)
+        .slice(0, this.config.max)));
+  }
+  async _loadBackendFavourites(force = false) {
+    if (!this._hass || !this.config?.preference_key) return;
+    const hass = this._hass;
+    const key = this.config.preference_key;
+    if (this._preferencePromise) {
+      if (
+        force ||
+        this._preferenceRequestHass !== hass ||
+        this._preferenceRequestKey !== key
+      ) {
+        this._preferenceReloadPending = true;
+      }
+      return this._preferencePromise;
+    }
+    if (this._preferenceLoaded && !force) return;
+    this._preferenceRequestHass = hass;
+    this._preferenceRequestKey = key;
+    const request = globalThis.__homeDashboardV2
+      .prefs(hass, key)
+      .then(async (stored) => {
+        if (hass !== this._hass || key !== this.config?.preference_key) return;
+        let selected = Array.isArray(stored)
+          ? stored
+              .map((item) => this._normaliseRef(item))
+              .filter(Boolean)
+              .slice(0, this.config.max)
+          : [];
+        if (!Array.isArray(stored) && this._legacyFavouriteHelpers.length) {
+          selected = this._legacyFavouriteHelpers
+            .map((entityId) => this._parseSlot(hass.states?.[entityId]?.state))
+            .filter(Boolean)
+            .slice(0, this.config.max);
+          if (selected.length) {
+            await globalThis.__homeDashboardV2.savePrefs(hass, key, selected);
+          }
+        }
+        this._selected = selected;
+        this._preferenceLoaded = true;
+        this._preferenceError = null;
+        this._lastStorageSignature = this._storageSignature();
+        this._renderSignature = "";
+        this._renderGrid();
+        if (this.$?.editor?.open) this._updateEditorState();
+      })
+      .catch((error) => {
+        if (hass !== this._hass || key !== this.config?.preference_key) return;
+        this._preferenceError = error;
+        this._renderGrid();
+      })
+      .finally(() => {
+        if (this._preferencePromise === request) {
+          this._preferencePromise = null;
+          this._preferenceRequestHass = null;
+          this._preferenceRequestKey = null;
+        }
+        if (this._preferenceReloadPending) {
+          this._preferenceReloadPending = false;
+          if (this._hass && this.config?.preference_key) {
+            void this._loadBackendFavourites(true);
+          }
+        }
+      });
+    this._preferencePromise = request;
+    return request;
+  }
+  async _ensureRegistry() {
+    return (
+      this._registry ||
+        this._registryPromise ||
+        !this._hass?.connection?.sendMessagePromise ||
+        (this._registryPromise = Promise.all([
+          this._hass.connection.sendMessagePromise({
+            type: "config/entity_registry/list",
+          }),
+          this._hass.connection.sendMessagePromise({
+            type: "config/device_registry/list",
+          }),
+          this._hass.connection.sendMessagePromise({
+            type: "config/area_registry/list",
+          }),
+        ])
+          .then(async ([t, e, i]) => {
+            const s = Array.isArray(t) ? t : [],
+              r = Array.isArray(e) ? e : [],
+              a = Array.isArray(i) ? i : [],
+              o = new Map(),
+              n = new Map();
+            for (const t of s) {
+              const e = this._entryKey(t);
+              e && o.set(e, t),
+                t.device_id &&
+                  (n.has(t.device_id) || n.set(t.device_id, []),
+                  n.get(t.device_id).push(t));
+            }
+            return (
+              (this._registry = {
+                entities: s,
+                devices: new Map(r.map((t) => [t.id, t])),
+                areas: new Map(a.map((t) => [t.area_id, t.name])),
+                byKey: o,
+                byDevice: n,
+                claimed: new Set(),
+                splitSystems: new Map(),
+              }),
+              await this._refreshSplitRegistry(),
+              (this._renderSignature = ""),
+              this._renderGrid(),
+              this.$?.editor?.open && this._renderEditor(),
+              this._registry
+            );
+          })
+          .catch(
+            (t) => (
+              (this._registryError = t),
+              (this._registryPromise = null),
+              this._renderGrid(),
+              null
+            ),
+          )),
+      this._registryPromise
+    );
+  }
+  async _refreshSplitRegistry() {
+    const t = globalThis.__componentSplitRegistryV4;
+    if (this._registry && t?.load && this._hass)
+      try {
+        const e = await t.load(this._hass);
+        (this._registry.claimed = e?.claimed || new Set()),
+          (this._registry.splitSystems = e?.systems || new Map());
+      } catch (t) {
+        (this._registry.claimed = new Set()),
+          (this._registry.splitSystems = new Map());
+      }
+  }
+  _entryKey(t) {
+    return t?.entity_id && t.platform && t.unique_id
+      ? `${this._domain(t.entity_id)}|${t.platform}|${t.unique_id}`
+      : null;
+  }
+  _refKey(t) {
+    return t ? `${t.d}|${t.p}|${t.u}` : "";
+  }
+  _refForEntry(t, e = "") {
+    return {
+      v: 1,
+      d: this._domain(t.entity_id),
+      p: t.platform,
+      u: t.unique_id,
+      n: e,
+    };
+  }
+  _record(t) {
+    const e = this._registry?.byKey.get(this._refKey(t)) || null;
+    return {
+      ref: t,
+      entry: e,
+      state: (e && this._hass?.states?.[e.entity_id]) || null,
+    };
+  }
+  _name(t) {
+    return (
+      t.ref?.n?.trim() ||
+      t.entry?.name ||
+      t.entry?.original_name ||
+      t.state?.attributes?.friendly_name ||
+      t.entry?.entity_id ||
+      "Favourite not found"
+    );
+  }
+  _icon(t) {
+    if (t.state?.attributes?.icon) return t.state.attributes.icon;
+    return (
+      {
+        automation: "mdi:robot-outline",
+        button: "mdi:gesture-tap-button",
+        climate: "mdi:thermostat",
+        cover: "mdi:window-shutter",
+        fan: "mdi:fan",
+        humidifier: "mdi:air-humidifier",
+        input_boolean: "mdi:toggle-switch-outline",
+        input_button: "mdi:gesture-tap-button",
+        light: "mdi:lightbulb-outline",
+        lock: "mdi:lock-outline",
+        media_player: "mdi:play-circle-outline",
+        scene: "mdi:palette-outline",
+        script: "mdi:script-text-outline",
+        select: "mdi:format-list-bulleted",
+        switch: "mdi:toggle-switch-outline",
+        vacuum: "mdi:robot-vacuum",
+        water_heater: "mdi:water-boiler",
+      }[t.entry ? this._domain(t.entry.entity_id) : t.ref?.d] ||
+      "mdi:star-outline"
+    );
+  }
+  _companion(t) {
+    if (!t.entry?.device_id || !this._registry) return null;
+    const e = (this._registry.byDevice.get(t.entry.device_id) || [])
+      .filter((t) => "binary_sensor" === this._domain(t.entity_id))
+      .map((t) => ({ entry: t, state: this._hass?.states?.[t.entity_id] }))
+      .filter(({ state: t }) =>
+        ["garage_door", "door", "opening"].includes(
+          t?.attributes?.device_class,
+        ),
+      );
+    return (
+      e.find(({ state: t }) => "garage_door" === t?.attributes?.device_class) ||
+      e[0] ||
+      null
+    );
+  }
+  _companionLabel(t) {
+    return t?.state
+      ? "on" === t.state.state
+        ? "Open"
+        : "off" === t.state.state
+          ? "Closed"
+          : "unavailable" === t.state.state
+            ? "Status unavailable"
+            : "Status unknown"
+      : null;
+  }
+  _stateLabel(t) {
+    if (!t.entry || !t.state) return "Not found";
+    if ("unavailable" === t.state.state) return "Unavailable";
+    if ("unknown" === t.state.state) return "Status unknown";
+    const e = this._domain(t.entry.entity_id),
+      i = this._companion(t);
+    if (["button", "input_button"].includes(e)) {
+      const t = this._companionLabel(i);
+      return t ? `${t} · Tap to operate` : "Tap to run";
+    }
+    if (["automation", "script"].includes(e)) return "Tap to start";
+    if ("scene" === e) return "Tap to activate";
+    if ("media_player" === e) {
+      const e = t.state.attributes?.media_title,
+        i = this._label(t.state.state);
+      return e ? `${i} · ${e}` : i;
+    }
+    if ("climate" === e) {
+      const e = t.state.attributes?.hvac_action;
+      return this._label(e && "idle" !== e ? e : t.state.state);
+    }
+    return this._label(t.state.state);
+  }
+  _label(t) {
+    return String(t ?? "")
+      .replaceAll("_", " ")
+      .replace(/^./, (t) => t.toUpperCase());
+  }
+  _isActive(t) {
+    if (
+      !t.state ||
+      FAVOURITES_V3_INVALID.has(String(t.state.state).toLowerCase())
+    )
+      return !1;
+    const e = this._domain(t.entry?.entity_id);
+    return ["light", "switch", "fan", "input_boolean"].includes(e)
+      ? "on" === t.state.state
+      : "media_player" === e
+        ? ["playing", "paused", "buffering", "on"].includes(t.state.state)
+        : "climate" === e
+          ? "off" !== t.state.state
+          : "cover" === e
+            ? "closed" !== t.state.state
+            : "lock" === e && "unlocked" === t.state.state;
+  }
+  _hasMediaQuick(t) {
+    return (
+      "media_player" === this._domain(t.entry?.entity_id) &&
+      ["playing", "paused"].includes(t.state?.state)
+    );
+  }
+  _actionLabel(t) {
+    const e = this._domain(t.entry?.entity_id);
+    return ["light", "switch", "fan", "input_boolean"].includes(e)
+      ? "on" === t.state?.state
+        ? "turn off"
+        : "turn on"
+      : ["button", "input_button"].includes(e)
+        ? "run"
+        : ["automation", "script"].includes(e)
+          ? "start"
+          : "scene" === e
+            ? "activate"
+            : "climate" === e
+              ? "open climate controls"
+              : "open details";
+  }
+  _renderGrid() {
+    for (const t of this._interactionHandles) t.destroy();
+    this._interactionHandles = [];
+    if (!this.$?.grid || !this.config) return;
+    if (this.config.preference_key) {
+      if (this._preferenceError) {
+        this.$.edit.disabled = true;
+        this.$.edit.removeAttribute("aria-busy");
+        this.$.grid.innerHTML =
+          '<div class="load-error">Favourites storage could not be loaded. Try again shortly.</div>';
+        return;
+      }
+      if (!this._preferenceLoaded) {
+        this.$.edit.disabled = true;
+        this.$.edit.setAttribute("aria-busy", "true");
+        this.$.grid.innerHTML = '<div class="empty">Loading favourites…</div>';
+        return;
+      }
+      this.$.edit.disabled = false;
+      this.$.edit.removeAttribute("aria-busy");
+    }
+    if (this.config.items.length && !this.config.helpers.length)
+      return void this._renderDemo();
+    this.$.grid.replaceChildren();
+    this.config.helpers.some((t) => {
+      const e = this._hass?.states?.[t];
+      return (
+        this._hass &&
+        (!e || FAVOURITES_V3_INVALID.has(String(e.state).toLowerCase()))
+      );
+    })
+      ? (this.$.grid.innerHTML =
+          '<div class="load-error">Favourites storage is unavailable.</div>')
+      : this._registry
+        ? this._selected.length
+          ? this._selected.forEach((t, e) => {
+              const i = this._record(t),
+                s = this._name(i),
+                r = this._stateLabel(i),
+                a = this._pending.get(e),
+                o = this._flash.get(e),
+                n = a?.label || o?.label || r,
+                l = this._hasMediaQuick(i),
+                u =
+                  !i.state ||
+                  FAVOURITES_V3_INVALID.has(
+                    String(i.state.state).toLowerCase(),
+                  ),
+                c = document.createElement("div");
+              c.className = [
+                "item",
+                l ? "has-quick" : "",
+                (
+                  this._optimistic.has(e)
+                    ? this._optimistic.get(e)
+                    : this._isActive(i)
+                )
+                  ? "active"
+                  : "",
+                u ? "unavailable" : "",
+                a ? "pending" : "",
+                o?.kind || "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              const d = document.createElement("button");
+              (d.type = "button"),
+                (d.className = "main"),
+                d.setAttribute(
+                  "aria-label",
+                  `${s}, ${r}, ${this._actionLabel(i)}`,
+                ),
+                u &&
+                  ((d.disabled = !0), d.setAttribute("aria-disabled", "true"));
+              const h = this._domain(i.entry?.entity_id);
+              if (
+                (["light", "switch", "fan", "input_boolean"].includes(h) &&
+                  d.setAttribute(
+                    "aria-pressed",
+                    String(
+                      this._optimistic.has(e)
+                        ? this._optimistic.get(e)
+                        : "on" === i.state?.state,
+                    ),
+                  ),
+                (d.innerHTML = `<span class="icon"><ha-icon icon="${this._escape(this._icon(i))}"></ha-icon></span><span class="copy"><div class="name">${this._escape(s)}</div><div class="state">${this._escape(n)}</div></span>`),
+                this._interactionHandles.push(
+                  interaction(d, {
+                    primary: () => this._activate(e),
+                    hold: () => this._moreInfo(i.entry?.entity_id),
+                    optimistic: !1,
+                    repeat: !1,
+                    feedback: !0,
+                  }),
+                ),
+                c.append(d),
+                l)
+              ) {
+                const t = document.createElement("button");
+                (t.type = "button"), (t.className = "quick");
+                const r = "playing" === i.state.state;
+                t.setAttribute("aria-label", `${r ? "Pause" : "Play"} ${s}`),
+                  (t.innerHTML = `<ha-icon icon="mdi:${r ? "pause" : "play"}"></ha-icon>`),
+                  this._interactionHandles.push(
+                    interaction(t, {
+                      primary: () => this._mediaAction(e),
+                      optimistic: !1,
+                      repeat: !1,
+                      feedback: !0,
+                    }),
+                  ),
+                  c.append(t);
+              }
+              this.$.grid.append(c);
+            })
+          : (this.$.grid.innerHTML =
+              '<div class="empty">Add up to four everyday controls here.</div>')
+        : (this.$.grid.innerHTML = `<div class="${this._registryError ? "load-error" : "empty"}">${this._registryError ? "Favourites could not load the entity registry." : "Loading favourites…"}</div>`);
+  }
+  _renderDemo() {
+    this.$.grid.replaceChildren(),
+      this.config.items.slice(0, 4).forEach((t) => {
+        const e = document.createElement("div");
+        (e.className = "item"),
+          (e.innerHTML = `<div class="main"><span class="icon"><ha-icon icon="${this._escape(t.icon || "mdi:star-outline")}"></ha-icon></span><span class="copy"><div class="name">${this._escape(t.title || "Favourite")}</div><div class="state">${this._escape(t.state || "Supporting state")}</div></span></div>`),
+          this.$.grid.append(e);
+      });
+  }
+  async _activate(t) {
+    if (this._pending.has(t)) return;
+    const e = this._record(this._selected[t]);
+    if (!e.entry || !e.state) return void this._openEditor();
+    const i = e.entry.entity_id,
+      s = this._domain(i);
+    if (!FAVOURITES_V3_INVALID.has(String(e.state.state).toLowerCase()))
+      if (["button", "input_button"].includes(s)) this._confirmButton(t, e);
+      else {
+        if (["light", "switch", "fan", "input_boolean"].includes(s)) {
+          const s = e.state.state;
+          this._optimistic.set(t, "on" !== s),
+            this._setPending(t, "on" === s ? "Turning off…" : "Turning on…");
+          try {
+            await this._hass.callService("homeassistant", "toggle", {
+              entity_id: i,
+            }),
+              await this._waitFor(i, (t) => t !== s, 9e3),
+              this._setFlash(t, "success", "on" === s ? "Off" : "On");
+          } catch (e) {
+            this._setFlash(t, "error", "Could not update");
+          }
+          return;
+        }
+        if (["automation", "script", "scene"].includes(s)) {
+          const e = "automation" === s ? "trigger" : "turn_on",
+            r = "scene" === s ? "Activating…" : "Starting…",
+            a = "scene" === s ? "Activated" : "Started";
+          this._setPending(t, r);
+          try {
+            await this._hass.callService(s, e, { entity_id: i }),
+              this._setFlash(t, "success", a);
+          } catch (e) {
+            this._setFlash(t, "error", "Could not start");
+          }
+          return;
+        }
+        "climate" === s && this._registry?.splitSystems?.has(i)
+          ? this._openSplit(e)
+          : this._moreInfo(i);
+      }
+    else this._moreInfo(i);
+  }
+  async _mediaAction(t) {
+    if (this._pending.has(t)) return;
+    const e = this._record(this._selected[t]);
+    if (!e.entry || !e.state) return;
+    const i = e.entry.entity_id,
+      s = "playing" === e.state.state,
+      r = s ? "media_pause" : "media_play";
+    this._optimistic.set(t, !s),
+      this._setPending(t, s ? "Pausing…" : "Playing…");
+    try {
+      await this._hass.callService("media_player", r, { entity_id: i }),
+        await this._waitFor(
+          i,
+          (t) => (s ? "playing" !== t : "playing" === t),
+          9e3,
+        ),
+        this._setFlash(t, "success", s ? "Paused" : "Playing");
+    } catch (e) {
+      this._setFlash(t, "error", "Could not update");
+    }
+  }
+  _confirmButton(t, e) {
+    const i = this._name(e),
+      s = this._companion(e),
+      r = this._companionLabel(s);
+    (this.$.confirmTitle.textContent = r ? `Operate ${i}?` : `Run ${i}?`),
+      (this.$.confirmMessage.textContent = r
+        ? `The current reported state is ${r.toLowerCase()}.`
+        : "This action runs immediately and cannot be reversed from this button."),
+      (this.$.confirmRun.textContent = r ? "Operate" : "Run"),
+      (this.$.confirmRun.onclick = () => {
+        this.$.confirm.close(), this._runButton(t, e);
+      }),
+      this.$.confirm.showModal(),
+      this.$.confirmCancel.focus();
+  }
+  async _runButton(t, e) {
+    const i = e.entry.entity_id,
+      s = this._domain(i);
+    this._setPending(t, "Sending command…");
+    try {
+      await this._hass.callService(s, "press", { entity_id: i }),
+        this._setFlash(t, "success", "Command sent");
+    } catch (e) {
+      this._setFlash(t, "error", "Command failed");
+    }
+  }
+  _setPending(t, e) {
+    this._pending.set(t, { label: e }),
+      this._flash.delete(t),
+      this._renderGrid();
+  }
+  _setFlash(t, e, i) {
+    this._optimistic.delete(t),
+      this._pending.delete(t),
+      this._flash.set(t, { kind: e, label: i }),
+      clearTimeout(this._flashTimers.get(t)),
+      this._flashTimers.set(
+        t,
+        setTimeout(() => {
+          this._flash.delete(t),
+            this._flashTimers.delete(t),
+            this._renderGrid();
+        }, 3200),
+      ),
+      this._renderGrid();
+  }
+  _waitFor(t, e, i) {
+    return waitForEntityState(() => this._hass, t, e, { timeout: i });
+  }
+  _moreInfo(t) {
+    openMoreInfo(this, t);
+  }
+  _openSplit(t) {
+    const e = "component-split-controller-v4";
+    if (!customElements.get(e)) return void this._moreInfo(t.entry.entity_id);
+    (this.$.controllerTitle.textContent = this._name(t)),
+      this.$.controllerBody.replaceChildren();
+    const i = document.createElement(e);
+    i.setConfig({ entity: t.entry.entity_id }),
+      (i.hass = this._hass),
+      (this._controllerCard = i),
+      this.$.controllerBody.append(i),
+      this.$.controller.showModal(),
+      this.$.controllerClose.focus();
+  }
+  async _openEditor() {
+    await this._ensureRegistry(),
+      await this._refreshSplitRegistry(),
+      (this._editorStorageSignature = this._storageSignature()),
+      (this._draft = this._selected.map((t) => ({ ...t }))),
+      (this._originalDraft = JSON.stringify(this._draft)),
+      (this.$.search.value = ""),
+      (this.$.editorError.textContent = ""),
+      this._renderEditor(),
+      this.$.editor.showModal(),
+      setTimeout(() => this.$.search.focus(), 30);
+  }
+  _renderEditor() {
+    this._renderSelected(), this._renderAvailable(), this._updateEditorState();
+  }
+  _renderSelected() {
+    this.$.selected.replaceChildren(),
+      this._draft.length
+        ? this._draft.forEach((t, e) => {
+            const i = this._record(t),
+              s = document.createElement("div");
+            (s.className = "selected-row"),
+              (s.innerHTML = `<span class="icon"><ha-icon icon="${this._escape(this._icon(i))}"></ha-icon></span><span class="selected-copy"><div class="selected-meta">${this._escape(this._name({ ...i, ref: { ...t, n: "" } }))}</div><input class="alias" type="text" maxlength="64" value="${this._escape(t.n)}" placeholder="Optional shorter label" aria-label="Custom label for ${this._escape(this._name(i))}"></span><span class="selected-actions"><button class="order up" type="button" aria-label="Move ${this._escape(this._name(i))} earlier" ${0 === e ? "disabled" : ""}><ha-icon icon="mdi:arrow-up"></ha-icon></button><button class="order down" type="button" aria-label="Move ${this._escape(this._name(i))} later" ${e === this._draft.length - 1 ? "disabled" : ""}><ha-icon icon="mdi:arrow-down"></ha-icon></button><button class="remove" type="button" aria-label="Remove ${this._escape(this._name(i))}"><ha-icon icon="mdi:close"></ha-icon></button></span>`),
+              s.querySelector(".alias").addEventListener("input", (t) => {
+                (this._draft[e].n = t.target.value.slice(0, 64)),
+                  this._updateEditorState();
+              }),
+              s
+                .querySelector(".up")
+                .addEventListener("click", () => this._move(e, -1)),
+              s
+                .querySelector(".down")
+                .addEventListener("click", () => this._move(e, 1)),
+              s.querySelector(".remove").addEventListener("click", () => {
+                this._draft.splice(e, 1), this._renderEditor();
+              }),
+              this.$.selected.append(s);
+          })
+        : (this.$.selected.innerHTML =
+            '<div class="available-empty">No favourites selected.</div>');
+  }
+  _move(t, e) {
+    const i = t + e;
+    i < 0 ||
+      i >= this._draft.length ||
+      (([this._draft[t], this._draft[i]] = [this._draft[i], this._draft[t]]),
+      this._renderEditor());
+  }
+  _eligibleEntries() {
+    if (!this._registry || !this._hass) return [];
+    const t = new Set(this._draft.map((t) => this._refKey(t))),
+      e = new Set(this.config.helpers);
+    return this._registry.entities.filter((i) => {
+      const s = this._domain(i.entity_id);
+      return (
+        FAVOURITES_V3_DOMAINS.has(s) &&
+        i.unique_id &&
+        i.platform &&
+        !i.disabled_by &&
+        !i.hidden_by &&
+        !i.entity_category &&
+        this._hass.states?.[i.entity_id] &&
+        !e.has(i.entity_id) &&
+        !this._registry.claimed.has(i.entity_id) &&
+        !t.has(this._entryKey(i))
+      );
+    });
+  }
+  _areaName(t) {
+    if (!t) return "Missing";
+    const e = t.device_id ? this._registry?.devices.get(t.device_id) : null,
+      i = t.area_id || e?.area_id;
+    return i && this._registry?.areas.has(i)
+      ? this._registry.areas.get(i)
+      : ["automation", "scene", "script"].includes(this._domain(t.entity_id))
+        ? "Routines"
+        : "Household";
+  }
+  _renderAvailable() {
+    if (!this.$?.available) return;
+    if ((this.$.available.replaceChildren(), !this._registry))
+      return void (this.$.available.innerHTML =
+        '<div class="available-empty">Loading household controls…</div>');
+    const t = this.$.search.value.trim().toLowerCase(),
+      e = this._eligibleEntries()
+        .map((t) => {
+          const e = this._record(this._refForEntry(t));
+          return {
+            entry: t,
+            record: e,
+            name: this._name(e),
+            area: this._areaName(t),
+          };
+        })
+        .filter(({ entry: e, name: i, area: s }) =>
+          `${i} ${s} ${e.entity_id} ${this._domain(e.entity_id)}`
+            .toLowerCase()
+            .includes(t),
+        )
+        .sort((t, e) =>
+          `${t.area}\0${t.name}`.localeCompare(`${e.area}\0${e.name}`, void 0, {
+            sensitivity: "base",
+          }),
+        );
+    if (!e.length)
+      return void (this.$.available.innerHTML = `<div class="available-empty">${this._draft.length >= this.config.max ? "Four favourites selected. Remove one to choose another." : "No matching household controls."}</div>`);
+    let i = "";
+    for (const t of e) {
+      if (t.area !== i) {
+        i = t.area;
+        const e = document.createElement("div");
+        (e.className = "group-title"),
+          (e.textContent = i),
+          this.$.available.append(e);
+      }
+      const e = document.createElement("button");
+      (e.type = "button"),
+        (e.className = "choice"),
+        (e.disabled = this._draft.length >= this.config.max),
+        (e.innerHTML = `<span class="icon"><ha-icon icon="${this._escape(this._icon(t.record))}"></ha-icon></span><span><div class="choice-name">${this._escape(t.name)}</div><div class="choice-meta">${this._escape(`${this._label(this._domain(t.entry.entity_id))} · ${this._stateLabel(t.record)}`)}</div></span><span class="add">Add</span>`),
+        e.addEventListener("click", () => {
+          this._draft.length >= this.config.max ||
+            (this._draft.push(this._refForEntry(t.entry)),
+            this._renderEditor());
+        }),
+        this.$.available.append(e);
+    }
+  }
+  _slotValue(t) {
+    return t ? JSON.stringify(this._normaliseRef(t)) : "";
+  }
+  _updateEditorState() {
+    const t = this.config.helpers
+        .map((t, e) => this._slotValue(this._draft[e] || null))
+        .every((t, e) => {
+          const i = Number(
+            this._hass?.states?.[this.config.helpers[e]]?.attributes?.max ||
+              255,
+          );
+          return t.length <= i;
+        }),
+      e = this.config.helpers.every((t) => {
+        const e = this._hass?.states?.[t];
+        return e && !FAVOURITES_V3_INVALID.has(String(e.state).toLowerCase());
+      }),
+      i = JSON.stringify(this._draft) !== this._originalDraft,
+      s = Boolean(
+        this.$?.editor?.open &&
+          this._editorStorageSignature &&
+          this._editorStorageSignature !== this._storageSignature(),
+      );
+    (this.$.count.textContent = `${this._draft.length} of ${this.config.max} selected`),
+      (this.$.save.disabled = !i || !t || !e || s),
+      (this.$.editorError.textContent = s
+        ? "Favourites changed on another dashboard. Close and reopen the editor before trying again."
+        : e
+          ? t
+            ? ""
+            : "A stored favourite is too long. Shorten its custom label."
+          : "Favourites storage is unavailable.");
+  }
+  async _save() {
+    if (this.config.preference_key) {
+      await this._saveBackendFavourites();
+      return;
+    }
+    if (this.$.save.disabled) return;
+    if (this._editorStorageSignature !== this._storageSignature())
+      return void this._updateEditorState();
+    const t = this.config.helpers.map(
+        (t) => this._hass.states?.[t]?.state || "",
+      ),
+      e = this.config.helpers.map((t, e) =>
+        this._slotValue(this._draft[e] || null),
+      );
+    (this.$.save.disabled = !0),
+      (this.$.save.textContent = "Saving…"),
+      (this.$.editorError.textContent = "");
+    try {
+      for (let t = 0; t < this.config.helpers.length; t += 1)
+        await this._hass.callService("input_text", "set_value", {
+          entity_id: this.config.helpers[t],
+          value: e[t],
+        });
+      (this._selected = this._draft.map((t) => ({ ...t }))),
+        (this._lastStorageSignature = ""),
+        (this._renderSignature = ""),
+        (this._editorStorageSignature = this._storageSignature()),
+        this.$.editor.close(),
+        this._renderGrid(),
+        this._notice("Favourites saved.");
+    } catch (e) {
+      let i = !0;
+      for (let e = 0; e < this.config.helpers.length; e += 1)
+        try {
+          await this._hass.callService("input_text", "set_value", {
+            entity_id: this.config.helpers[e],
+            value: t[e],
+          });
+        } catch (t) {
+          i = !1;
+        }
+      this.$.editorError.textContent = i
+        ? "Favourites could not be saved. No changes were kept."
+        : "Favourites could not be saved, and some stored slots may have changed. Close and reopen the editor before trying again.";
+    } finally {
+      const t = this.$.editorError.textContent;
+      (this.$.save.textContent = "Save"),
+        this._updateEditorState(),
+        t && (this.$.editorError.textContent = t);
+    }
+  }
+  async _saveBackendFavourites() {
+    if (this.$.save.disabled) return;
+    if (this._editorStorageSignature !== this._storageSignature()) {
+      this._updateEditorState();
+      return;
+    }
+    const selected = this._draft
+      .map((item) => this._normaliseRef(item))
+      .filter(Boolean)
+      .slice(0, this.config.max);
+    this.$.save.disabled = true;
+    this.$.save.setAttribute("aria-busy", "true");
+    this.$.save.style.minWidth = "84px";
+    this.$.save.textContent = "Saving…";
+    this.$.editorError.textContent = "";
+    try {
+      await globalThis.__homeDashboardV2.savePrefs(
+        this._hass,
+        this.config.preference_key,
+        selected,
+      );
+      this._selected = selected.map((item) => ({ ...item }));
+      this._preferenceLoaded = true;
+      this._preferenceError = null;
+      this._lastStorageSignature = this._storageSignature();
+      this._renderSignature = "";
+      this._editorStorageSignature = this._storageSignature();
+      this.$.editor.close();
+      this._renderGrid();
+      this._notice("Favourites saved.");
+    } catch (error) {
+      this.$.editorError.textContent =
+        error?.message ||
+        "Favourites could not be saved. Your current choices are still open; try again.";
+    } finally {
+      const error = this.$.editorError.textContent;
+      this.$.save.removeAttribute("aria-busy");
+      this.$.save.textContent = "Save";
+      this._updateEditorState();
+      if (error) this.$.editorError.textContent = error;
+    }
+  }
+  _notice(t, e = !1) {
+    clearTimeout(this._noticeTimer),
+      (this.$.notice.textContent = t),
+      this.$.notice.classList.toggle("error", e),
+      (this._noticeTimer = setTimeout(() => {
+        (this.$.notice.textContent = ""),
+          this.$.notice.classList.remove("error");
+      }, 3600));
+  }
+}
+registerCard({
+  type: "component-favourites-v3",
+  element: ComponentFavouritesV3,
+  name: "Favourites",
+  description:
+    "Registry-aware persistent household favourites with safe actions.",
+});
 }
 
 // Module: src/components/welcome-header.js
@@ -5402,7 +9603,7 @@ class ComponentWelcomeHeaderV1 extends HTMLElement{
   }
   set hass(hass){this._hass=hass;this._render()}
   connectedCallback(){this._schedule();this._render()}
-  disconnectedCallback(){clearTimeout(this._timer);this._timer=null;this._interaction?.destroy();this._interaction=null}
+  disconnectedCallback(){clearTimeout(this._timer);this._timer=null}
   getCardSize(){return 1}
   _schedule(){
     clearTimeout(this._timer);
@@ -5451,13 +9652,24 @@ const {
   WLED_NAME,
 } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 
-class ComponentWledControllerV1 extends HTMLElement{
-  static getGridOptions(){return{columns:12,rows:'auto'}}
-  constructor(){
+class ComponentWledControllerV1 extends HTMLElement {
+  static getGridOptions() {
+    return { columns: 12, rows: "auto" };
+  }
+  constructor() {
     super();
-    this.attachShadow({mode:'open'});
-    this.c=null;this.h=null;this.d=null;this.b=null;this.unsub=null;this.loading=false;this.sheetSignature='';this._interactionHandles=[];this._brightnessCoalescer=null;this._brightnessIntent=null;
-    this.shadowRoot.innerHTML=`<style>
+    this.attachShadow({ mode: "open" });
+    this.c = null;
+    this.h = null;
+    this.d = null;
+    this.b = null;
+    this.unsub = null;
+    this.loading = false;
+    this.sheetSignature = "";
+    this._interactionHandles = [];
+    this._brightnessCoalescer = null;
+    this._brightnessIntent = null;
+    this.shadowRoot.innerHTML = `<style>
       :host{display:block;min-width:0}*{box-sizing:border-box}button,select,input{font:inherit;color:inherit}
       ha-card{display:block;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);background:var(--dashboard-card-surface,var(--card-background-color));box-shadow:none;color:var(--primary-text-color)}
       .head{min-height:58px;padding:8px 8px 7px 10px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:9px}
@@ -5477,46 +9689,494 @@ class ComponentWledControllerV1 extends HTMLElement{
       :is(button,select,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}button:disabled,select:disabled,input:disabled{opacity:.45;cursor:default}
       @media(max-width:520px){dialog{width:100vw;max-width:100vw;height:88dvh;max-height:88dvh;margin:auto 0 0;border-width:1px 0 0;border-radius:var(--dashboard-radius-dialog,8px) var(--dashboard-radius-dialog,8px) 0 0}.sheet{height:88dvh;max-height:88dvh}.sheet-body{padding:10px 12px max(18px,env(safe-area-inset-bottom))}.preset-grid{grid-template-columns:1fr}.fields,.fine{grid-template-columns:1fr}.body{padding-left:9px;padding-right:9px}.head{padding-left:8px}.slider-row{grid-template-columns:68px minmax(0,1fr) 36px}.actions{justify-content:stretch}.actions .action{flex:1;justify-content:center}}
     </style><ha-card><div class="head"><span class="ico"><ha-icon icon="mdi:led-strip-variant"></ha-icon></span><button class="identity" type="button"><span class="name">WLED</span><span class="status">Loading…</span></button><button class="power" type="button" aria-label="Toggle WLED"><ha-icon icon="mdi:power"></ha-icon></button></div><div class="body"><div class="slider-row"><span class="label">Brightness</span><input class="brightness" type="range" min="0" max="255" step="1"><output class="brightness-value value">—</output></div><div class="actions"><button class="action presets" type="button"><ha-icon icon="mdi:bookmark-multiple-outline"></ha-icon><span>Presets</span></button><button class="action colour" type="button"><ha-icon icon="mdi:palette-outline"></ha-icon><span>Colour</span></button><button class="action advanced" type="button"><ha-icon icon="mdi:tune-variant"></ha-icon><span>Advanced</span></button></div></div></ha-card><dialog><div class="sheet"><div class="sheet-head"><ha-icon icon="mdi:led-strip-variant"></ha-icon><span class="sheet-title"><div class="sheet-name">WLED</div><div class="sheet-state"></div></span><button class="close" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="sheet-body"><section class="section presets-section"><div class="section-title">Presets</div><div class="preset-grid"></div></section><section class="section"><div class="section-title">Effect</div><div class="fields"><label class="field"><span>Effect</span><select class="effect"></select></label><label class="field"><span>Palette</span><select class="palette"></select></label></div></section><section class="section"><div class="section-title">Animation</div><div class="fine"><label class="fine-card"><span class="fine-head"><span>Speed</span><output class="speed-value">—</output></span><input class="speed" type="range" min="0" max="255" step="1"></label><label class="fine-card"><span class="fine-head"><span>Intensity</span><output class="intensity-value">—</output></span><input class="intensity" type="range" min="0" max="255" step="1"></label></div></section><div class="native"><button class="action native-colour" type="button"><ha-icon icon="mdi:palette-outline"></ha-icon><span>Colour & white controls</span></button></div></div></div></dialog>`;
-    this.head=this.shadowRoot.querySelector('.head');this.nameEl=this.shadowRoot.querySelector('.name');this.statusEl=this.shadowRoot.querySelector('.status');this.sheetName=this.shadowRoot.querySelector('.sheet-name');this.sheetState=this.shadowRoot.querySelector('.sheet-state');
-    this.power=this.shadowRoot.querySelector('.power');this.identity=this.shadowRoot.querySelector('.identity');this.brightness=this.shadowRoot.querySelector('.brightness');this.brightnessValue=this.shadowRoot.querySelector('.brightness-value');this.presetsBtn=this.shadowRoot.querySelector('.presets');this.colour=this.shadowRoot.querySelector('.colour');this.advanced=this.shadowRoot.querySelector('.advanced');this.dialog=this.shadowRoot.querySelector('dialog');this.presetGrid=this.shadowRoot.querySelector('.preset-grid');this.presetsSection=this.shadowRoot.querySelector('.presets-section');this.effect=this.shadowRoot.querySelector('.effect');this.palette=this.shadowRoot.querySelector('.palette');this.speed=this.shadowRoot.querySelector('.speed');this.speedValue=this.shadowRoot.querySelector('.speed-value');this.intensity=this.shadowRoot.querySelector('.intensity');this.intensityValue=this.shadowRoot.querySelector('.intensity-value');this.nativeColour=this.shadowRoot.querySelector('.native-colour');
+    this.head = this.shadowRoot.querySelector(".head");
+    this.nameEl = this.shadowRoot.querySelector(".name");
+    this.statusEl = this.shadowRoot.querySelector(".status");
+    this.sheetName = this.shadowRoot.querySelector(".sheet-name");
+    this.sheetState = this.shadowRoot.querySelector(".sheet-state");
+    this.power = this.shadowRoot.querySelector(".power");
+    this.identity = this.shadowRoot.querySelector(".identity");
+    this.brightness = this.shadowRoot.querySelector(".brightness");
+    this.brightnessValue = this.shadowRoot.querySelector(".brightness-value");
+    this.presetsBtn = this.shadowRoot.querySelector(".presets");
+    this.colour = this.shadowRoot.querySelector(".colour");
+    this.advanced = this.shadowRoot.querySelector(".advanced");
+    this.dialog = this.shadowRoot.querySelector("dialog");
+    this.presetGrid = this.shadowRoot.querySelector(".preset-grid");
+    this.presetsSection = this.shadowRoot.querySelector(".presets-section");
+    this.effect = this.shadowRoot.querySelector(".effect");
+    this.palette = this.shadowRoot.querySelector(".palette");
+    this.speed = this.shadowRoot.querySelector(".speed");
+    this.speedValue = this.shadowRoot.querySelector(".speed-value");
+    this.intensity = this.shadowRoot.querySelector(".intensity");
+    this.intensityValue = this.shadowRoot.querySelector(".intensity-value");
+    this.nativeColour = this.shadowRoot.querySelector(".native-colour");
     this._interactionHandles.push(
-      interaction(this.power,{primary:()=>this.togglePower(),optimistic:{capture:()=>this.head.classList.contains('on'),apply:()=>{const next=!this.head.classList.contains('on');this.head.classList.toggle('on',next);this.power.setAttribute('aria-pressed',String(next));this.statusEl.textContent=next?'Turning on…':'Turning off…'},rollback:previous=>{this.head.classList.toggle('on',previous);this.power.setAttribute('aria-pressed',String(previous));this.render()}},feedback:true}),
-      interaction(this.identity,{primary:()=>this.openAdvanced(false),hold:()=>this.moreInfo(this.b?.main),feedback:true}),
-      interaction(this.presetsBtn,{primary:()=>this.openAdvanced(true),feedback:true}),
-      interaction(this.advanced,{primary:()=>this.openAdvanced(false),feedback:true}),
-      interaction(this.colour,{primary:()=>this.moreInfo(this.b?.effectLights?.[0]||this.b?.main),feedback:true}),
-      interaction(this.nativeColour,{primary:()=>this.moreInfo(this.b?.effectLights?.[0]||this.b?.main),feedback:true}),
-      interaction(this.shadowRoot.querySelector('.close'),{primary:()=>this.dialog.close(),feedback:true}),
+      interaction(this.power, {
+        primary: () => this.togglePower(),
+        optimistic: {
+          capture: () => this.head.classList.contains("on"),
+          apply: () => {
+            const next = !this.head.classList.contains("on");
+            this.head.classList.toggle("on", next);
+            this.power.setAttribute("aria-pressed", String(next));
+            this.statusEl.textContent = next ? "Turning on…" : "Turning off…";
+          },
+          rollback: (previous) => {
+            this.head.classList.toggle("on", previous);
+            this.power.setAttribute("aria-pressed", String(previous));
+            this.render();
+          },
+        },
+        feedback: true,
+      }),
+      interaction(this.identity, {
+        primary: () => this.openAdvanced(false),
+        hold: () => this.moreInfo(this.b?.main),
+        feedback: true,
+      }),
+      interaction(this.presetsBtn, {
+        primary: () => this.openAdvanced(true),
+        feedback: true,
+      }),
+      interaction(this.advanced, {
+        primary: () => this.openAdvanced(false),
+        feedback: true,
+      }),
+      interaction(this.colour, {
+        primary: () => this.moreInfo(this.b?.effectLights?.[0] || this.b?.main),
+        feedback: true,
+      }),
+      interaction(this.nativeColour, {
+        primary: () => this.moreInfo(this.b?.effectLights?.[0] || this.b?.main),
+        feedback: true,
+      }),
+      interaction(this.shadowRoot.querySelector(".close"), {
+        primary: () => this.dialog.close(),
+        feedback: true,
+      }),
     );
-    this.dialog.addEventListener('click',e=>{if(e.target===this.dialog)this.dialog.close()});
-    this.brightness.oninput=()=>{const v=Number(this.brightness.value);this._brightnessIntent=v;this.brightnessValue.textContent=this.pct(v);this.brightnessCoalescer().request(v)};
-    this.brightness.onchange=()=>{};
-    this.effect.onchange=()=>this.effect.value&&this.call('light','turn_on',this.b?.effectLights||[],{effect:this.effect.value});
-    this.palette.onchange=()=>this.palette.value&&this.call('select','select_option',this.b?.palettes||[],{option:this.palette.value});
-    this.speed.oninput=()=>this.speedValue.textContent=this.speed.value;this.speed.onchange=()=>this.call('number','set_value',this.b?.speeds||[],{value:Number(this.speed.value)});
-    this.intensity.oninput=()=>this.intensityValue.textContent=this.intensity.value;this.intensity.onchange=()=>this.call('number','set_value',this.b?.intensities||[],{value:Number(this.intensity.value)});
+    this.dialog.addEventListener("click", (e) => {
+      if (e.target === this.dialog) this.dialog.close();
+    });
+    this.brightness.oninput = () => {
+      const v = Number(this.brightness.value);
+      this._brightnessIntent = v;
+      this.brightnessValue.textContent = this.pct(v);
+      this.brightnessCoalescer().request(v);
+    };
+    this.brightness.onchange = () => {};
+    this.effect.onchange = () =>
+      this.effect.value &&
+      this.call("light", "turn_on", this.b?.effectLights || [], {
+        effect: this.effect.value,
+      });
+    this.palette.onchange = () =>
+      this.palette.value &&
+      this.call("select", "select_option", this.b?.palettes || [], {
+        option: this.palette.value,
+      });
+    this.speed.oninput = () => (this.speedValue.textContent = this.speed.value);
+    this.speed.onchange = () =>
+      this.call("number", "set_value", this.b?.speeds || [], {
+        value: Number(this.speed.value),
+      });
+    this.intensity.oninput = () =>
+      (this.intensityValue.textContent = this.intensity.value);
+    this.intensity.onchange = () =>
+      this.call("number", "set_value", this.b?.intensities || [], {
+        value: Number(this.intensity.value),
+      });
   }
-  setConfig(c){if(!c?.entity)throw new Error('WLED controller requires entity');this.c={...c};this.d=null;this.b=null;this.load()}
-  set hass(h){this.h=h;this.unsub||this.subscribe();if(this.d){this.b=this.bundle();this.render()}else this.load()}
-  connectedCallback(){this.subscribe();this.load()}
-  disconnectedCallback(){for(const handle of this._interactionHandles)handle.destroy();this._interactionHandles=[];this._brightnessCoalescer?.destroy();this._brightnessCoalescer=null;this._brightnessIntent=null;this.unsub?.();this.unsub=null}
-  getCardSize(){return 2}
-  subscribe(){if(this.unsub||!this.h||!WLED_HD.REG?.subscribe)return;this.unsub=WLED_HD.REG.subscribe(this.h,d=>{this.d=d;if(!this.c)return;this.b=this.bundle();this.render()})}
-  async load(force=false){if(this.loading||!this.h||!this.c||!WLED_HD.REG?.load)return;this.loading=true;try{this.d=this.d||await WLED_HD.REG.load(this.h,force);this.b=this.bundle();this.render()}finally{this.loading=false}}
-  bundle(){const all=this.d?.entities||[],entry=all.find(e=>e.entity_id===this.c.entity),deviceId=this.c.device_id||entry?.device_id,siblings=(deviceId?this.d?.byDevice?.get(deviceId):[])||[],rows=siblings.filter(e=>e?.platform==='wled'&&!e.disabled_by&&this.h.states[e.entity_id]),lightRows=rows.filter(e=>WLED_DOMAIN(e.entity_id)==='light'),main=lightRows.find(e=>e.entity_id===this.c.entity)||lightRows.find(e=>WLED_NAME(e)==='main')||lightRows[0],effectRows=lightRows.filter(e=>Array.isArray(this.h.states[e.entity_id]?.attributes?.effect_list)),selectRows=rows.filter(e=>WLED_DOMAIN(e.entity_id)==='select'),numberRows=rows.filter(e=>WLED_DOMAIN(e.entity_id)==='number'),match=(e,re)=>re.test(`${e.entity_id} ${e.original_name||''} ${e.name||''}`),preset=selectRows.find(e=>match(e,/\bpreset\b/i)),palettes=selectRows.filter(e=>match(e,/color.?palette|colour.?palette/i)),speeds=numberRows.filter(e=>match(e,/\bspeed\b/i)),intensities=numberRows.filter(e=>match(e,/\bintensity\b/i)),dev=this.d?.devices?.find(x=>x.id===deviceId),deviceName=dev?.name_by_user||dev?.name||this.h.states[main?.entity_id]?.attributes?.friendly_name||'WLED';return{deviceId,deviceName,main:main?.entity_id||this.c.entity,effectLights:effectRows.map(e=>e.entity_id),preset:preset?.entity_id||null,palettes:palettes.map(e=>e.entity_id),speeds:speeds.map(e=>e.entity_id),intensities:intensities.map(e=>e.entity_id)}}
-  pct(v){const n=Number(v);return Number.isFinite(n)?`${Math.round(n/255*100)}%`:'—'}
-  async togglePower(){const id=this.b?.main,state=id?this.h?.states?.[id]:null;if(!id||!state)return;const wasOn=state.state==='on';await this.h.callService('light','toggle',{entity_id:id});await waitForEntityState(()=>this.h,id,value=>value===(wasOn?'off':'on'),{timeout:9000})}
-  brightnessCoalescer(){if(this._brightnessCoalescer)return this._brightnessCoalescer;this._brightnessCoalescer=createRequestCoalescer(async value=>{const id=this.b?.main;if(!id)return;if(value<=0)await this.h.callService('light','turn_off',{entity_id:id});else await this.h.callService('light','turn_on',{entity_id:id,brightness:value});await waitForEntityState(()=>this.h,id,(state,obj)=>value<=0?state==='off':state==='on'&&Math.abs(Number(obj?.attributes?.brightness??-999)-value)<=2,{timeout:7000})},{onSuccess:value=>{if(this._brightnessIntent===value)this._brightnessIntent=null;this.render()},onError:()=>{this._brightnessIntent=null;this.render()}});return this._brightnessCoalescer}
-  same(ids,read){const vals=ids.map(id=>read(this.h.states[id])).filter(v=>v!==undefined&&v!==null&&!WLED_INVALID.has(String(v).toLowerCase()));if(!vals.length)return null;return vals.every(v=>String(v)===String(vals[0]))?vals[0]:'Mixed'}
-  setOptions(el,options,current,emptyLabel){const opts=Array.isArray(options)?options:[],valid=current!=null&&current!=='Mixed'&&opts.includes(String(current));el.replaceChildren();if(!valid){const o=document.createElement('option');o.value='';o.textContent=current==='Mixed'?'Mixed':emptyLabel;o.selected=true;el.append(o)}for(const v of opts){const o=document.createElement('option');o.value=String(v);o.textContent=String(v);o.selected=valid&&String(v)===String(current);el.append(o)}el.disabled=!opts.length}
-  renderPresets(options,current){this.presetGrid.replaceChildren();if(!options.length){const x=document.createElement('span');x.className='label';x.textContent='No presets configured';this.presetGrid.append(x);return}for(const value of options){const b=document.createElement('button');b.type='button';b.className=`preset-btn ${String(current)===String(value)?'active':''}`;b.textContent=String(value);b.title=String(value);b._interaction=interaction(b,{primary:async()=>{await this.call('select','select_option',this.b?.preset?[this.b.preset]:[],{option:value});this.dialog.close()},optimistic:'selection',feedback:true});this.presetGrid.append(b)}}
-  render(){if(!this.h||!this.b)return;const main=this.h.states[this.b.main],on=main?.state==='on',reportedBrightness=on?Number(main?.attributes?.brightness??0):0,brightness=this._brightnessIntent??reportedBrightness,effect=this.same(this.b.effectLights,s=>s?.attributes?.effect),palette=this.same(this.b.palettes,s=>s?.state),speed=this.same(this.b.speeds,s=>s?.state),intensity=this.same(this.b.intensities,s=>s?.state),presetState=this.b.preset?this.h.states[this.b.preset]:null,presetOptions=presetState?.attributes?.options||[];this.head.classList.toggle('on',on);this.nameEl.textContent=this.b.deviceName;const status=on?[this.pct(brightness),effect&&effect!=='Mixed'?effect:null,palette&&palette!=='Mixed'?palette:null].filter(Boolean).join(' · '):'Off';this.statusEl.textContent=status;this.sheetName.textContent=this.b.deviceName;this.sheetState.textContent=status;this.brightness.disabled=!main;this.brightness.value=String(Math.max(0,Math.min(255,Number.isFinite(brightness)?brightness:0)));this.brightnessValue.textContent=this.pct(this.brightness.value);this.power.disabled=!main;this.power.setAttribute('aria-pressed',String(on));this.presetsBtn.disabled=!presetOptions.length;this.colour.disabled=!this.b.effectLights.length;this.nativeColour.disabled=!this.b.effectLights.length;if(!this.dialog.open){this.sheetSignature='';return}const fxState=this.b.effectLights.map(id=>this.h.states[id]).find(Boolean),fxOptions=fxState?.attributes?.effect_list||[],paletteState=this.b.palettes.map(id=>this.h.states[id]).find(Boolean),paletteOptions=paletteState?.attributes?.options||[],sheetSignature=JSON.stringify([this.b.main,this.b.preset,this.b.effectLights,this.b.palettes,this.b.speeds,this.b.intensities,main,presetState,fxState,paletteState,...this.b.speeds.map(id=>this.h.states[id]),...this.b.intensities.map(id=>this.h.states[id])]);if(sheetSignature===this.sheetSignature)return;this.sheetSignature=sheetSignature;this.renderPresets(presetOptions,presetState?.state);this.setOptions(this.effect,fxOptions,effect,'Choose effect');this.setOptions(this.palette,paletteOptions,palette,'Choose palette');this.setRange(this.speed,this.speedValue,this.b.speeds,speed);this.setRange(this.intensity,this.intensityValue,this.b.intensities,intensity)}
-  setRange(input,output,ids,value){const s=ids.map(id=>this.h.states[id]).find(Boolean),a=s?.attributes||{};input.min=String(a.min??0);input.max=String(a.max??255);input.step=String(a.step??1);const n=value==='Mixed'?Number(s?.state):Number(value);input.value=String(Number.isFinite(n)?n:Number(input.min));input.disabled=!ids.length;output.textContent=value==='Mixed'?'Mixed':ids.length?String(Math.round(Number(input.value))):'—'}
-  openAdvanced(presets=false){if(!this.dialog||!this.b)return;if(!this.dialog.open){this.dialog.showModal();this.render()}queueMicrotask(()=>{if(presets)this.presetsSection?.scrollIntoView({block:'start'});else this.shadowRoot.querySelector('.close')?.focus()})}
-  async call(domain,service,ids,data={}){const targets=[...new Set((ids||[]).filter(Boolean))];if(!this.h||!targets.length)return;await Promise.all(targets.map(entity_id=>this.h.callService(domain,service,{entity_id,...data}))) }
-  moreInfo(entityId){openMoreInfo(this,entityId)}
+  setConfig(c) {
+    if (!c?.entity) throw new Error("WLED controller requires entity");
+    this.c = { ...c };
+    this.d = null;
+    this.b = null;
+    this.load();
+  }
+  set hass(h) {
+    this.h = h;
+    this.unsub || this.subscribe();
+    if (this.d) {
+      this.b = this.bundle();
+      this.render();
+    } else this.load();
+  }
+  connectedCallback() {
+    this.subscribe();
+    this.load();
+  }
+  disconnectedCallback() {
+    // Retained controls stay live through a transient Home Assistant detach.
+    this._brightnessCoalescer?.destroy();
+    this._brightnessCoalescer = null;
+    this._brightnessIntent = null;
+    this.unsub?.();
+    this.unsub = null;
+  }
+  getCardSize() {
+    return 2;
+  }
+  subscribe() {
+    if (this.unsub || !this.h || !WLED_HD.REG?.subscribe) return;
+    this.unsub = WLED_HD.REG.subscribe(this.h, (d) => {
+      this.d = d;
+      if (!this.c) return;
+      this.b = this.bundle();
+      this.render();
+    });
+  }
+  async load(force = false) {
+    if (this.loading || !this.h || !this.c || !WLED_HD.REG?.load) return;
+    this.loading = true;
+    try {
+      this.d = this.d || (await WLED_HD.REG.load(this.h, force));
+      this.b = this.bundle();
+      this.render();
+    } finally {
+      this.loading = false;
+    }
+  }
+  bundle() {
+    const all = this.d?.entities || [],
+      entry = all.find((e) => e.entity_id === this.c.entity),
+      deviceId = this.c.device_id || entry?.device_id,
+      siblings = (deviceId ? this.d?.byDevice?.get(deviceId) : []) || [],
+      rows = siblings.filter(
+        (e) =>
+          e?.platform === "wled" &&
+          !e.disabled_by &&
+          this.h.states[e.entity_id],
+      ),
+      lightRows = rows.filter((e) => WLED_DOMAIN(e.entity_id) === "light"),
+      main =
+        lightRows.find((e) => e.entity_id === this.c.entity) ||
+        lightRows.find((e) => WLED_NAME(e) === "main") ||
+        lightRows[0],
+      effectRows = lightRows.filter((e) =>
+        Array.isArray(this.h.states[e.entity_id]?.attributes?.effect_list),
+      ),
+      selectRows = rows.filter((e) => WLED_DOMAIN(e.entity_id) === "select"),
+      numberRows = rows.filter((e) => WLED_DOMAIN(e.entity_id) === "number"),
+      match = (e, re) =>
+        re.test(`${e.entity_id} ${e.original_name || ""} ${e.name || ""}`),
+      preset = selectRows.find((e) => match(e, /\bpreset\b/i)),
+      palettes = selectRows.filter((e) =>
+        match(e, /color.?palette|colour.?palette/i),
+      ),
+      speeds = numberRows.filter((e) => match(e, /\bspeed\b/i)),
+      intensities = numberRows.filter((e) => match(e, /\bintensity\b/i)),
+      dev = this.d?.devices?.find((x) => x.id === deviceId),
+      deviceName =
+        dev?.name_by_user ||
+        dev?.name ||
+        this.h.states[main?.entity_id]?.attributes?.friendly_name ||
+        "WLED";
+    return {
+      deviceId,
+      deviceName,
+      main: main?.entity_id || this.c.entity,
+      effectLights: effectRows.map((e) => e.entity_id),
+      preset: preset?.entity_id || null,
+      palettes: palettes.map((e) => e.entity_id),
+      speeds: speeds.map((e) => e.entity_id),
+      intensities: intensities.map((e) => e.entity_id),
+    };
+  }
+  pct(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? `${Math.round((n / 255) * 100)}%` : "—";
+  }
+  async togglePower() {
+    const id = this.b?.main,
+      state = id ? this.h?.states?.[id] : null;
+    if (!id || !state) return;
+    const wasOn = state.state === "on";
+    await this.h.callService("light", "toggle", { entity_id: id });
+    await waitForEntityState(
+      () => this.h,
+      id,
+      (value) => value === (wasOn ? "off" : "on"),
+      { timeout: 9000 },
+    );
+  }
+  brightnessCoalescer() {
+    if (this._brightnessCoalescer) return this._brightnessCoalescer;
+    this._brightnessCoalescer = createRequestCoalescer(
+      async (value) => {
+        const id = this.b?.main;
+        if (!id) return;
+        if (value <= 0)
+          await this.h.callService("light", "turn_off", { entity_id: id });
+        else
+          await this.h.callService("light", "turn_on", {
+            entity_id: id,
+            brightness: value,
+          });
+        await waitForEntityState(
+          () => this.h,
+          id,
+          (state, obj) =>
+            value <= 0
+              ? state === "off"
+              : state === "on" &&
+                Math.abs(Number(obj?.attributes?.brightness ?? -999) - value) <=
+                  2,
+          { timeout: 7000 },
+        );
+      },
+      {
+        onSuccess: (value) => {
+          if (this._brightnessIntent === value) this._brightnessIntent = null;
+          this.render();
+        },
+        onError: () => {
+          this._brightnessIntent = null;
+          this.render();
+        },
+      },
+    );
+    return this._brightnessCoalescer;
+  }
+  same(ids, read) {
+    const vals = ids
+      .map((id) => read(this.h.states[id]))
+      .filter(
+        (v) =>
+          v !== undefined &&
+          v !== null &&
+          !WLED_INVALID.has(String(v).toLowerCase()),
+      );
+    if (!vals.length) return null;
+    return vals.every((v) => String(v) === String(vals[0])) ? vals[0] : "Mixed";
+  }
+  setOptions(el, options, current, emptyLabel) {
+    const opts = Array.isArray(options) ? options : [],
+      valid =
+        current != null &&
+        current !== "Mixed" &&
+        opts.includes(String(current));
+    el.replaceChildren();
+    if (!valid) {
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = current === "Mixed" ? "Mixed" : emptyLabel;
+      o.selected = true;
+      el.append(o);
+    }
+    for (const v of opts) {
+      const o = document.createElement("option");
+      o.value = String(v);
+      o.textContent = String(v);
+      o.selected = valid && String(v) === String(current);
+      el.append(o);
+    }
+    el.disabled = !opts.length;
+  }
+  renderPresets(options, current) {
+    for (const button of this.presetGrid?.querySelectorAll?.(".preset-btn") ||
+      []) {
+      button._interaction?.destroy?.();
+      button._interaction = null;
+    }
+    this.presetGrid.replaceChildren();
+    if (!options.length) {
+      const x = document.createElement("span");
+      x.className = "label";
+      x.textContent = "No presets configured";
+      this.presetGrid.append(x);
+      return;
+    }
+    for (const value of options) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `preset-btn ${String(current) === String(value) ? "active" : ""}`;
+      b.textContent = String(value);
+      b.title = String(value);
+      b._interaction = interaction(b, {
+        primary: async () => {
+          await this.call(
+            "select",
+            "select_option",
+            this.b?.preset ? [this.b.preset] : [],
+            { option: value },
+          );
+          this.dialog.close();
+        },
+        optimistic: "selection",
+        feedback: true,
+      });
+      this.presetGrid.append(b);
+    }
+  }
+  render() {
+    if (!this.h || !this.b) return;
+    const main = this.h.states[this.b.main];
+    const state = String(main?.state || "unavailable").toLowerCase();
+    const on = state === "on";
+    const controllable = state === "on" || state === "off";
+    const reportedBrightness = on
+      ? Number(main?.attributes?.brightness ?? 0)
+      : 0;
+    const brightness = this._brightnessIntent ?? reportedBrightness;
+    const effect = this.same(this.b.effectLights, (s) => s?.attributes?.effect);
+    const palette = this.same(this.b.palettes, (s) => s?.state);
+    const speed = this.same(this.b.speeds, (s) => s?.state);
+    const intensity = this.same(this.b.intensities, (s) => s?.state);
+    const presetState = this.b.preset ? this.h.states[this.b.preset] : null;
+    const presetOptions = presetState?.attributes?.options || [];
+    const body = this.shadowRoot?.querySelector(".body");
+
+    this.head.classList.toggle("on", on);
+    this.nameEl.textContent = this.b.deviceName;
+    const status = on
+      ? [
+          this.pct(brightness),
+          effect && effect !== "Mixed" ? effect : null,
+          palette && palette !== "Mixed" ? palette : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : state === "unavailable"
+        ? "Unavailable"
+        : state === "unknown"
+          ? "Unknown"
+          : "Off";
+    this.statusEl.textContent = status;
+    this.sheetName.textContent = this.b.deviceName;
+    this.sheetState.textContent = status;
+    if (body) body.style.display = on ? "grid" : "none";
+    this.brightness.disabled = !main;
+    this.brightness.value = String(
+      Math.max(0, Math.min(255, Number.isFinite(brightness) ? brightness : 0)),
+    );
+    this.brightnessValue.textContent = this.pct(this.brightness.value);
+    this.power.disabled = !controllable;
+    this.power.setAttribute("aria-pressed", String(on));
+
+    const usable = (id) => {
+      const value = this.h.states[id];
+      return Boolean(
+        value && !WLED_INVALID.has(String(value.state).toLowerCase()),
+      );
+    };
+    const presetOk = Boolean(this.b.preset && usable(this.b.preset));
+    const effectOk = this.b.effectLights.some(usable);
+    const paletteOk = this.b.palettes.some(usable);
+    const speedOk = this.b.speeds.some(usable);
+    const intensityOk = this.b.intensities.some(usable);
+    this.presetsBtn.disabled = !on || !presetOk;
+    this.colour.disabled = !on || !effectOk;
+    this.nativeColour.disabled = !on || !effectOk;
+    this.effect.disabled = !on || !effectOk;
+    this.palette.disabled = !on || !paletteOk;
+    this.speed.disabled = !on || !speedOk;
+    this.intensity.disabled = !on || !intensityOk;
+    this.advanced.disabled =
+      !on || !(presetOk || effectOk || paletteOk || speedOk || intensityOk);
+    if (!on && this.dialog?.open) this.dialog.close();
+    if (!this.dialog.open) {
+      this.sheetSignature = "";
+      return;
+    }
+    const fxState = this.b.effectLights
+      .map((id) => this.h.states[id])
+      .find(Boolean);
+    const fxOptions = fxState?.attributes?.effect_list || [];
+    const paletteState = this.b.palettes
+      .map((id) => this.h.states[id])
+      .find(Boolean);
+    const paletteOptions = paletteState?.attributes?.options || [];
+    const sheetSignature = JSON.stringify([
+      this.b.main,
+      this.b.preset,
+      this.b.effectLights,
+      this.b.palettes,
+      this.b.speeds,
+      this.b.intensities,
+      main,
+      presetState,
+      fxState,
+      paletteState,
+      ...this.b.speeds.map((id) => this.h.states[id]),
+      ...this.b.intensities.map((id) => this.h.states[id]),
+    ]);
+    if (sheetSignature === this.sheetSignature) return;
+    this.sheetSignature = sheetSignature;
+    this.renderPresets(presetOptions, presetState?.state);
+    this.setOptions(this.effect, fxOptions, effect, "Choose effect");
+    this.setOptions(this.palette, paletteOptions, palette, "Choose palette");
+    this.setRange(this.speed, this.speedValue, this.b.speeds, speed);
+    this.setRange(
+      this.intensity,
+      this.intensityValue,
+      this.b.intensities,
+      intensity,
+    );
+    this.presetsBtn.disabled = !on || !presetOk;
+    this.colour.disabled = !on || !effectOk;
+    this.nativeColour.disabled = !on || !effectOk;
+    this.effect.disabled = !on || !effectOk;
+    this.palette.disabled = !on || !paletteOk;
+    this.speed.disabled = !on || !speedOk;
+    this.intensity.disabled = !on || !intensityOk;
+    this.advanced.disabled =
+      !on || !(presetOk || effectOk || paletteOk || speedOk || intensityOk);
+  }
+  setRange(input, output, ids, value) {
+    const s = ids.map((id) => this.h.states[id]).find(Boolean),
+      a = s?.attributes || {};
+    input.min = String(a.min ?? 0);
+    input.max = String(a.max ?? 255);
+    input.step = String(a.step ?? 1);
+    const n = value === "Mixed" ? Number(s?.state) : Number(value);
+    input.value = String(Number.isFinite(n) ? n : Number(input.min));
+    input.disabled = !ids.length;
+    output.textContent =
+      value === "Mixed"
+        ? "Mixed"
+        : ids.length
+          ? String(Math.round(Number(input.value)))
+          : "—";
+  }
+  openAdvanced(presets = false) {
+    if (
+      !this.dialog ||
+      !this.b ||
+      String(
+        this.h?.states?.[this.b.main]?.state || "unavailable",
+      ).toLowerCase() !== "on"
+    )
+      return;
+    if (!this.dialog.open) {
+      this.dialog.showModal();
+      this.render();
+    }
+    queueMicrotask(() => {
+      if (presets) this.presetsSection?.scrollIntoView({ block: "start" });
+      else this.shadowRoot.querySelector(".close")?.focus();
+    });
+  }
+  async call(domain, service, ids, data = {}) {
+    const targets = [...new Set((ids || []).filter(Boolean))];
+    if (!this.h || !targets.length) return;
+    await Promise.all(
+      targets.map((entity_id) =>
+        this.h.callService(domain, service, { entity_id, ...data }),
+      ),
+    );
+  }
+  moreInfo(entityId) {
+    openMoreInfo(this, entityId);
+  }
 }
-registerCard({ type: "component-wled-controller-v1", element: ComponentWledControllerV1, name: "WLED Controller V1", description: "Minimal WLED control with advanced settings sheet." });
+registerCard({
+  type: "component-wled-controller-v1",
+  element: ComponentWledControllerV1,
+  name: "WLED Controller V1",
+  description: "Minimal WLED control with advanced settings sheet.",
+});
 }
 
 // Module: src/components/garage-door-controller.js
@@ -5621,9 +10281,14 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
 
   entityState(entityId) { return entityId ? this._hass?.states?.[entityId] ?? null : null; }
 
+  controlEntityId() {
+    const entityId = String(this.config?.control_entity || "");
+    return entityId.startsWith("button.") ? entityId : null;
+  }
+
   stateSignature() {
     return JSON.stringify(
-      [this.config.entity, this.config.control_entity, this.config.availability_entity]
+      [this.config.entity, this.controlEntityId(), this.config.availability_entity]
         .filter(Boolean)
         .map((entityId) => {
           const state = this.entityState(entityId);
@@ -5634,7 +10299,7 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
 
   status() {
     const state = this.entityState(this.config.entity);
-    const control = this.entityState(this.config.control_entity);
+    const control = this.entityState(this.controlEntityId());
     const availability = this.entityState(this.config.availability_entity);
     const controllerUnavailable =
       (this.config.availability_entity && (!availability || availability.state !== "on")) ||
@@ -5730,7 +10395,7 @@ class ComponentGarageDoorControllerV1 extends HTMLElement {
     try {
       confirmation = this.waitForConfirmation(expected);
       void confirmation.catch(() => {});
-      await this._hass.callService("button", "press", { entity_id: this.config.control_entity });
+      await this._hass.callService("button", "press", { entity_id: this.controlEntityId() });
       if (generation !== this.requestGeneration) return;
       this.pendingLabel = expected === "on" ? "Opening" : expected === "off" ? "Closing" : "Waiting";
       this.render();
@@ -5893,12 +10558,15 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.row.classList.toggle("offline", !status.online);
     this.view.disabled = !status.online;
     const hasControls = this.bundleData.switches.length || this.bundleData.detections.length || this.bundleData.buttons.length;
-    this.controls.hidden = !hasControls;
+    const internalUsable = [...this.bundleData.switches, ...this.bundleData.detections, ...this.bundleData.buttons]
+      .some((entity) => this.good(entity.entity_id));
+    this.view.hidden = !status.online;
+    this.controls.hidden = !status.online || !internalUsable;
     // The sheet is populated when opened. Rebuilding it while hidden creates
     // controls and listeners for every Home Assistant state update.
     if (this.dialog.open) this.renderControls();
     else this.controlsSignature = "";
-    if (this.dialog.open && !hasControls) this.dialog.close();
+    if (this.dialog.open && (!hasControls || !status.online)) this.dialog.close();
   }
 
   renderControls() {
@@ -5968,7 +10636,7 @@ class ComponentCameraControllerV1 extends HTMLElement {
     this.shadowRoot.querySelector(".maintenance-section").hidden = !this.bundleData.buttons.length;
   }
 
-  openControls() { if (!this.dialog || !this.bundleData) return; this.confirmId = null; this.renderControls(); if (!this.dialog.open) this.dialog.showModal(); queueMicrotask(() => this.shadowRoot.querySelector(".close")?.focus()); }
+  openControls() { if (!this.dialog || !this.bundleData || !this.status().online) return; this.confirmId = null; this.renderControls(); if (!this.dialog.open) this.dialog.showModal(); queueMicrotask(() => this.shadowRoot.querySelector(".close")?.focus()); }
   async openCamera() {
     const hass = this._hass, bundle = this.bundleData;
     if (!hass || !bundle) return;
@@ -7026,6 +11694,9 @@ class ComponentSecurityDashboardV1 extends HTMLElement {
       ? "Unavailable"
       : `${cameras.filter((camera) => camera.online).length}/${cameras.length} online`;
     this.elements.cameraEmpty.hidden = cameras.length > 0;
+    // `.camera-empty` is a grid container by design, so make the hidden state
+    // explicit when live cameras exist rather than relying on browser defaults.
+    this.elements.cameraEmpty.style.display = cameras.length ? "none" : "";
     this.elements.cameraEmpty.textContent = this.model?.profileMissing
       ? `Configure ${this.config.profile} in HA Component Backend`
       : this.model?.error
@@ -7632,8 +12303,396 @@ registerCard({
 
 // Module: src/components/smart-collection.js
 {
-(()=>{
-globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2;class ComponentSmartCollectionV3 extends HTMLElement{static getGridOptions(){return{columns:12,rows:'auto'}}constructor(){super();this.attachShadow({mode:'open'});this.c=null;this.h=null;this.d=null;this.split=null;this.prefs={order:[],hidden:[]};this.prefsLoaded=false;this.unsub=null;this.gen=0;this.structureSig='';this.cards=new Map;this.editor=document.createElement('dashboard-preference-editor-v3');this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}.head{min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;padding:0 2px}.heading{display:flex;align-items:center;gap:7px;min-width:0}.heading ha-icon{color:var(--secondary-text-color);--mdc-icon-size:17px}.heading h2{margin:0;font-size:15px;line-height:1.2;font-weight:500}.edit{appearance:none;width:44px;height:44px;border:0;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center;cursor:pointer}.edit ha-icon{--mdc-icon-size:16px}.edit:hover,.edit:focus-visible{background:var(--dashboard-card-muted-surface,var(--secondary-background-color));color:var(--primary-text-color)}.head.sep{min-height:30px;margin:2px 0 6px}.head.sep .heading{flex:1}.head.sep .heading h2{font-size:12px;font-weight:500;color:var(--secondary-text-color)}.head.sep .heading ha-icon{display:none}.head.sep .heading:after{content:'';height:1px;background:var(--divider-color);flex:1}.body{display:grid;gap:8px;min-width:0}.empty{min-height:44px;padding:8px 10px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);color:var(--secondary-text-color);font-size:12px;display:flex;align-items:center;gap:8px}.empty ha-icon{color:var(--secondary-text-color);--mdc-icon-size:17px}</style><ha-card><div class="head"><span class="heading"><ha-icon></ha-icon><h2></h2></span><button class="edit" type="button" aria-label="Edit"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button></div><div class="body"></div></ha-card>`;this.head=this.shadowRoot.querySelector('.head');this.body=this.shadowRoot.querySelector('.body');this.shadowRoot.append(this.editor);this.edit=this.shadowRoot.querySelector('.edit');this.edit.onclick=()=>this.openEditor()}setConfig(c){this.c={mode:'all',title:'Controls',icon:'mdi:tune-variant',pref_key:null,show_header:true,header_style:'title',editable:false,exclude_device_names:[],...c};this.head.hidden=!this.c.show_header;this.head.classList.toggle('sep',this.c.header_style==='separator');this.head.querySelector('h2').textContent=this.c.title;this.head.querySelector('.heading ha-icon').setAttribute('icon',this.c.icon);this.edit.hidden=!this.c.editable;this.structureSig='';this.loadPrefs();this.schedule()}set hass(h){this.h=h;for(const x of this.cards.values())x.el.hass=h;this.unsub||this.subscribe();if(!this.prefsLoaded)this.loadPrefs();if(!this.d||this.c?.mode==='active')this.schedule()}connectedCallback(){this.subscribe();this.schedule()}disconnectedCallback(){this.unsub?.();this.unsub=null;this.gen++}getCardSize(){return 2}subscribe(){if(this.unsub||!this.h||!HD2.REG?.subscribe)return;this.unsub=HD2.REG.subscribe(this.h,d=>{this.d=d;this.structureSig='';this.schedule()})}async loadPrefs(){if(!this.h||!this.c?.pref_key||!HD2.prefs)return;this.prefs=await HD2.prefs(this.h,this.c.pref_key);this.prefsLoaded=true;this.structureSig='';this.schedule()}candidates(){if(!this.d||!this.h)return[];const media=this.d.entities.filter(e=>HD2.uiEntry(e)&&HD2.domain(e.entity_id)==='media_player'&&this.h.states[e.entity_id]),mediaDevices=new Set(media.map(e=>e.device_id).filter(Boolean)),mediaNames=media.map(e=>HD2.stateName(this.h,e,this.h.states[e.entity_id]).trim().toLowerCase()).filter(Boolean),excluded=new Set(this.c.exclude_device_names||[]),deviceNames=new Map(this.d.devices.map(x=>[x.id,x.name_by_user||x.name||'']));return this.d.entities.filter(e=>{const s=this.h.states[e.entity_id],eligible=this.c.mode==='sound'?Boolean(e?.entity_id&&!e.disabled_by):HD2.uiEntry(e);if(!eligible||!s||excluded.has(deviceNames.get(e.device_id)))return false;const dom=HD2.domain(e.entity_id),area=HD2.areaOf(e,this.d),controlName=HD2.stateName(this.h,e,s).trim().toLowerCase();if(this.c.mode==='active'&&dom==='camera')return false;if(this.c.mode==='area')return area===this.c.area_id&&HD2.isPotential(e,s);if(this.c.mode==='media')return dom==='media_player';if(this.c.mode==='sound')return['switch','number','select'].includes(dom)&&(mediaDevices.has(e.device_id)||mediaNames.some(n=>controlName.startsWith(n+' ')));if(this.c.mode==='active'||this.c.mode==='all')return HD2.isPotential(e,s)||(this.c.mode==='active'&&dom==='binary_sensor'&&/^(door|window|smoke|moisture|gas)$/.test(s.attributes?.device_class||''));return false}).filter(e=>!this.split||!this.split.claimed?.has(e.entity_id)||this.split.systems?.has(e.entity_id))}shown(c){return this.c.mode==='active'?c.filter(e=>HD2.isActive(e,this.h.states[e.entity_id])):c}meta(e){const area=HD2.areaOf(e,this.d),a=this.d.areaMap?.get(area)?.name||'Household';return`${a} · ${HD2.label(HD2.domain(e.entity_id))}`}schedule(){if(!this.h||!this.c||!HD2.REG?.load)return;const g=++this.gen;queueMicrotask(()=>this.sync(g))}tune(card){if(card?.localName!=='component-split-controller-v4'||!card.shadowRoot||card.shadowRoot.querySelector('style[data-home-minimal]'))return;const s=document.createElement('style');s.dataset.homeMinimal='';s.textContent='.nm{font-weight:500!important}.iw{color:var(--secondary-text-color)!important}.rv{font-size:22px!important;font-weight:500!important}.tv{font-size:16px!important;font-weight:500!important}.al,.pt,.gt,.o,.tpr button,.tcu button,.tac button{font-weight:500!important}.pt{font-size:16px!important}.a ha-icon{--mdc-icon-size:17px!important}';card.shadowRoot.append(s)}async sync(g){this.d=this.d||await HD2.REG.load(this.h);if(g!==this.gen)return;const reg=globalThis.__componentSplitRegistryV4;this.split=reg?.load?await reg.load(this.h):null;if(g!==this.gen)return;const candidates=this.candidates().sort((a,b)=>HD2.stateName(this.h,a,this.h.states[a.entity_id]).localeCompare(HD2.stateName(this.h,b,this.h.states[b.entity_id]),undefined,{sensitivity:'base'})),pref=HD2.applyPrefs(candidates.map(e=>({id:e.entity_id,entry:e})),this.prefs),show=this.shown(pref.visible.map(x=>x.entry)),rows=[];for(const e of show){const cfg=HD2.controlConfig(e,this.h.states[e.entity_id],this.d,this.h,this.split);if(cfg)rows.push({e,cfg,sig:JSON.stringify(cfg)})}const sig=JSON.stringify(rows.map(x=>[x.e.entity_id,x.sig]));if(sig===this.structureSig){for(const x of this.cards.values())x.el.hass=this.h;return}this.structureSig=sig;const keep=new Set(rows.map(x=>x.e.entity_id));for(const[id,x]of[...this.cards])if(!keep.has(id)){x.el.remove();this.cards.delete(id)}if(!rows.length){if(!this.empty){this.empty=document.createElement('div');this.empty.className='empty';this.empty.innerHTML='<ha-icon></ha-icon><span></span>'}this.empty.querySelector('ha-icon').setAttribute('icon',this.c.mode==='active'?'mdi:check-circle-outline':'mdi:gesture-tap');this.empty.querySelector('span').textContent=this.c.mode==='active'?'Everything is quiet':'No controls available';if(!this.empty.isConnected)this.body.append(this.empty);return}this.empty?.remove();for(const x of rows){let rec=this.cards.get(x.e.entity_id);if(!rec||rec.sig!==x.sig){rec?.el.remove();try{const el=await HD2.card(this.h,x.cfg);if(g!==this.gen)return;this.tune(el);rec={el,sig:x.sig};this.cards.set(x.e.entity_id,rec)}catch{continue}}rec.el.hass=this.h;if(this.body.lastElementChild!==rec.el)this.body.append(rec.el)}}async openEditor(){if(!this.h||!this.c?.pref_key||!HD2.REG?.load)return;await customElements.whenDefined('dashboard-preference-editor-v3');this.d=this.d||await HD2.REG.load(this.h);const reg=globalThis.__componentSplitRegistryV4;this.split=reg?.load?await reg.load(this.h):null;const c=this.candidates().map(e=>({id:e.entity_id,name:HD2.stateName(this.h,e,this.h.states[e.entity_id]),meta:this.meta(e),icon:HD2.icon(e,this.h.states[e.entity_id])})),p=HD2.applyPrefs(c,this.prefs);this.editor.open({title:`Edit ${this.c.title.toLowerCase()}`,description:'Reorder discovered controls or hide controls you do not want shown.',items:p.all,hidden:[...p.hidden],onSave:async v=>{this.prefs=v;await HD2.savePrefs(this.h,this.c.pref_key,v);this.structureSig='';this.schedule()}})}}if(!customElements.get('component-smart-collection-v3'))customElements.define('component-smart-collection-v3',ComponentSmartCollectionV3);window.customCards=window.customCards||[];if(!window.customCards.some(x=>x.type==='component-smart-collection-v3'))window.customCards.push({type:'component-smart-collection-v3',name:'Smart Control Collection V3',description:'Stable registry-driven household controls without refresh teardown.'});
+(() => {
+  globalThis.__homeDashboardV2 ??= {};
+  const HD2 = globalThis.__homeDashboardV2;
+  const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+
+  class ComponentSmartCollectionV3 extends HTMLElement {
+    static getGridOptions() {
+      return { columns: 12, rows: "auto" };
+    }
+
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" });
+      this.c = null;
+      this.h = null;
+      this.d = null;
+      this.split = null;
+      this.prefs = { order: [], hidden: [] };
+      this.prefsLoaded = false;
+      this.unsub = null;
+      this.splitUnsub = null;
+      this.activeStateSubscription = null;
+      this.activeStateToken = null;
+      this.activeStateConnection = null;
+      this.activeStateRetry = null;
+      this.gen = 0;
+      this.structureSig = "";
+      this.reconcileIncomplete = false;
+      this.cards = new Map();
+      this.shadowRoot.innerHTML = `<style>:host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}.head{min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;padding:0 2px}.heading{display:flex;align-items:center;gap:7px;min-width:0}.heading ha-icon{color:var(--secondary-text-color);--mdc-icon-size:17px}.heading h2{margin:0;font-size:15px;line-height:1.2;font-weight:500}.edit{appearance:none;width:44px;height:44px;border:0;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center;cursor:pointer}.edit ha-icon{--mdc-icon-size:16px}.edit:hover,.edit:focus-visible{background:var(--dashboard-card-muted-surface,var(--secondary-background-color));color:var(--primary-text-color)}.head.sep{min-height:30px;margin:2px 0 6px}.head.sep .heading{flex:1}.head.sep .heading h2{font-size:12px;font-weight:500;color:var(--secondary-text-color)}.head.sep .heading ha-icon{display:none}.head.sep .heading:after{content:'';height:1px;background:var(--divider-color);flex:1}.body{display:grid;gap:8px;min-width:0}.empty{min-height:44px;padding:8px 10px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);color:var(--secondary-text-color);font-size:12px;display:flex;align-items:center;gap:8px}.empty ha-icon{color:var(--secondary-text-color);--mdc-icon-size:17px}</style><ha-card><div class="head"><span class="heading"><ha-icon></ha-icon><h2></h2></span><button class="edit" type="button" aria-label="Edit"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button></div><div class="body"></div></ha-card>`;
+      this.head = this.shadowRoot.querySelector(".head");
+      this.body = this.shadowRoot.querySelector(".body");
+      this.edit = this.shadowRoot.querySelector(".edit");
+      this.edit.onclick = () => this.openEditor();
+    }
+
+    setConfig(config) {
+      this.c = {
+        mode: "all",
+        title: "Controls",
+        icon: "mdi:tune-variant",
+        pref_key: null,
+        show_header: true,
+        header_style: "title",
+        editable: false,
+        exclude_device_names: [],
+        ...config,
+      };
+      this.head.hidden = !this.c.show_header;
+      this.head.classList.toggle("sep", this.c.header_style === "separator");
+      this.head.querySelector("h2").textContent = this.c.title;
+      this.head.querySelector(".heading ha-icon").setAttribute("icon", this.c.icon);
+      this.edit.hidden = !this.c.editable;
+      this.structureSig = "";
+      this.loadPrefs();
+      this.schedule();
+      if (this.c.mode === "active") this.startActiveStateStream();
+      else this.stopActiveStateStream();
+    }
+
+    set hass(hass) {
+      this.h = hass;
+      for (const record of this.cards.values()) record.el.hass = hass;
+      this.unsub || this.subscribe();
+      this.splitUnsub || this.subscribeSplitRegistry();
+      if (!this.prefsLoaded) this.loadPrefs();
+      if (!this.d || this.c?.mode === "active" || this.reconcileIncomplete) this.schedule();
+      this.startActiveStateStream();
+    }
+
+    connectedCallback() {
+      this.subscribe();
+      this.subscribeSplitRegistry();
+      this.schedule();
+      this.startActiveStateStream();
+    }
+
+    disconnectedCallback() {
+      this.unsub?.();
+      this.unsub = null;
+      this.splitUnsub?.();
+      this.splitUnsub = null;
+      this.stopActiveStateStream();
+      this.gen++;
+    }
+
+    getCardSize() {
+      return 2;
+    }
+
+    subscribe() {
+      if (this.unsub || !this.h || !HD2.REG?.subscribe) return;
+      this.unsub = HD2.REG.subscribe(this.h, (data) => {
+        this.d = data;
+        this.structureSig = "";
+        this.schedule();
+      });
+    }
+
+    subscribeSplitRegistry() {
+      const registry = globalThis.__componentSplitRegistryV4;
+      if (this.splitUnsub || !this.h || !registry?.subscribe) return;
+      this.splitUnsub = registry.subscribe(this.h, (split) => {
+        this.split = split;
+        this.structureSig = "";
+        this.schedule();
+      });
+    }
+
+    isCameraOwner(entry) {
+      if (entry?.platform !== "onvif" || HD2.domain(entry.entity_id) !== "camera") return false;
+      const identity = `${entry.entity_id} ${entry.name || entry.original_name || ""}`;
+      return !/sub.?stream/i.test(identity);
+    }
+
+    isCameraDeviceActive(entry) {
+      if (!entry?.device_id) return false;
+      return (this.d?.byDevice?.get(entry.device_id) || []).some((sibling) => {
+        if (HD2.domain(sibling.entity_id) !== "binary_sensor") return false;
+        const state = this.h?.states?.[sibling.entity_id];
+        const deviceClass = state?.attributes?.device_class || "";
+        const identity = `${sibling.entity_id} ${sibling.name || sibling.original_name || ""}`;
+        return state?.state === "on" &&
+          (/^(motion|occupancy|presence|sound)$/.test(deviceClass) || /motion|human|person|detect/i.test(identity));
+      });
+    }
+
+    isGarageTrigger(entry, garageDevices) {
+      if (!garageDevices.has(entry?.device_id) || HD2.domain(entry.entity_id) !== "button") return false;
+      const identity = `${entry.entity_id || ""} ${entry.name || ""} ${entry.original_name || ""}`.toLowerCase();
+      return /(garage.?door|door).*(trigger|operate)|(trigger|operate).*(garage.?door|door)/.test(identity);
+    }
+
+    async loadPrefs() {
+      if (!this.h || !this.c?.pref_key || !HD2.prefs) return;
+      this.prefs = await HD2.prefs(this.h, this.c.pref_key);
+      this.prefsLoaded = true;
+      this.structureSig = "";
+      this.schedule();
+    }
+
+    candidates() {
+      if (!this.d || !this.h) return [];
+      const media = this.d.entities.filter((entry) =>
+        HD2.uiEntry(entry) &&
+        HD2.domain(entry.entity_id) === "media_player" &&
+        this.h.states[entry.entity_id],
+      );
+      const mediaDevices = new Set(media.map((entry) => entry.device_id).filter(Boolean));
+      const mediaNames = media
+        .map((entry) => HD2.stateName(this.h, entry, this.h.states[entry.entity_id]).trim().toLowerCase())
+        .filter(Boolean);
+      const excluded = new Set(this.c.exclude_device_names || []);
+      const deviceNames = new Map(this.d.devices.map((device) => [device.id, device.name_by_user || device.name || ""]));
+
+      const candidates = this.d.entities
+        .filter((entry) => {
+          const state = this.h.states[entry.entity_id];
+          const cameraOwner = this.isCameraOwner(entry);
+          const eligible = this.c.mode === "sound"
+            ? Boolean(entry?.entity_id && !entry.disabled_by)
+            : HD2.uiEntry(entry) && (entry.platform !== "onvif" || cameraOwner);
+          if (!eligible || !state || excluded.has(deviceNames.get(entry.device_id))) return false;
+
+          const domain = HD2.domain(entry.entity_id);
+          const area = HD2.areaOf(entry, this.d);
+          const controlName = HD2.stateName(this.h, entry, state).trim().toLowerCase();
+          if (this.c.mode === "area") return area === this.c.area_id && (HD2.isPotential(entry, state) || cameraOwner);
+          if (this.c.mode === "media") return domain === "media_player";
+          if (this.c.mode === "sound") {
+            return ["switch", "number", "select"].includes(domain) &&
+              (mediaDevices.has(entry.device_id) || mediaNames.some((name) => controlName.startsWith(`${name} `)));
+          }
+          if (this.c.mode === "active" || this.c.mode === "all") {
+            return cameraOwner || HD2.isPotential(entry, state) ||
+              (this.c.mode === "active" && domain === "binary_sensor" && /^(door|window|smoke|moisture|gas)$/.test(state.attributes?.device_class || ""));
+          }
+          return false;
+        })
+        .filter((entry) => !this.split || !this.split.claimed?.has(entry.entity_id) || this.split.systems?.has(entry.entity_id));
+      const garageDevices = new Set(candidates
+        .filter((entry) => HD2.domain(entry.entity_id) === "binary_sensor" && this.h.states[entry.entity_id]?.attributes?.device_class === "garage_door")
+        .map((entry) => entry.device_id)
+        .filter(Boolean));
+      return candidates.filter((entry) => !this.isGarageTrigger(entry, garageDevices));
+    }
+
+    shown(entries) {
+      return this.c.mode === "active"
+        ? entries.filter((entry) => this.isCameraOwner(entry)
+          ? this.isCameraDeviceActive(entry)
+          : HD2.isActive(entry, this.h.states[entry.entity_id]))
+        : entries;
+    }
+
+    meta(entry) {
+      const area = HD2.areaOf(entry, this.d);
+      const name = this.d.areaMap?.get(area)?.name || "Household";
+      return `${name} · ${HD2.label(HD2.domain(entry.entity_id))}`;
+    }
+
+    schedule() {
+      if (!this.h || !this.c || !HD2.REG?.load) return;
+      const generation = ++this.gen;
+      queueMicrotask(() => this.sync(generation));
+    }
+
+    stopActiveStateStream() {
+      clearTimeout(this.activeStateRetry);
+      this.activeStateRetry = null;
+      this.activeStateToken = null;
+      this.activeStateConnection = null;
+      const subscription = this.activeStateSubscription;
+      this.activeStateSubscription = null;
+      if (subscription) Promise.resolve(subscription).then((unsubscribe) => unsubscribe?.()).catch(() => {});
+    }
+
+    handleActiveStateChanged(event) {
+      if (this.c?.mode !== "active" || !this.h) return;
+      const data = event?.data || event;
+      const entityId = data?.entity_id;
+      if (!entityId) return;
+      const domain = HD2.domain?.(entityId);
+      if (!new Set(["light", "fan", "switch", "input_boolean", "media_player", "climate", "cover", "lock", "vacuum", "binary_sensor"]).has(domain)) return;
+      const oldState = data.old_state || this.h.states?.[entityId] || null;
+      const newState = data.new_state || null;
+      if (domain === "binary_sensor" && !/^(door|window|garage_door|smoke|moisture|gas)$/.test(newState?.attributes?.device_class || oldState?.attributes?.device_class || "")) return;
+      let entry = this.d?.entities?.find((item) => item.entity_id === entityId) || null;
+      if (entry && !HD2.uiEntry(entry)) return;
+      entry ||= { entity_id: entityId };
+      if (HD2.isActive(entry, oldState) === HD2.isActive(entry, newState)) return;
+      const states = { ...(this.h.states || {}) };
+      if (newState) states[entityId] = newState;
+      else delete states[entityId];
+      this.structureSig = "";
+      this.hass = { ...this.h, states };
+    }
+
+    startActiveStateStream() {
+      if (this.c?.mode !== "active" || !this.isConnected) return;
+      const connection = this.h?.connection;
+      if (!connection?.subscribeEvents || (this.activeStateConnection === connection && this.activeStateSubscription)) return;
+      this.stopActiveStateStream();
+      this.activeStateConnection = connection;
+      const token = {};
+      this.activeStateToken = token;
+      let subscription;
+      try {
+        subscription = connection.subscribeEvents((event) => {
+          if (this.activeStateToken === token) this.handleActiveStateChanged(event);
+        }, "state_changed");
+      } catch {
+        subscription = Promise.reject(new Error("state subscription failed"));
+      }
+      this.activeStateSubscription = Promise.resolve(subscription).catch(() => {
+        if (this.activeStateToken !== token) return null;
+        this.activeStateSubscription = null;
+        this.activeStateRetry = setTimeout(() => {
+          this.activeStateRetry = null;
+          this.startActiveStateStream();
+        }, 10000);
+        return null;
+      });
+    }
+
+    tune(card) {
+      if (card?.localName !== "component-split-controller-v4" || !card.shadowRoot || card.shadowRoot.querySelector("style[data-home-minimal]")) return;
+      const style = document.createElement("style");
+      style.dataset.homeMinimal = "";
+      style.textContent = ".nm{font-weight:500!important}.iw{color:var(--secondary-text-color)!important}.rv{font-size:22px!important;font-weight:500!important}.tv{font-size:16px!important;font-weight:500!important}.al,.pt,.gt,.o,.tpr button,.tcu button,.tac button{font-weight:500!important}.pt{font-size:16px!important}.a ha-icon{--mdc-icon-size:17px!important}";
+      card.shadowRoot.append(style);
+    }
+
+    async sync(generation) {
+      const data = this.d || await HD2.REG.load(this.h);
+      if (generation !== this.gen) return;
+      this.d ||= data;
+
+      const registry = globalThis.__componentSplitRegistryV4;
+      const split = registry?.load ? await registry.load(this.h) : null;
+      if (generation !== this.gen) return;
+      this.split = split;
+
+      const candidates = this.candidates().sort((left, right) =>
+        HD2.stateName(this.h, left, this.h.states[left.entity_id]).localeCompare(
+          HD2.stateName(this.h, right, this.h.states[right.entity_id]),
+          undefined,
+          { sensitivity: "base" },
+        ),
+      );
+      const preferences = HD2.applyPrefs(candidates.map((entry) => ({ id: entry.entity_id, entry })), this.prefs);
+      const visible = this.shown(preferences.visible.map((item) => item.entry));
+      const rows = [];
+      for (const entry of visible) {
+        const config = this.isCameraOwner(entry)
+          ? { type: "custom:component-camera-controller-v1", entity: entry.entity_id, device_id: entry.device_id }
+          : HD2.controlConfig(entry, this.h.states[entry.entity_id], this.d, this.h, this.split);
+        if (config) rows.push({ entry, config, signature: JSON.stringify(config) });
+      }
+
+      const structureSignature = JSON.stringify(rows.map(({ entry, signature }) => [entry.entity_id, signature]));
+      if (structureSignature === this.structureSig) {
+        for (const record of this.cards.values()) record.el.hass = this.h;
+        return;
+      }
+
+      const staged = new Map();
+      for (const row of rows) {
+        const current = this.cards.get(row.entry.entity_id);
+        if (current?.sig === row.signature) {
+          staged.set(row.entry.entity_id, current);
+          continue;
+        }
+        try {
+          const element = await HD2.card(this.h, row.config);
+          if (generation !== this.gen) return;
+          this.tune(element);
+          staged.set(row.entry.entity_id, { el: element, sig: row.signature });
+        } catch {
+          // Leave the committed rows and signature intact so the next sync retries.
+        }
+      }
+      if (generation !== this.gen) return;
+      if (staged.size !== rows.length) {
+        this.reconcileIncomplete = true;
+        return;
+      }
+
+      const retained = new Set(staged.values());
+      for (const record of this.cards.values()) {
+        if (!retained.has(record)) record.el.remove();
+      }
+      this.cards.clear();
+      for (const [entityId, record] of staged) this.cards.set(entityId, record);
+
+      if (!rows.length) {
+        if (!this.empty) {
+          this.empty = document.createElement("div");
+          this.empty.className = "empty";
+          this.empty.innerHTML = "<ha-icon></ha-icon><span></span>";
+        }
+        this.empty.querySelector("ha-icon").setAttribute("icon", this.c.mode === "active" ? "mdi:check-circle-outline" : "mdi:gesture-tap");
+        this.empty.querySelector("span").textContent = this.c.mode === "active" ? "Everything is quiet" : "No controls available";
+        if (!this.empty.isConnected) this.body.append(this.empty);
+      } else {
+        this.empty?.remove();
+        for (const { entry } of rows) {
+          const record = this.cards.get(entry.entity_id);
+          record.el.hass = this.h;
+          if (this.body.lastElementChild !== record.el) this.body.append(record.el);
+        }
+      }
+      this.structureSig = structureSignature;
+      this.reconcileIncomplete = false;
+    }
+
+    async openEditor() {
+      if (!this.h || !this.c?.pref_key || !HD2.REG?.load) return;
+      const editor = await HD2.preferenceEditor();
+      this.d = this.d || await HD2.REG.load(this.h);
+      const registry = globalThis.__componentSplitRegistryV4;
+      this.split = registry?.load ? await registry.load(this.h) : null;
+      const items = this.candidates().map((entry) => ({
+        id: entry.entity_id,
+        name: HD2.stateName(this.h, entry, this.h.states[entry.entity_id]),
+        meta: this.meta(entry),
+        icon: this.isCameraOwner(entry) ? "mdi:cctv" : HD2.icon(entry, this.h.states[entry.entity_id]),
+      }));
+      const preferences = HD2.applyPrefs(items, this.prefs);
+      editor.open({
+        title: `Edit ${this.c.title.toLowerCase()}`,
+        description: "Reorder discovered controls or hide controls you do not want shown.",
+        items: preferences.all,
+        hidden: [...preferences.hidden],
+        onSave: async (value) => {
+          this.prefs = value;
+          await HD2.savePrefs(this.h, this.c.pref_key, value);
+          this.structureSig = "";
+          this.schedule();
+        },
+      });
+    }
+  }
+
+  registerCard({
+    type: "component-smart-collection-v3",
+    element: ComponentSmartCollectionV3,
+    name: "Smart Control Collection V3",
+    description: "Stable registry-driven household controls without refresh teardown.",
+  });
 })();
 }
 
@@ -7642,6 +12701,7 @@ globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2;class C
 (() => {
   globalThis.__homeDashboardV2 ??= {};
   const HD2 = globalThis.__homeDashboardV2;
+  const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
   const ACTION_SERVICES = new Map([
     ["automation", "trigger"],
     ["scene", "turn_on"],
@@ -7665,7 +12725,6 @@ globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2;class C
       this.gen = 0;
       this.cards = new Map();
       this.structureSig = "";
-      this.editor = document.createElement("dashboard-preference-editor-v3");
       this.shadowRoot.innerHTML = `<style>
         :host{display:block;min-width:0}*{box-sizing:border-box}
         ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}
@@ -7680,7 +12739,6 @@ globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2;class C
       </style><ha-card><div class="head"><span class="heading"><ha-icon></ha-icon><h2></h2></span><button class="edit" type="button"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button></div><div class="grid"></div><p class="empty">No quick actions available</p></ha-card>`;
       this.grid = this.shadowRoot.querySelector(".grid");
       this.empty = this.shadowRoot.querySelector(".empty");
-      this.shadowRoot.append(this.editor);
       this.shadowRoot.querySelector(".edit").onclick = () => this.openEditor();
     }
 
@@ -7703,14 +12761,18 @@ globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2;class C
 
     set hass(h) {
       this.h = h;
-      for (const card of this.cards.values()) card.hass = h;
+      for (const record of this.cards.values()) record.element.hass = h;
       this.unsub || this.subscribe();
       if (!this.prefsLoaded) this.loadPrefs();
       if (!this.d) this.schedule();
     }
 
     connectedCallback() { this.subscribe(); this.schedule(); }
-    disconnectedCallback() { this.unsub?.(); this.unsub = null; this.gen++; }
+    disconnectedCallback() {
+      this.unsub?.();
+      this.unsub = null;
+      this.gen++;
+    }
     getCardSize() { return 2; }
 
     subscribe() {
@@ -7788,40 +12850,66 @@ globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2;class C
     }
 
     async sync(generation) {
-      this.d = this.d || await HD2.REG.load(this.h);
+      const data = this.d || await HD2.REG.load(this.h);
       if (generation !== this.gen) return;
+      this.d ||= data;
+
       const presentation = HD2.applyPrefs(this.items(), this.prefs);
-      const sig = JSON.stringify(presentation.visible.map((item) => [item.id, item.name, item.icon, item.path, item.entity, item.service]));
-      this.empty.style.display = presentation.visible.length ? "none" : "block";
-      if (sig === this.structureSig) {
-        for (const card of this.cards.values()) card.hass = this.h;
+      const rows = presentation.visible.map((item) => {
+        const config = this.cardConfig(item);
+        return { item, config, configSignature: JSON.stringify(config) };
+      });
+      const signature = JSON.stringify(rows.map((row) => [row.item.id, row.configSignature]));
+      const complete = rows.length === this.cards.size && rows.every((row, index) =>
+        this.cards.get(row.item.id)?.configSignature === row.configSignature &&
+        this.grid.children[index] === this.cards.get(row.item.id)?.element,
+      );
+      if (complete) {
+        this.empty.style.display = rows.length ? "none" : "block";
+        for (const record of this.cards.values()) record.element.hass = this.h;
+        this.structureSig = signature;
         return;
       }
-      this.structureSig = sig;
-      const keep = new Set(presentation.visible.map((item) => item.id));
-      for (const [id, element] of [...this.cards]) {
-        if (!keep.has(id)) { element.remove(); this.cards.delete(id); }
-      }
-      for (const item of presentation.visible) {
-        let element = this.cards.get(item.id);
-        if (!element) {
-          try {
-            element = await HD2.card(this.h, this.cardConfig(item));
-            if (generation !== this.gen) return;
-            this.cards.set(item.id, element);
-          } catch { continue; }
+
+      const staged = new Map();
+      for (const row of rows) {
+        const current = this.cards.get(row.item.id);
+        if (current?.configSignature === row.configSignature) {
+          staged.set(row.item.id, current);
+          continue;
         }
-        element.hass = this.h;
-        if (this.grid.lastElementChild !== element) this.grid.append(element);
+        try {
+          const element = await HD2.card(this.h, row.config);
+          if (generation !== this.gen) return;
+          staged.set(row.item.id, { element, configSignature: row.configSignature });
+        } catch {
+          // Retain the committed child and leave the signature stale for retry.
+        }
       }
+      if (generation !== this.gen || staged.size !== rows.length) return;
+
+      const retained = new Set(staged.values());
+      for (const record of this.cards.values()) {
+        if (!retained.has(record)) record.element.remove();
+      }
+      this.cards.clear();
+      for (const [id, record] of staged) this.cards.set(id, record);
+
+      this.empty.style.display = rows.length ? "none" : "block";
+      for (const row of rows) {
+        const record = this.cards.get(row.item.id);
+        record.element.hass = this.h;
+        if (this.grid.lastElementChild !== record.element) this.grid.append(record.element);
+      }
+      this.structureSig = signature;
     }
 
     async openEditor() {
       if (!this.h || !HD2.REG?.load) return;
-      await customElements.whenDefined("dashboard-preference-editor-v3");
+      const editor = await HD2.preferenceEditor();
       this.d = this.d || await HD2.REG.load(this.h);
       const presentation = HD2.applyPrefs(this.items(), this.prefs);
-      this.editor.open({
+      editor.open({
         title: `Edit ${this.c.title.toLowerCase()}`,
         description: "Reorder or hide discovered actions and destinations without changing their Home Assistant configuration.",
         items: presentation.all,
@@ -7836,261 +12924,717 @@ globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2;class C
     }
   }
 
-  if(!customElements.get('component-household-directory-v3'))customElements.define('component-household-directory-v3',ComponentHouseholdDirectoryV3);window.customCards=window.customCards||[];
-  if (!window.customCards.some((x) => x.type === "component-household-directory-v3")) window.customCards.push({ type: "component-household-directory-v3", name: "Quick Actions Directory V3", description: "Stable auto-discovered labelled actions and household destinations." });
+  registerCard({ type: "component-household-directory-v3", element: ComponentHouseholdDirectoryV3, name: "Quick Actions Directory V3", description: "Stable auto-discovered labelled actions and household destinations." });
 })();
 }
 
 // Module: src/components/favourites-minimal.js
 {
-class ComponentFavouritesMinimalV1 extends HTMLElement{static getGridOptions(){return{columns:12,rows:'auto'}}constructor(){super();this.attachShadow({mode:'open'});this.c=null;this.h=null;this.child=null;this.ready=false}setConfig(c){this.c=c;this.ensure()}set hass(h){this.h=h;if(this.child)this.child.hass=h;else this.ensure()}connectedCallback(){this.ensure()}getCardSize(){return 2}async ensure(){if(this.ready||!this.c)return;this.ready=true;await customElements.whenDefined('component-favourites-v3');const x=document.createElement('component-favourites-v3');x.setConfig(this.c);if(this.h)x.hass=this.h;this.child=x;this.shadowRoot.replaceChildren(x);queueMicrotask(()=>this.tune())}tune(){const r=this.child?.shadowRoot;if(!r)return;r.querySelector('.edit ha-icon')?.setAttribute('icon','mdi:dots-horizontal');if(r.querySelector('style[data-home-minimal]'))return;const s=document.createElement('style');s.dataset.homeMinimal='';s.textContent='.heading h2{font-size:15px!important;font-weight:500!important}.heading ha-icon{color:var(--secondary-text-color)!important;--mdc-icon-size:17px!important}.edit{min-width:44px!important;min-height:44px!important;padding:0!important;color:var(--secondary-text-color)!important;font-weight:400!important}.edit ha-icon{--mdc-icon-size:16px!important}.edit span{display:none!important}.icon{color:var(--secondary-text-color)!important}.name{font-weight:500!important}.state{font-size:12px!important}.dialog-title,.confirm-title{font-size:16px!important;font-weight:500!important}.subheading,.group-title,.choice-name,.dialog-button{font-weight:500!important}.selected-meta,.choice-meta,.editor-copy{font-size:12px!important}';r.append(s)}}if(!customElements.get('component-favourites-minimal-v1'))customElements.define('component-favourites-minimal-v1',ComponentFavouritesMinimalV1);window.customCards=window.customCards||[];if(!window.customCards.some(x=>x.type==='component-favourites-minimal-v1'))window.customCards.push({type:'component-favourites-minimal-v1',name:'Favourites Minimal',description:'Existing favourites behaviour with restrained Home typography.'});
-}
+const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 
-// Module: src/support/backend-favourites.js
-{
-/** Backend preference storage adapter for the existing Favourites component. */
-const backendFavouritesRuntime = globalThis.__homeDashboardV2;
-const BackendFavourites = customElements.get("component-favourites-v3");
+class ComponentFavouritesMinimalV1 extends HTMLElement {
+  static getGridOptions() {
+    return { columns: 12, rows: "auto" };
+  }
 
-if (backendFavouritesRuntime && BackendFavourites && !BackendFavourites.prototype.__backendStorageV1) {
-  const prototype = BackendFavourites.prototype;
-  prototype.__backendStorageV1 = true;
-  const originalSetConfig = prototype.setConfig;
-  const originalSyncStored = prototype._syncStored;
-  const originalStorageSignature = prototype._storageSignature;
-  const originalRenderGrid = prototype._renderGrid;
-  const originalSave = prototype._save;
-  const originalSubscribe = prototype._subscribeRegistryEvents;
-  const originalUnsubscribe = prototype._unsubscribeRegistryEvents;
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this.c = null;
+    this.h = null;
+    this.child = null;
+    this.buildPromise = null;
+  }
 
-  prototype.setConfig = function setBackendFavouritesConfig(config) {
-    const preferenceKey = String(config?.preference_key || "").trim();
-    const demoItems = Array.isArray(config?.items) ? config.items : [];
-    if (!preferenceKey || demoItems.length) {
-      originalSetConfig.call(this, config);
-      return;
-    }
-    const legacyHelpers = Array.isArray(config?.helpers)
-      ? config.helpers.filter((entityId) => typeof entityId === "string")
-      : [];
-    this._backendPreferenceInitialising = true;
-    originalSetConfig.call(this, {
-      ...config,
-      helpers: legacyHelpers.length ? legacyHelpers : ["__backend_preference__"],
-    });
-    this._legacyFavouriteHelpers = legacyHelpers.slice(0, 4);
-    this.config.helpers = [];
-    this.config.preference_key = preferenceKey;
-    this._preferenceLoaded = false;
-    this._preferenceError = null;
-    this._backendPreferenceInitialising = false;
-    if (this.$?.edit) {
-      this.$.edit.hidden = false;
-      this.$.edit.disabled = true;
-      this.$.edit.setAttribute("aria-busy", "true");
-    }
-    this._syncStored();
-    this._renderGrid();
-  };
+  setConfig(config) {
+    this.c = { preference_key: "home-control.favourites.v1", ...config };
+    if (this.child) this.child.setConfig(this.c);
+    else this.ensure();
+  }
 
-  prototype._syncStored = function syncBackendFavourites() {
-    if (!this.config?.preference_key) {
-      originalSyncStored.call(this);
-      return;
-    }
-    if (this._backendPreferenceInitialising || !this._hass) return;
-    void this._loadBackendFavourites();
-  };
+  set hass(hass) {
+    this.h = hass;
+    if (this.child) this.child.hass = hass;
+    else this.ensure();
+  }
 
-  prototype._loadBackendFavourites = async function loadBackendFavourites(force = false) {
-    if (!this._hass || !this.config?.preference_key) return;
-    const hass = this._hass;
-    const key = this.config.preference_key;
-    if (this._preferencePromise) {
-      if (
-        force ||
-        this._preferenceRequestHass !== hass ||
-        this._preferenceRequestKey !== key
-      ) {
-        this._preferenceReloadPending = true;
-      }
-      return this._preferencePromise;
-    }
-    if (this._preferenceLoaded && !force) return;
-    this._preferenceRequestHass = hass;
-    this._preferenceRequestKey = key;
-    this._preferencePromise = backendFavouritesRuntime
-      .prefs(hass, key)
-      .then(async (stored) => {
-        if (hass !== this._hass || key !== this.config?.preference_key) return;
-        let selected = Array.isArray(stored)
-          ? stored.map((item) => this._normaliseRef(item)).filter(Boolean).slice(0, this.config.max)
-          : [];
-        if (!Array.isArray(stored) && this._legacyFavouriteHelpers?.length) {
-          selected = this._legacyFavouriteHelpers
-            .map((entityId) => this._parseSlot(hass.states?.[entityId]?.state))
-            .filter(Boolean)
-            .slice(0, this.config.max);
-          if (selected.length) {
-            await backendFavouritesRuntime.savePrefs(hass, key, selected);
-          }
-        }
-        this._selected = selected;
-        this._preferenceLoaded = true;
-        this._preferenceError = null;
-        if (this.$?.edit) {
-          this.$.edit.disabled = false;
-          this.$.edit.removeAttribute("aria-busy");
-        }
-        this._lastStorageSignature = this._storageSignature();
-        this._renderSignature = "";
-        this._renderGrid();
-        if (this.$?.editor?.open) this._updateEditorState();
-      })
-      .catch((error) => {
-        if (hass !== this._hass) return;
-        this._preferenceError = error;
-        this._renderGrid();
-      })
-      .finally(() => {
-        this._preferencePromise = null;
-        this._preferenceRequestHass = null;
-        this._preferenceRequestKey = null;
-        if (this._preferenceReloadPending) {
-          this._preferenceReloadPending = false;
-          if (this._hass && this.config?.preference_key) {
-            void this._loadBackendFavourites(true);
-          }
-        }
-      });
-    return this._preferencePromise;
-  };
+  connectedCallback() {
+    this.ensure();
+  }
 
-  prototype._storageSignature = function backendFavouriteSignature() {
-    if (!this.config?.preference_key) return originalStorageSignature.call(this);
-    return JSON.stringify(this._selected);
-  };
+  getCardSize() {
+    return 2;
+  }
 
-  prototype._renderGrid = function renderBackendFavourites() {
-    originalRenderGrid.call(this);
-    if (!this.config?.preference_key || !this.$?.grid) return;
-    if (this._preferenceError) {
-      this.$.edit.disabled = true;
-      this.$.edit.removeAttribute("aria-busy");
-      this.$.grid.innerHTML =
-        '<div class="load-error">Favourites storage could not be loaded. Try again shortly.</div>';
-    } else if (!this._preferenceLoaded) {
-      this.$.edit.disabled = true;
-      this.$.edit.setAttribute("aria-busy", "true");
-      this.$.grid.innerHTML = '<div class="empty">Loading favourites…</div>';
-    } else {
-      this.$.edit.disabled = false;
-      this.$.edit.removeAttribute("aria-busy");
-    }
-  };
+  async ensure() {
+    if (this.child || !this.c) return;
+    if (this.buildPromise) return this.buildPromise;
 
-  prototype._save = async function saveBackendFavourites() {
-    if (!this.config?.preference_key) {
-      return originalSave.call(this);
-    }
-    if (this.$.save.disabled) return;
-    if (this._editorStorageSignature !== this._storageSignature()) {
-      this._updateEditorState();
-      return;
-    }
-    const selected = this._draft
-      .map((item) => this._normaliseRef(item))
-      .filter(Boolean)
-      .slice(0, this.config.max);
-    this.$.save.disabled = true;
-    this.$.save.setAttribute("aria-busy", "true");
-    this.$.save.style.minWidth = "84px";
-    this.$.save.textContent = "Saving…";
-    this.$.editorError.textContent = "";
+    const build = (async () => {
+      await customElements.whenDefined("component-favourites-v3");
+      if (this.child || !this.c) return;
+
+      const child = document.createElement("component-favourites-v3");
+      child.setConfig(this.c);
+      if (this.h) child.hass = this.h;
+      this.child = child;
+      this.shadowRoot.replaceChildren(child);
+      queueMicrotask(() => this.tune());
+    })();
+    this.buildPromise = build;
     try {
-      await backendFavouritesRuntime.savePrefs(
-        this._hass,
-        this.config.preference_key,
-        selected,
-      );
-      this._selected = selected.map((item) => ({ ...item }));
-      this._preferenceLoaded = true;
-      this._preferenceError = null;
-      this._lastStorageSignature = this._storageSignature();
-      this._renderSignature = "";
-      this._editorStorageSignature = this._storageSignature();
-      this.$.editor.close();
-      this._renderGrid();
-      this._notice("Favourites saved.");
-    } catch (error) {
-      this.$.editorError.textContent =
-        error?.message ||
-        "Favourites could not be saved. Your current choices are still open; try again.";
+      await build;
     } finally {
-      const error = this.$.editorError.textContent;
-      this.$.save.removeAttribute("aria-busy");
-      this.$.save.textContent = "Save";
-      this._updateEditorState();
-      if (error) this.$.editorError.textContent = error;
+      if (this.buildPromise === build) this.buildPromise = null;
     }
-  };
+  }
 
-  prototype._subscribeRegistryEvents = function subscribeBackendFavourites() {
-    originalSubscribe.call(this);
-    if (
-      !this.isConnected ||
-      this._preferenceSubscription ||
-      !this.config?.preference_key ||
-      !this._connection?.subscribeEvents
-    ) {
-      return;
-    }
-    const subscription = this._connection
-      .subscribeEvents((event) => {
-        if (event?.data?.key === this.config?.preference_key) {
-          void this._loadBackendFavourites(true);
-        }
-      }, "ha_component_backend_preferences_updated")
-      .then((unsubscribe) => unsubscribe);
-    this._preferenceSubscription = subscription;
-    subscription.catch(() => {
-      if (this._preferenceSubscription === subscription) {
-        this._preferenceSubscription = null;
-      }
-    });
-  };
+  tune() {
+    const root = this.child?.shadowRoot;
+    if (!root) return;
 
-  prototype._unsubscribeRegistryEvents = function unsubscribeBackendFavourites() {
-    originalUnsubscribe.call(this);
-    const subscription = this._preferenceSubscription;
-    this._preferenceSubscription = null;
-    if (subscription) Promise.resolve(subscription).then((unsubscribe) => unsubscribe?.()).catch(() => {});
-  };
+    root.querySelector(".edit ha-icon")?.setAttribute("icon", "mdi:dots-horizontal");
+    if (root.querySelector("style[data-home-minimal]")) return;
+
+    const style = document.createElement("style");
+    style.dataset.homeMinimal = "";
+    style.textContent = `.heading h2{font-size:15px!important;font-weight:500!important}.heading ha-icon{color:var(--secondary-text-color)!important;--mdc-icon-size:17px!important}.edit{min-width:44px!important;min-height:44px!important;padding:0!important;color:var(--secondary-text-color)!important;font-weight:400!important}.edit ha-icon{--mdc-icon-size:16px!important}.edit span{display:none!important}.icon{color:var(--secondary-text-color)!important}.name{font-weight:500!important}.state{font-size:12px!important}.dialog-title,.confirm-title{font-size:16px!important;font-weight:500!important}.subheading,.group-title,.choice-name,.dialog-button{font-weight:500!important}.selected-meta,.choice-meta,.editor-copy{font-size:12px!important}`;
+    root.append(style);
+  }
 }
 
-const MinimalFavourites = customElements.get("component-favourites-minimal-v1");
-if (MinimalFavourites && !MinimalFavourites.prototype.__backendStorageV1) {
-  MinimalFavourites.prototype.__backendStorageV1 = true;
-  const originalMinimalSetConfig = MinimalFavourites.prototype.setConfig;
-  MinimalFavourites.prototype.setConfig = function setMinimalBackendFavourites(config) {
-    originalMinimalSetConfig.call(this, {
-      preference_key: "home-control.favourites.v1",
-      ...config,
-    });
-  };
-}
+registerCard({
+  type: "component-favourites-minimal-v1",
+  element: ComponentFavouritesMinimalV1,
+  name: "Favourites Minimal",
+  description: "Existing favourites behaviour with restrained Home typography.",
+});
 }
 
 // Module: src/components/room-directory.js
 {
-(()=>{
-globalThis.__homeDashboardV2??={};const HD2=globalThis.__homeDashboardV2,{interaction,navigateTo,openMoreInfo}=globalThis.__HA_COMPONENT_LIBRARY_SHARED__;class ComponentRoomDirectoryV4 extends HTMLElement{static getGridOptions(){return{columns:12,rows:'auto'}}constructor(){super();this.attachShadow({mode:'open'});this.c=null;this.h=null;this.d=null;this.prefs={order:[],hidden:[]};this.prefsLoaded=false;this.unsub=null;this.currentAreaId=null;this.controlCard=null;this.tiles=new Map;this.editor=document.createElement('dashboard-preference-editor-v3');this._location=()=>this.syncHash();this._touch=null;this._interactionHandles=[];this._scrollPositions=new Map;this.shadowRoot.innerHTML=`<style>:host{display:block;min-width:0}*{box-sizing:border-box}ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}button{font:inherit;color:inherit}.head{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;padding:0 2px}.open-view{appearance:none;border:0;background:transparent;display:flex;align-items:center;gap:7px;min-height:44px;padding:0;cursor:pointer}.open-view ha-icon{color:var(--secondary-text-color);--mdc-icon-size:17px}.open-view h2{margin:0;font-size:15px;line-height:1.2;font-weight:500}.edit,.room-edit{appearance:none;width:44px;height:44px;border:0;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center;cursor:pointer}.edit ha-icon,.room-edit ha-icon{--mdc-icon-size:16px}.edit:hover,.edit:focus-visible,.room-edit:hover,.room-edit:focus-visible,.open-view:focus-visible{background:var(--dashboard-card-muted-surface,var(--secondary-background-color));color:var(--primary-text-color)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.group{grid-column:1/-1;min-height:28px;padding:3px 2px 1px;display:flex;align-items:center;gap:8px;color:var(--secondary-text-color);font-size:12px;font-weight:500}.group:after{content:'';height:1px;background:var(--divider-color);flex:1}.room{appearance:none;min-width:0;min-height:56px;padding:0 12px 0 10px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);background:var(--dashboard-card-surface,var(--card-background-color));text-align:left;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:9px;cursor:pointer}.room:active{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.room:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px}.ico{width:34px;height:34px;display:grid;place-items:center;color:var(--secondary-text-color)}.ico ha-icon{--mdc-icon-size:19px}.copy{min-width:0}.name,.summary{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name{font-size:13px;line-height:1.25;font-weight:500}.summary{margin-top:3px;font-size:12px;line-height:1.25;font-weight:400;color:var(--secondary-text-color)}.room.active .ico{color:color-mix(in srgb,var(--primary-color) 55%,var(--secondary-text-color))}.room.warning{border-left-color:var(--warning-color,#f9a825)}.room.warning .ico{color:var(--warning-color,#f9a825)}.room.critical{border-left-color:var(--error-color)}.room.critical .ico{color:var(--error-color)}dialog{width:min(720px,calc(100vw - 24px));height:min(760px,calc(100dvh - 32px));min-height:min(560px,calc(100dvh - 32px));margin:auto;padding:0;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,10px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22));overflow:hidden}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.16));backdrop-filter:blur(3px)}.sheet{height:100%;display:flex;flex-direction:column;will-change:transform;transition:transform .18s ease}.sheet.dragging{transition:none}.sheet-head{flex:0 0 auto;min-height:54px;padding:5px 6px 5px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--divider-color);touch-action:pan-y}.identity{min-width:0;display:flex;align-items:center;gap:8px}.identity ha-icon{color:var(--secondary-text-color);--mdc-icon-size:18px}.sheet-name{font-size:14px;line-height:1.2;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.environment{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;color:var(--secondary-text-color)}.metric{appearance:none;border:0;background:transparent;min-height:44px;padding:0;display:flex;align-items:center;gap:3px;white-space:nowrap;cursor:pointer;color:inherit;font-size:12px}.metric ha-icon{--mdc-icon-size:15px;color:var(--secondary-text-color)}.dot{font-size:11px;color:var(--disabled-text-color,var(--secondary-text-color))}.close{appearance:none;width:44px;height:44px;padding:0;border:0;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center;cursor:pointer;flex:0 0 auto}.close ha-icon{--mdc-icon-size:18px}.sheet-body{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:10px 14px max(14px,env(safe-area-inset-bottom));touch-action:pan-y}@media(max-width:700px){dialog{width:100vw;max-width:100vw;height:92dvh;min-height:92dvh;max-height:92dvh;margin:auto 0 0;border-width:1px 0 0;border-radius:var(--dashboard-radius-dialog,8px) var(--dashboard-radius-dialog,8px) 0 0}.sheet-head{padding-left:12px}.sheet-body{padding:8px 12px max(18px,env(safe-area-inset-bottom))}}@media(max-width:520px){.identity ha-icon{display:none}.sheet-head{gap:5px}.environment{gap:4px}.metric{font-size:11.5px}.room-edit,.close{width:44px;height:44px}}</style><style>@media(prefers-reduced-motion:reduce){.sheet{transition:none}}</style><ha-card><div class="head"><button class="open-view" type="button"><ha-icon></ha-icon><h2></h2></button><button class="edit" type="button" aria-label="Edit rooms"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button></div><div class="grid"></div></ha-card><dialog><div class="sheet"><div class="sheet-head"><span class="identity"><ha-icon class="sheet-icon"></ha-icon><span class="sheet-name"></span></span><span class="environment"></span><button class="room-edit" type="button" aria-label="Edit room controls"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button><button class="close" type="button" aria-label="Close room"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="sheet-body"></div></div></dialog>`;this.grid=this.shadowRoot.querySelector('.grid');this.dialog=this.shadowRoot.querySelector('dialog');this.sheet=this.shadowRoot.querySelector('.sheet');this.sheetBody=this.shadowRoot.querySelector('.sheet-body');this.environment=this.shadowRoot.querySelector('.environment');this.shadowRoot.append(this.editor);this.shadowRoot.querySelector('.edit').onclick=()=>this.openEditor();this._interactionHandles.push(interaction(this.shadowRoot.querySelector('.open-view'),{primary:()=>this.openView(),feedback:true}));this.shadowRoot.querySelector('.room-edit').onclick=()=>this.controlCard?.openEditor?.();this.shadowRoot.querySelector('.close').onclick=()=>this.closeRoom();this.dialog.addEventListener('click',e=>{if(e.target===this.dialog)this.closeRoom()});this.dialog.addEventListener('cancel',e=>{e.preventDefault();this.closeRoom()});this.bindSwipe()}setConfig(c){this.c={title:'Rooms',icon:'mdi:floor-plan',mode:'home',pref_key:'home-control.rooms.v2',navigation_path:null,base_path:'/home-control',...c};this.shadowRoot.querySelector('h2').textContent=this.c.title;this.shadowRoot.querySelector('.open-view ha-icon').setAttribute('icon',this.c.icon);this.shadowRoot.querySelector('.open-view').disabled=!this.c.navigation_path;this.loadPrefs();this.rebuild()}set hass(h){this.h=h;if(this.controlCard)this.controlCard.hass=h;this.unsub||this.subscribe();if(!this.prefsLoaded)this.loadPrefs();this.refreshTiles();this.refreshOpenRoom()}connectedCallback(){this.subscribe();window.addEventListener('hashchange',this._location);window.addEventListener('location-changed',this._location);this.rebuild();this.syncHash()}disconnectedCallback(){for(const h of this._interactionHandles)h.destroy();this._interactionHandles=[];for(const b of this.tiles.values())b._interaction?.destroy?.();this.unsub?.();this.unsub=null;window.removeEventListener('hashchange',this._location);window.removeEventListener('location-changed',this._location)}getCardSize(){return 4}subscribe(){if(this.unsub||!this.h||!HD2.REG?.subscribe)return;this.unsub=HD2.REG.subscribe(this.h,d=>{this.d=d;this.rebuild();this.syncHash()})}async loadPrefs(){if(!this.h||!this.c?.pref_key||!HD2.prefs)return;this.prefs=await HD2.prefs(this.h,this.c.pref_key);this.prefsLoaded=true;this.rebuild()}openView(){if(!this.c.navigation_path)return;navigateTo(this.c.navigation_path)}entries(areaId){if(!this.d||!this.h)return[];return this.d.entities.filter(e=>HD2.uiEntry(e)&&HD2.areaOf(e,this.d)===areaId).map(e=>({e,s:this.h.states[e.entity_id]})).filter(x=>x.s)}air(x){const id=`${x.e.entity_id} ${x.s.attributes?.friendly_name||''}`.toLowerCase();return id.includes('air_quality')||id.includes('air quality')||id.includes('air_monitor')||id.includes('air monitor')}metric(items,cls,monitor=false){const blocked=/(_controller_temperature|_outside_air_temperature|cpu_temperature|processor_temperature|board_temperature|chip_temperature|internal_temperature)$/;return items.find(x=>HD2.domain(x.e.entity_id)==='sensor'&&x.s.attributes?.device_class===cls&&HD2.validState(x.s)&&Number.isFinite(Number.parseFloat(x.s.state))&&!(cls==='temperature'&&blocked.test(x.e.entity_id))&&(!monitor||this.air(x)))||null}fmt(s){try{return this.h.formatEntityState(s)}catch{return String(s?.state||'')}}status(area){const x=this.entries(area.area_id).filter(y=>HD2.validState(y.s)),mt=this.metric(x,'temperature',true),mh=this.metric(x,'humidity',true),cl=x.find(y=>HD2.domain(y.e.entity_id)==='climate'&&Number.isFinite(Number.parseFloat(y.s.attributes?.current_temperature))),ft=this.metric(x,'temperature'),fh=this.metric(x,'humidity');let temp='';if(mt)temp=this.fmt(mt.s);else if(cl){const n=Number.parseFloat(cl.s.attributes.current_temperature),u=cl.s.attributes.temperature_unit||this.h.config?.unit_system?.temperature||'°C';temp=n.toLocaleString(this.h.locale?.language||undefined,{maximumFractionDigits:1})+' '+u}else if(ft)temp=this.fmt(ft.s);const hum=mh||fh,lights=x.filter(y=>HD2.domain(y.e.entity_id)==='light'&&y.s.state==='on').length,critical=x.some(y=>HD2.domain(y.e.entity_id)==='binary_sensor'&&y.s.state==='on'&&/^(smoke|moisture|gas)$/.test(y.s.attributes?.device_class||'')),warning=x.some(y=>(HD2.domain(y.e.entity_id)==='binary_sensor'&&y.s.state==='on'&&y.s.attributes?.device_class==='garage_door')||(HD2.domain(y.e.entity_id)==='cover'&&/^(open|opening)$/.test(y.s.state)&&y.s.attributes?.device_class==='garage')),active=lights>0||x.some(y=>(HD2.domain(y.e.entity_id)==='climate'&&/^(heating|cooling|drying|fan)$/.test(y.s.attributes?.hvac_action||''))||(HD2.domain(y.e.entity_id)==='media_player'&&y.s.state==='playing'));const p=[];if(critical)p.push('Attention required');else if(warning)p.push('Garage open');if(temp)p.push(temp);if(hum)p.push(this.fmt(hum.s));if(lights)p.push(`${lights} light${lights===1?'':'s'} on`);return{summary:p.slice(0,3).join(' · '),severity:critical?'critical':warning?'warning':active?'active':'',tempState:mt?.s||cl?.s||ft?.s||null,humState:hum?.s||null}}isOutdoor(a){return/(yard|garage|garden|patio|deck|outdoor|shed|carport)/i.test(`${a.area_id} ${a.name}`)}async rebuild(){if(!this.h||!this.c||!HD2.REG?.load)return;this.d=this.d||await HD2.REG.load(this.h);if(!this.d)return;const areas=this.d.areas.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),undefined,{sensitivity:'base'})),visible=HD2.applyPrefs(areas.map(a=>({id:a.area_id,area:a})),this.prefs).visible.map(x=>x.area);this.grid.replaceChildren();const add=(title,list)=>{if(this.c.mode==='full'){const g=document.createElement('div');g.className='group';g.textContent=title;this.grid.append(g)}for(const a of list){let b=this.tiles.get(a.area_id);if(!b){b=this.makeTile(a);this.tiles.set(a.area_id,b)}this.updateTile(b,a);this.grid.append(b)}};if(this.c.mode==='full'){add('Indoor',visible.filter(a=>!this.isOutdoor(a)));add('Outdoor & utility',visible.filter(a=>this.isOutdoor(a)))}else add('',visible);const keep=new Set(visible.map(a=>a.area_id));for(const[id,b]of[...this.tiles])if(!keep.has(id)){b._interaction?.destroy?.();b.remove();this.tiles.delete(id)}}makeTile(a){const b=document.createElement('button');b.type='button';b.className='room';b.innerHTML='<span class="ico"><ha-icon></ha-icon></span><span class="copy"><span class="name"></span><span class="summary"></span></span>';b._interaction=interaction(b,{primary:()=>{const x=this.d?.areaMap?.get(a.area_id)||a;return this.openRoom(x,true)},feedback:true});return b}updateTile(b,a){if(!this.h)return;const st=this.status(a);b.className=`room ${st.severity}`;b.setAttribute('aria-label',`Open ${a.name}${st.summary?'. '+st.summary:''}`);b.querySelector('ha-icon').setAttribute('icon',a.icon||'mdi:home-outline');b.querySelector('.name').textContent=a.name;const s=b.querySelector('.summary');s.textContent=st.summary||'';s.hidden=!st.summary}refreshTiles(){if(!this.d||!this.h)return;for(const[id,b]of this.tiles){const a=this.d.areaMap?.get(id);if(a)this.updateTile(b,a)}}areaFromHash(){const slug=location.hash.replace(/^#/,'');if(!slug||!this.d)return null;return this.d.areas.find(a=>a.area_id.replaceAll('_','-')===slug)||null}syncHash(){if(!this.d||!this.h)return;const a=this.areaFromHash();if(a){if(this.currentAreaId!==a.area_id||!this.dialog.open)this.openRoom(a,false)}else if(this.dialog.open)this.closeRoom(false)}async openRoom(a,writeHash=true){if(!a||!this.h)return;if(this.dialog.open&&this.currentAreaId)this._scrollPositions.set(this.currentAreaId,this.sheetBody.scrollTop);this.currentAreaId=a.area_id;if(writeHash){const hash='#'+a.area_id.replaceAll('_','-');if(location.hash!==hash){history.pushState(null,'',location.pathname+location.search+hash);window.dispatchEvent(new Event('location-changed'))}}this.renderSheetHeader(a);await customElements.whenDefined('component-smart-collection-v3');this.sheetBody.replaceChildren();const controls=document.createElement('component-smart-collection-v3');controls.setConfig({mode:'area',area_id:a.area_id,title:'Controls',icon:'mdi:gesture-tap-button',header_style:'separator',editable:false,pref_key:`home-control.area.${a.area_id}.v2`});controls.hass=this.h;this.controlCard=controls;this.sheetBody.append(controls);if(!this.dialog.open)this.dialog.showModal();this.sheetBody.scrollTop=this._scrollPositions.get(a.area_id)||0;this.sheet.style.transform='';queueMicrotask(()=>this.shadowRoot.querySelector('.close')?.focus())}refreshOpenRoom(){const a=this.d?.areaMap?.get(this.currentAreaId);if(a&&this.dialog.open)this.renderSheetHeader(a)}renderSheetHeader(a){const st=this.status(a);this.shadowRoot.querySelector('.sheet-icon').setAttribute('icon',a.icon||'mdi:home-outline');this.shadowRoot.querySelector('.sheet-name').textContent=a.name;this.environment.replaceChildren();const add=(s,icon,label)=>{if(!s)return;if(this.environment.childElementCount){const dot=document.createElement('span');dot.className='dot';dot.textContent='•';this.environment.append(dot)}const b=document.createElement('button');b.type='button';b.className='metric';b.innerHTML=`<ha-icon icon="${icon}"></ha-icon><span></span>`;b.querySelector('span').textContent=label;this._interactionHandles.push(interaction(b,{primary:()=>openMoreInfo(this,s.entity_id),feedback:true}));this.environment.append(b)};add(st.tempState,'mdi:thermometer',st.tempState?this.tempText(st.tempState):'');add(st.humState,'mdi:water-percent',st.humState?this.fmt(st.humState):'')}tempText(s){if(HD2.domain(s.entity_id)==='climate'){const n=Number.parseFloat(s.attributes?.current_temperature);if(Number.isFinite(n)){const u=s.attributes?.temperature_unit||this.h.config?.unit_system?.temperature||'°C';return n.toLocaleString(this.h.locale?.language||undefined,{maximumFractionDigits:1})+' '+u}}return this.fmt(s)}closeRoom(clearHash=true){if(this.currentAreaId)this._scrollPositions.set(this.currentAreaId,this.sheetBody.scrollTop);if(this.dialog.open)this.dialog.close();this.currentAreaId=null;this.controlCard=null;this.sheetBody.replaceChildren();this.sheet.style.transform='';if(clearHash&&location.hash){history.replaceState(null,'',location.pathname+location.search);window.dispatchEvent(new Event('location-changed'))}}bindSwipe(){const interactive=e=>e.composedPath().some(n=>n?.matches?.('button,input,select,textarea,[role="slider"],a'));const start=e=>{if(e.touches?.length!==1||interactive(e))return;const fromHeader=e.composedPath().some(n=>n?.classList?.contains('sheet-head'));if(!fromHeader&&this.sheetBody.scrollTop>0)return;const t=e.touches[0];this._touch={x:t.clientX,y:t.clientY,dy:0,fromHeader};this.sheet.classList.add('dragging')},move=e=>{if(!this._touch||e.touches?.length!==1)return;if(!this._touch.fromHeader&&this.sheetBody.scrollTop>0){this.cancelSwipe();return}const t=e.touches[0],dy=t.clientY-this._touch.y,dx=t.clientX-this._touch.x;if(dy<=0||Math.abs(dx)>dy){this.sheet.style.transform='';return}this._touch.dy=dy;this.sheet.style.transform=`translateY(${Math.min(dy,240)}px)`;if(dy>8)e.preventDefault()},end=()=>{if(!this._touch)return;const close=this._touch.dy>96;this.cancelSwipe();if(close)this.closeRoom()};this.sheet.addEventListener('touchstart',start,{passive:true});this.sheet.addEventListener('touchmove',move,{passive:false});this.sheet.addEventListener('touchend',end,{passive:true});this.sheet.addEventListener('touchcancel',end,{passive:true})}cancelSwipe(){this._touch=null;this.sheet.classList.remove('dragging');this.sheet.style.transform=''}async openEditor(){if(!this.h||!HD2.REG?.load)return;await customElements.whenDefined('dashboard-preference-editor-v3');this.d=this.d||await HD2.REG.load(this.h);const areas=this.d.areas.map(a=>({id:a.area_id,name:a.name,meta:this.isOutdoor(a)?'Outdoor & utility':'Indoor',icon:a.icon||'mdi:home-outline'})),p=HD2.applyPrefs(areas,this.prefs);this.editor.open({title:'Edit rooms',description:'Rooms are discovered from Home Assistant Areas. Reorder them or hide rooms without changing the Area itself.',items:p.all,hidden:[...p.hidden],onSave:async v=>{this.prefs=v;await HD2.savePrefs(this.h,this.c.pref_key,v);this.rebuild()}})}}if(!customElements.get('component-room-directory-v4'))customElements.define('component-room-directory-v4',ComponentRoomDirectoryV4);window.customCards=window.customCards||[];if(!window.customCards.some(x=>x.type==='component-room-directory-v4'))window.customCards.push({type:'component-room-directory-v4',name:'Room Directory V4',description:'Stable registry-driven rooms with full-height swipeable room sheets.'});
+(() => {
+  globalThis.__homeDashboardV2 ??= {};
+  const HD2 = globalThis.__homeDashboardV2,
+    { interaction, navigateTo, openMoreInfo, registerCard } =
+      globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+  class ComponentRoomDirectoryV4 extends HTMLElement {
+    static getGridOptions() {
+      return { columns: 12, rows: "auto" };
+    }
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" });
+      this.c = null;
+      this.h = null;
+      this.d = null;
+      this.prefs = { order: [], hidden: [] };
+      this.prefsLoaded = false;
+      this.unsub = null;
+      this.currentAreaId = null;
+      this.controlCard = null;
+      this.tiles = new Map();
+      this._location = () => this.syncHash();
+      this._touch = null;
+      this._interactionHandles = [];
+      this._scrollPositions = new Map();
+      this.openingAreaId = null;
+      this.roomEntriesCache = null;
+      this.shadowRoot.innerHTML = `<style>:host{display:block;min-width:0}*{box-sizing:border-box}ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}button{font:inherit;color:inherit}.head{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;padding:0 2px}.open-view{appearance:none;border:0;background:transparent;display:flex;align-items:center;gap:7px;min-height:44px;padding:0;cursor:pointer}.open-view ha-icon{color:var(--secondary-text-color);--mdc-icon-size:17px}.open-view h2{margin:0;font-size:15px;line-height:1.2;font-weight:500}.edit,.room-edit{appearance:none;width:44px;height:44px;border:0;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center;cursor:pointer}.edit ha-icon,.room-edit ha-icon{--mdc-icon-size:16px}.edit:hover,.edit:focus-visible,.room-edit:hover,.room-edit:focus-visible,.open-view:focus-visible{background:var(--dashboard-card-muted-surface,var(--secondary-background-color));color:var(--primary-text-color)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.group{grid-column:1/-1;min-height:28px;padding:3px 2px 1px;display:flex;align-items:center;gap:8px;color:var(--secondary-text-color);font-size:12px;font-weight:500}.group:after{content:'';height:1px;background:var(--divider-color);flex:1}.room{appearance:none;min-width:0;min-height:56px;padding:0 12px 0 10px;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,8px);background:var(--dashboard-card-surface,var(--card-background-color));text-align:left;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:9px;cursor:pointer}.room:active{background:var(--dashboard-card-muted-surface,var(--secondary-background-color))}.room:focus-visible{outline:2px solid var(--primary-color);outline-offset:-2px}.ico{width:34px;height:34px;display:grid;place-items:center;color:var(--secondary-text-color)}.ico ha-icon{--mdc-icon-size:19px}.copy{min-width:0}.name,.summary{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name{font-size:13px;line-height:1.25;font-weight:500}.summary{margin-top:3px;font-size:12px;line-height:1.25;font-weight:400;color:var(--secondary-text-color)}.room.active .ico{color:color-mix(in srgb,var(--primary-color) 55%,var(--secondary-text-color))}.room.warning{border-left-color:var(--warning-color,#f9a825)}.room.warning .ico{color:var(--warning-color,#f9a825)}.room.critical{border-left-color:var(--error-color)}.room.critical .ico{color:var(--error-color)}dialog{width:min(720px,calc(100vw - 24px));height:min(760px,calc(100dvh - 32px));min-height:min(560px,calc(100dvh - 32px));margin:auto;padding:0;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-dialog,10px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22));overflow:hidden}dialog::backdrop{background:var(--dashboard-modal-scrim,rgba(0,0,0,.16));backdrop-filter:blur(3px)}.sheet{height:100%;display:flex;flex-direction:column;will-change:transform;transition:transform .18s ease}.sheet.dragging{transition:none}.sheet-head{flex:0 0 auto;min-height:54px;padding:5px 6px 5px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--divider-color);touch-action:pan-y}.identity{min-width:0;display:flex;align-items:center;gap:8px}.identity ha-icon{color:var(--secondary-text-color);--mdc-icon-size:18px}.sheet-name{font-size:14px;line-height:1.2;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.environment{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;gap:6px;min-width:0;color:var(--secondary-text-color)}.metric{appearance:none;border:0;background:transparent;min-height:44px;padding:0;display:flex;align-items:center;gap:3px;white-space:nowrap;cursor:pointer;color:inherit;font-size:12px}.metric ha-icon{--mdc-icon-size:15px;color:var(--secondary-text-color)}.dot{font-size:11px;color:var(--disabled-text-color,var(--secondary-text-color))}.close{appearance:none;width:44px;height:44px;padding:0;border:0;border-radius:var(--dashboard-radius-control,8px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center;cursor:pointer;flex:0 0 auto}.close ha-icon{--mdc-icon-size:18px}.sheet-body{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:10px 14px max(14px,env(safe-area-inset-bottom));touch-action:pan-y}@media(max-width:700px){dialog{width:100vw;max-width:100vw;height:92dvh;min-height:92dvh;max-height:92dvh;margin:auto 0 0;border-width:1px 0 0;border-radius:var(--dashboard-radius-dialog,8px) var(--dashboard-radius-dialog,8px) 0 0}.sheet-head{padding-left:12px}.sheet-body{padding:8px 12px max(18px,env(safe-area-inset-bottom))}}@media(max-width:520px){.identity ha-icon{display:none}.sheet-head{gap:5px}.environment{gap:4px}.metric{font-size:11.5px}.room-edit,.close{width:44px;height:44px}}</style><style>@media(prefers-reduced-motion:reduce){.sheet{transition:none}}</style><ha-card><div class="head"><button class="open-view" type="button"><ha-icon></ha-icon><h2></h2></button><button class="edit" type="button" aria-label="Edit rooms"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button></div><div class="grid"></div></ha-card><dialog><div class="sheet"><div class="sheet-head"><span class="identity"><ha-icon class="sheet-icon"></ha-icon><span class="sheet-name"></span></span><span class="environment"></span><button class="room-edit" type="button" aria-label="Edit room controls"><ha-icon icon="mdi:dots-horizontal"></ha-icon></button><button class="close" type="button" aria-label="Close room"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="sheet-body"></div></div></dialog>`;
+      this.grid = this.shadowRoot.querySelector(".grid");
+      this.dialog = this.shadowRoot.querySelector("dialog");
+      this.sheet = this.shadowRoot.querySelector(".sheet");
+      this.sheetBody = this.shadowRoot.querySelector(".sheet-body");
+      this.environment = this.shadowRoot.querySelector(".environment");
+      this.shadowRoot.querySelector(".edit").onclick = () => this.openEditor();
+      this._interactionHandles.push(
+        interaction(this.shadowRoot.querySelector(".open-view"), {
+          primary: () => this.openView(),
+          feedback: true,
+        }),
+      );
+      this.shadowRoot.querySelector(".room-edit").onclick = () =>
+        this.controlCard?.openEditor?.();
+      this.shadowRoot.querySelector(".close").onclick = () => this.closeRoom();
+      this.dialog.addEventListener("click", (e) => {
+        if (e.target === this.dialog) this.closeRoom();
+      });
+      this.dialog.addEventListener("cancel", (e) => {
+        e.preventDefault();
+        this.closeRoom();
+      });
+      this.bindSwipe();
+    }
+    setConfig(c) {
+      this.c = {
+        title: "Rooms",
+        icon: "mdi:floor-plan",
+        mode: "home",
+        pref_key: "home-control.rooms.v2",
+        navigation_path: null,
+        base_path: "/home-control",
+        ...c,
+      };
+      this.shadowRoot.querySelector("h2").textContent = this.c.title;
+      this.shadowRoot
+        .querySelector(".open-view ha-icon")
+        .setAttribute("icon", this.c.icon);
+      this.shadowRoot.querySelector(".open-view").disabled =
+        !this.c.navigation_path;
+      this.loadPrefs();
+      this.rebuild();
+    }
+    set hass(h) {
+      this.h = h;
+      if (this.controlCard) this.controlCard.hass = h;
+      this.unsub || this.subscribe();
+      if (!this.prefsLoaded) this.loadPrefs();
+      this.refreshTiles();
+      this.refreshOpenRoom();
+    }
+    connectedCallback() {
+      this.subscribe();
+      window.addEventListener("hashchange", this._location);
+      window.addEventListener("location-changed", this._location);
+      this.rebuild();
+      this.syncHash();
+    }
+    disconnectedCallback() {
+      this.unsub?.();
+      this.unsub = null;
+      window.removeEventListener("hashchange", this._location);
+      window.removeEventListener("location-changed", this._location);
+    }
+    getCardSize() {
+      return 4;
+    }
+    subscribe() {
+      if (this.unsub || !this.h || !HD2.REG?.subscribe) return;
+      this.unsub = HD2.REG.subscribe(this.h, (d) => {
+        this.d = d;
+        this.rebuild();
+        this.syncHash();
+      });
+    }
+    async loadPrefs() {
+      if (!this.h || !this.c?.pref_key || !HD2.prefs) return;
+      this.prefs = await HD2.prefs(this.h, this.c.pref_key);
+      this.prefsLoaded = true;
+      this.rebuild();
+    }
+    openView() {
+      if (!this.c.navigation_path) return;
+      navigateTo(this.c.navigation_path);
+    }
+    entries(areaId) {
+      if (!this.d || !this.h) return [];
+      let cache = this.roomEntriesCache;
+      if (!cache || cache.registry !== this.d) {
+        const byArea = new Map();
+        for (const entry of this.d.entities || []) {
+          if (!HD2.uiEntry(entry)) continue;
+          const id = HD2.areaOf(entry, this.d);
+          if (!id) continue;
+          const items = byArea.get(id) || [];
+          items.push(entry);
+          byArea.set(id, items);
+        }
+        cache = { registry: this.d, byArea };
+        this.roomEntriesCache = cache;
+      }
+      return (cache.byArea.get(areaId) || [])
+        .map((e) => ({ e, s: this.h.states[e.entity_id] }))
+        .filter((x) => x.s);
+    }
+    roomIsActive(area) {
+      return this.entries(area.area_id).some(({ e, s }) => {
+        if (e?.entity_id?.startsWith("binary_sensor.") && s?.state === "on") {
+          const deviceClass = String(
+              s.attributes?.device_class || e.device_class || "",
+            ).toLowerCase(),
+            identity = (
+              e.entity_id +
+              " " +
+              String(e.name || e.original_name || "") +
+              " " +
+              String(s.attributes?.friendly_name || "")
+            ).toLowerCase();
+          if (
+            deviceClass === "occupancy" ||
+            deviceClass === "presence" ||
+            identity.includes("presence") ||
+            identity.includes("occupancy") ||
+            identity.includes("mmwave")
+          )
+            return true;
+        }
+        return HD2.isActive?.(e, s) === true;
+      });
+    }
+    roomPresenceHue(area) {
+      const key = String(area?.area_id || area?.name || "room");
+      let hash = 2166136261;
+      for (let i = 0; i < key.length; i++) {
+        hash ^= key.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0) % 360;
+    }
+    air(x) {
+      const id =
+        `${x.e.entity_id} ${x.s.attributes?.friendly_name || ""}`.toLowerCase();
+      return (
+        id.includes("air_quality") ||
+        id.includes("air quality") ||
+        id.includes("air_monitor") ||
+        id.includes("air monitor")
+      );
+    }
+    metric(items, cls, monitor = false) {
+      const blocked =
+        /(_controller_temperature|_outside_air_temperature|cpu_temperature|processor_temperature|board_temperature|chip_temperature|internal_temperature)$/;
+      return (
+        items.find(
+          (x) =>
+            HD2.domain(x.e.entity_id) === "sensor" &&
+            x.s.attributes?.device_class === cls &&
+            HD2.validState(x.s) &&
+            Number.isFinite(Number.parseFloat(x.s.state)) &&
+            !(cls === "temperature" && blocked.test(x.e.entity_id)) &&
+            (!monitor || this.air(x)),
+        ) || null
+      );
+    }
+    fmt(s) {
+      try {
+        return this.h.formatEntityState(s);
+      } catch {
+        return String(s?.state || "");
+      }
+    }
+    status(area) {
+      const x = this.entries(area.area_id).filter((y) => HD2.validState(y.s)),
+        mt = this.metric(x, "temperature", true),
+        mh = this.metric(x, "humidity", true),
+        cl = x.find(
+          (y) =>
+            HD2.domain(y.e.entity_id) === "climate" &&
+            Number.isFinite(
+              Number.parseFloat(y.s.attributes?.current_temperature),
+            ),
+        ),
+        ft = this.metric(x, "temperature"),
+        fh = this.metric(x, "humidity");
+      let temp = "";
+      if (mt) temp = this.fmt(mt.s);
+      else if (cl) {
+        const n = Number.parseFloat(cl.s.attributes.current_temperature),
+          u =
+            cl.s.attributes.temperature_unit ||
+            this.h.config?.unit_system?.temperature ||
+            "°C";
+        temp =
+          n.toLocaleString(this.h.locale?.language || undefined, {
+            maximumFractionDigits: 1,
+          }) +
+          " " +
+          u;
+      } else if (ft) temp = this.fmt(ft.s);
+      const hum = mh || fh,
+        lights = x.filter(
+          (y) => HD2.domain(y.e.entity_id) === "light" && y.s.state === "on",
+        ).length,
+        critical = x.some(
+          (y) =>
+            HD2.domain(y.e.entity_id) === "binary_sensor" &&
+            y.s.state === "on" &&
+            /^(smoke|moisture|gas)$/.test(y.s.attributes?.device_class || ""),
+        ),
+        warning = x.some(
+          (y) =>
+            (HD2.domain(y.e.entity_id) === "binary_sensor" &&
+              y.s.state === "on" &&
+              y.s.attributes?.device_class === "garage_door") ||
+            (HD2.domain(y.e.entity_id) === "cover" &&
+              /^(open|opening)$/.test(y.s.state) &&
+              y.s.attributes?.device_class === "garage"),
+        ),
+        active =
+          lights > 0 ||
+          x.some(
+            (y) =>
+              (HD2.domain(y.e.entity_id) === "climate" &&
+                /^(heating|cooling|drying|fan)$/.test(
+                  y.s.attributes?.hvac_action || "",
+                )) ||
+              (HD2.domain(y.e.entity_id) === "media_player" &&
+                y.s.state === "playing"),
+          );
+      const p = [];
+      if (critical) p.push("Attention required");
+      else if (warning) p.push("Garage open");
+      if (temp) p.push(temp);
+      if (hum) p.push(this.fmt(hum.s));
+      if (lights) p.push(`${lights} light${lights === 1 ? "" : "s"} on`);
+      return {
+        summary: p.slice(0, 3).join(" · "),
+        severity: critical
+          ? "critical"
+          : warning
+            ? "warning"
+            : active
+              ? "active"
+              : "",
+        tempState: mt?.s || cl?.s || ft?.s || null,
+        humState: hum?.s || null,
+      };
+    }
+    isOutdoor(a) {
+      return /(yard|garage|garden|patio|deck|outdoor|shed|carport)/i.test(
+        `${a.area_id} ${a.name}`,
+      );
+    }
+    async rebuild() {
+      if (!this.h || !this.c || !HD2.REG?.load) return;
+      this.d = this.d || (await HD2.REG.load(this.h));
+      if (!this.d) return;
+      const areas = this.d.areas
+          .slice()
+          .sort((a, b) =>
+            String(a.name).localeCompare(String(b.name), undefined, {
+              sensitivity: "base",
+            }),
+          ),
+        visible = HD2.applyPrefs(
+          areas.map((a) => ({ id: a.area_id, area: a })),
+          this.prefs,
+        ).visible.map((x) => x.area);
+      this.grid.replaceChildren();
+      const add = (title, list) => {
+        if (this.c.mode === "full") {
+          const g = document.createElement("div");
+          g.className = "group";
+          g.textContent = title;
+          this.grid.append(g);
+        }
+        for (const a of list) {
+          let b = this.tiles.get(a.area_id);
+          if (!b) {
+            b = this.makeTile(a);
+            this.tiles.set(a.area_id, b);
+          }
+          this.updateTile(b, a);
+          this.grid.append(b);
+        }
+      };
+      if (this.c.mode === "full") {
+        add(
+          "Indoor",
+          visible.filter((a) => !this.isOutdoor(a)),
+        );
+        add(
+          "Outdoor & utility",
+          visible.filter((a) => this.isOutdoor(a)),
+        );
+      } else add("", visible);
+      const keep = new Set(visible.map((a) => a.area_id));
+      for (const [id, b] of [...this.tiles])
+        if (!keep.has(id)) {
+          b._interaction?.destroy?.();
+          b.remove();
+          this.tiles.delete(id);
+        }
+    }
+    makeTile(a) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "room";
+      b.innerHTML =
+        '<span class="ico"><ha-icon></ha-icon></span><span class="copy"><span class="name"></span><span class="summary"></span></span>';
+      b._interaction = interaction(b, {
+        primary: () => {
+          const x = this.d?.areaMap?.get(a.area_id) || a;
+          return this.openRoom(x, true);
+        },
+        feedback: true,
+      });
+      return b;
+    }
+    updateTile(b, a) {
+      if (!this.h) return;
+      const st = this.status(a);
+      b.className = `room ${st.severity}`;
+      b.setAttribute(
+        "aria-label",
+        `Open ${a.name}${st.summary ? ". " + st.summary : ""}`,
+      );
+      b.querySelector("ha-icon").setAttribute(
+        "icon",
+        a.icon || "mdi:home-outline",
+      );
+      b.querySelector(".name").textContent = a.name;
+      const s = b.querySelector(".summary");
+      s.textContent = st.summary || "";
+      s.hidden = !st.summary;
+      const active = b.classList.contains("active") || this.roomIsActive(a);
+      if (b.dataset.roomGlowInitialised !== "true") {
+        b.dataset.roomGlowInitialised = "true";
+        b.style.transition = "box-shadow 180ms ease, border-color 180ms ease";
+        b.style.borderLeft =
+          "var(--dashboard-card-border,1px solid var(--divider-color))";
+      }
+      if (!active) {
+        b.style.removeProperty("border-color");
+        b.style.removeProperty("box-shadow");
+        b.removeAttribute("data-presence");
+        return;
+      }
+      const hue = this.roomPresenceHue(a);
+      b.setAttribute("data-presence", "true");
+      b.style.borderColor = `hsl(${hue} 82% 68% / .72)`;
+      b.style.boxShadow = `0 0 14px 2px hsl(${hue} 82% 64% / .14)`;
+    }
+    refreshTiles() {
+      if (!this.d || !this.h) return;
+      for (const [id, b] of this.tiles) {
+        const a = this.d.areaMap?.get(id);
+        if (a) this.updateTile(b, a);
+      }
+    }
+    areaFromHash() {
+      const slug = location.hash.replace(/^#/, "");
+      if (!slug || !this.d) return null;
+      return (
+        this.d.areas.find((a) => a.area_id.replaceAll("_", "-") === slug) ||
+        null
+      );
+    }
+    syncHash() {
+      if (!this.d || !this.h) return;
+      const a = this.areaFromHash();
+      if (a) {
+        if (this.currentAreaId !== a.area_id || !this.dialog.open)
+          this.openRoom(a, false);
+      } else if (this.dialog.open) this.closeRoom(false);
+    }
+    async openRoom(a, writeHash = true) {
+      if (!a || !this.h) return;
+      const areaId = a.area_id;
+      if (!areaId || this.openingAreaId === areaId) return;
+      this.openingAreaId = areaId;
+      try {
+        if (this.dialog.open && this.currentAreaId)
+          this._scrollPositions.set(
+            this.currentAreaId,
+            this.sheetBody.scrollTop,
+          );
+        this.currentAreaId = a.area_id;
+        if (writeHash) {
+          const hash = "#" + a.area_id.replaceAll("_", "-");
+          if (location.hash !== hash) {
+            history.pushState(
+              null,
+              "",
+              location.pathname + location.search + hash,
+            );
+            window.dispatchEvent(new Event("location-changed"));
+          }
+        }
+        this.renderSheetHeader(a);
+        await customElements.whenDefined("component-smart-collection-v3");
+        this.sheetBody.replaceChildren();
+        const controls = document.createElement(
+          "component-smart-collection-v3",
+        );
+        controls.setConfig({
+          mode: "area",
+          area_id: a.area_id,
+          title: "Controls",
+          icon: "mdi:gesture-tap-button",
+          header_style: "separator",
+          editable: false,
+          pref_key: `home-control.area.${a.area_id}.v2`,
+        });
+        controls.hass = this.h;
+        this.controlCard = controls;
+        this.sheetBody.append(controls);
+        if (!this.dialog.open) this.dialog.showModal();
+        this.sheetBody.scrollTop = this._scrollPositions.get(a.area_id) || 0;
+        this.sheet.style.transform = "";
+        queueMicrotask(() => this.shadowRoot.querySelector(".close")?.focus());
+      } finally {
+        if (this.openingAreaId === areaId) this.openingAreaId = null;
+      }
+    }
+    refreshOpenRoom() {
+      const a = this.d?.areaMap?.get(this.currentAreaId);
+      if (a && this.dialog.open) this.renderSheetHeader(a);
+    }
+    renderSheetHeader(a) {
+      const st = this.status(a);
+      this.shadowRoot
+        .querySelector(".sheet-icon")
+        .setAttribute("icon", a.icon || "mdi:home-outline");
+      this.shadowRoot.querySelector(".sheet-name").textContent = a.name;
+      this._interactionHandles = this._interactionHandles.filter((handle) => {
+        if (handle?.element?.parentNode === this.environment) {
+          handle.destroy();
+          return false;
+        }
+        return true;
+      });
+      this.environment.replaceChildren();
+      const add = (s, icon, label) => {
+        if (!s) return;
+        if (this.environment.childElementCount) {
+          const dot = document.createElement("span");
+          dot.className = "dot";
+          dot.textContent = "•";
+          this.environment.append(dot);
+        }
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "metric";
+        b.innerHTML = `<ha-icon icon="${icon}"></ha-icon><span></span>`;
+        b.querySelector("span").textContent = label;
+        this._interactionHandles.push(
+          interaction(b, {
+            primary: () => openMoreInfo(this, s.entity_id),
+            feedback: true,
+          }),
+        );
+        this.environment.append(b);
+      };
+      add(
+        st.tempState,
+        "mdi:thermometer",
+        st.tempState ? this.tempText(st.tempState) : "",
+      );
+      add(
+        st.humState,
+        "mdi:water-percent",
+        st.humState ? this.fmt(st.humState) : "",
+      );
+    }
+    tempText(s) {
+      if (HD2.domain(s.entity_id) === "climate") {
+        const n = Number.parseFloat(s.attributes?.current_temperature);
+        if (Number.isFinite(n)) {
+          const u =
+            s.attributes?.temperature_unit ||
+            this.h.config?.unit_system?.temperature ||
+            "°C";
+          return (
+            n.toLocaleString(this.h.locale?.language || undefined, {
+              maximumFractionDigits: 1,
+            }) +
+            " " +
+            u
+          );
+        }
+      }
+      return this.fmt(s);
+    }
+    closeRoom(clearHash = true) {
+      if (this.currentAreaId)
+        this._scrollPositions.set(this.currentAreaId, this.sheetBody.scrollTop);
+      if (this.dialog.open) this.dialog.close();
+      this.currentAreaId = null;
+      this.controlCard = null;
+      this.sheetBody.replaceChildren();
+      this.sheet.style.transform = "";
+      if (clearHash && location.hash) {
+        history.replaceState(null, "", location.pathname + location.search);
+        window.dispatchEvent(new Event("location-changed"));
+      }
+    }
+    bindSwipe() {
+      const interactive = (e) =>
+        e
+          .composedPath()
+          .some((n) =>
+            n?.matches?.('button,input,select,textarea,[role="slider"],a'),
+          );
+      const start = (e) => {
+          if (e.touches?.length !== 1 || interactive(e)) return;
+          const fromHeader = e
+            .composedPath()
+            .some((n) => n?.classList?.contains("sheet-head"));
+          if (!fromHeader && this.sheetBody.scrollTop > 0) return;
+          const t = e.touches[0];
+          this._touch = { x: t.clientX, y: t.clientY, dy: 0, fromHeader };
+          this.sheet.classList.add("dragging");
+        },
+        move = (e) => {
+          if (!this._touch || e.touches?.length !== 1) return;
+          if (!this._touch.fromHeader && this.sheetBody.scrollTop > 0) {
+            this.cancelSwipe();
+            return;
+          }
+          const t = e.touches[0],
+            dy = t.clientY - this._touch.y,
+            dx = t.clientX - this._touch.x;
+          if (dy <= 0 || Math.abs(dx) > dy) {
+            this.sheet.style.transform = "";
+            return;
+          }
+          this._touch.dy = dy;
+          this.sheet.style.transform = `translateY(${Math.min(dy, 240)}px)`;
+          if (dy > 8) e.preventDefault();
+        },
+        end = () => {
+          if (!this._touch) return;
+          const close = this._touch.dy > 96;
+          this.cancelSwipe();
+          if (close) this.closeRoom();
+        };
+      this.sheet.addEventListener("touchstart", start, { passive: true });
+      this.sheet.addEventListener("touchmove", move, { passive: false });
+      this.sheet.addEventListener("touchend", end, { passive: true });
+      this.sheet.addEventListener("touchcancel", end, { passive: true });
+    }
+    cancelSwipe() {
+      this._touch = null;
+      this.sheet.classList.remove("dragging");
+      this.sheet.style.transform = "";
+    }
+    async openEditor() {
+      if (!this.h || !HD2.REG?.load) return;
+      const editor = await HD2.preferenceEditor();
+      this.d = this.d || (await HD2.REG.load(this.h));
+      const areas = this.d.areas.map((a) => ({
+          id: a.area_id,
+          name: a.name,
+          meta: this.isOutdoor(a) ? "Outdoor & utility" : "Indoor",
+          icon: a.icon || "mdi:home-outline",
+        })),
+        p = HD2.applyPrefs(areas, this.prefs);
+      editor.open({
+        title: "Edit rooms",
+        description:
+          "Rooms are discovered from Home Assistant Areas. Reorder them or hide rooms without changing the Area itself.",
+        items: p.all,
+        hidden: [...p.hidden],
+        onSave: async (v) => {
+          this.prefs = v;
+          await HD2.savePrefs(this.h, this.c.pref_key, v);
+          this.rebuild();
+        },
+      });
+    }
+  }
+  registerCard({
+    type: "component-room-directory-v4",
+    element: ComponentRoomDirectoryV4,
+    name: "Room Directory V4",
+    description: "Stable registry-driven rooms with full-height swipeable room sheets.",
+  });
 })();
 }
 
 // Module: src/components/home-overview.js
 {
-const { interaction, openMoreInfo } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { interaction, openMoreInfo, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 
 class ComponentHomeOverviewV4 extends HTMLElement {
   static getGridOptions() { return { columns: 12, rows: "auto" }; }
@@ -8105,6 +13649,7 @@ class ComponentHomeOverviewV4 extends HTMLElement {
     this.building = false;
     this.timer = null;
     this._weatherInteraction = null;
+    this._headerSignature = "";
     this.shadowRoot.innerHTML = `<style>
       :host{display:block;min-width:0}*{box-sizing:border-box}
       ha-card{display:block;border:0;box-shadow:none;background:transparent;overflow:visible;color:var(--primary-text-color)}
@@ -8127,6 +13672,9 @@ class ComponentHomeOverviewV4 extends HTMLElement {
       current_dashboard: "home-control",
       favourites_helpers: ["input_text.dashboard_favourite_1", "input_text.dashboard_favourite_2", "input_text.dashboard_favourite_3", "input_text.dashboard_favourite_4"],
       ...c,
+      // Home Favourites is backed by the companion service. Dashboard helper
+      // entities are intentionally never forwarded into the child card.
+      favourites_helpers: [],
     };
     this.renderHeader();
     this.ensure();
@@ -8161,15 +13709,21 @@ class ComponentHomeOverviewV4 extends HTMLElement {
     const zone = this.h?.config?.time_zone;
     const language = this.h?.locale?.language || navigator.language || "en-AU";
     const locale = language === "en" ? "en-AU" : language;
-    this.shadowRoot.querySelector(".time").textContent = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", timeZone: zone }).format(now);
+    const time = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", timeZone: zone }).format(now);
     const state = this.h?.states?.[this.c.weather_entity];
     const attributes = state?.attributes || {};
     const number = (value) => Number.isFinite(Number(value)) ? new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(Number(value)) : "—";
     const temperature = number(attributes.temperature) + (attributes.temperature_unit || "°C");
     const cloud = Number.isFinite(Number(attributes.cloud_coverage)) ? `Cloud ${Math.round(Number(attributes.cloud_coverage))}%` : "Cloud —";
+    const weatherText = `${temperature} · ${cloud}`;
+    const weatherAriaLabel = `Outside ${temperature}, ${cloud}. Open weather details.`;
+    const signature = JSON.stringify([time, weatherText, weatherAriaLabel]);
+    if (signature === this._headerSignature) return;
+    this._headerSignature = signature;
+    this.shadowRoot.querySelector(".time").textContent = time;
     const weather = this.shadowRoot.querySelector(".weather");
-    weather.textContent = `${temperature} · ${cloud}`;
-    weather.setAttribute("aria-label", `Outside ${temperature}, ${cloud}. Open weather details.`);
+    weather.textContent = weatherText;
+    weather.setAttribute("aria-label", weatherAriaLabel);
   }
 
   moreWeather() { if (this.c?.weather_entity) openMoreInfo(this, this.c.weather_entity); }
@@ -8223,8 +13777,7 @@ class ComponentHomeOverviewV4 extends HTMLElement {
 class ComponentHomeOverviewV5 extends ComponentHomeOverviewV4 {}
 
 if (!customElements.get("component-home-overview-v5")) customElements.define("component-home-overview-v5", ComponentHomeOverviewV5);
-if(!customElements.get('component-home-overview-v4'))customElements.define('component-home-overview-v4',ComponentHomeOverviewV4);window.customCards=window.customCards||[];
-if (!window.customCards.some((x) => x.type === "component-home-overview-v4")) window.customCards.push({ type: "component-home-overview-v4", name: "Home Overview V4", description: "Stable minimal Home overview without state-refresh teardown." });
+registerCard({ type: "component-home-overview-v4", element: ComponentHomeOverviewV4, name: "Home Overview V4", description: "Stable minimal Home overview without state-refresh teardown." });
 }
 
 // Module: src/components/solar-daylight-card.js
@@ -8483,1033 +14036,6 @@ class ComponentEnergyDashboardV1 extends HTMLElement {
 }
 
 registerCard({ type: "component-energy-dashboard-v1", element: ComponentEnergyDashboardV1, name: "Energy Dashboard V1", description: "Single-card Energy composition using shared day state and one backend data contract." });
-}
-
-// Module: src/patches/split-profiles-core.js
-{
-/** Live split-controller saved-profile core patch backed by ha_component_backend. */
-(()=>{const TAG="component-split-controller-v4";const SLOT_COUNT=5;const escRoom=card=>card?.config?.room_id||card?.config?.profile_area_id||globalThis.__componentSplitRegistryV4?.result?.systems?.get(card?.config?.entity)?.room_id||null;customElements.whenDefined(TAG).then(()=>{const Card=customElements.get(TAG),P=Card?.prototype;if(!P||P.__splitProfilesCoreV2)return;P.__splitProfilesCoreV2=!0;const originalSetConfig=P.setConfig;P.setConfig=function(config){this._profileEditV1=null,this._profileBusyV1=!1,this._profileMessageV1=null,this._profileLocalProfilesV1=null;return originalSetConfig.call(this,config)};P.profileSlotsV1=function(){const roomId=escRoom(this);return roomId?Array.from({length:SLOT_COUNT},(_,index)=>`${roomId}:${index}`):[]};P.profileRowsV1=function(){const roomId=escRoom(this);if(!roomId)return[];const profiles=Array.isArray(this._profileLocalProfilesV1)?this._profileLocalProfilesV1:Array.isArray(this.config?.profiles)?this.config.profiles:[];return Array.from({length:SLOT_COUNT},(_,index)=>{const profile=profiles[index]??null;if(!profile)return{index,entityId:`${roomId}:${index}`,available:!0,raw:"",profile:null,invalid:!1};try{if(!profile||profile.v!==1||typeof profile.n!=="string"||!profile.n.trim()||typeof profile.m!=="string")throw new Error("Invalid profile");return{index,entityId:`${roomId}:${index}`,available:!0,raw:JSON.stringify(profile),profile,invalid:!1}}catch{return{index,entityId:`${roomId}:${index}`,available:!0,raw:JSON.stringify(profile),profile:null,invalid:!0}}})};P.profileReadyV1=function(){return Boolean(escRoom(this)&&Array.isArray(this.profileRowsV1())&&this.profileRowsV1().length===SLOT_COUNT)};P.profileActiveV1=function(profile){if(!profile)return!1;const state=this.Z();if(state.uv||state.state?.state==="off")return!1;if(state.state?.state!==profile.m)return!1;if(Number.isFinite(profile.t)&&["heat","cool","auto"].includes(profile.m)){const current=this.K(state.attributes?.temperature),wanted=this.Et(profile.t);if(current===null||wanted===null||Math.abs(current-wanted)>.001)return!1}if(profile.f&&state.attributes?.fan_mode!==profile.f)return!1;for(const vane of this.vt()){const key=vane.axis==="vertical"?"vv":"hv";if(profile[key]&&vane.state!==profile[key])return!1}return!0};P.profileSummaryV1=function(profile){const parts=[this.tt(profile.m)];Number.isFinite(profile.t)&&["heat","cool","auto"].includes(profile.m)&&parts.push(this.it(profile.t));profile.f&&parts.push(this.tt(profile.f));profile.vv&&parts.push(`V ${this.$t(profile.vv,"vertical")}`);profile.hv&&parts.push(`H ${this.$t(profile.hv,"horizontal")}`);return parts.filter(Boolean).join(" · ")};P.profileDraftV1=function(profile=null){const state=this.Z(),modes=this.ft(),fans=this.bt(),vanes=this.vt();let mode=profile?.m;if(!modes.includes(mode)){const current=state.state?.state;mode=modes.includes(current)&&current!=="off"&&current||this.gt()||(modes.includes("cool")?"cool":modes[0])||""}let temperature=Number.isFinite(profile?.t)?profile.t:this.K(state.attributes?.temperature);if(temperature===null||!Number.isFinite(temperature))temperature=22;temperature=this.Et(temperature)??temperature;let fan=profile?.f??null;if(fan&&!fans.includes(fan))fan=null;if(!profile&&fans.includes(state.attributes?.fan_mode))fan=state.attributes.fan_mode;const draft={n:profile?.n??"",m:mode,t:temperature,f:fan,vv:null,hv:null};for(const vane of vanes){const key=vane.axis==="vertical"?"vv":"hv",saved=profile?.[key];draft[key]=saved&&vane.qs.includes(saved)?saved:!profile&&vane.qs.includes(vane.state)?vane.state:null}return draft};P.profileNormaliseV1=function(draft){const name=String(draft?.n??"").trim(),modes=this.ft();if(!name)throw new Error("Enter a profile name.");if(name.length>24)throw new Error("Profile names can be up to 24 characters.");if(!modes.includes(draft.m))throw new Error("Choose an available mode.");const profile={v:1,n:name,m:draft.m};if(["heat","cool","auto"].includes(draft.m)){const temperature=this.Et(draft.t);if(temperature===null)throw new Error("Choose a valid target temperature.");profile.t=temperature}const fans=this.bt();draft.f&&fans.includes(draft.f)&&(profile.f=draft.f);for(const vane of this.vt()){const key=vane.axis==="vertical"?"vv":"hv";draft[key]&&vane.qs.includes(draft[key])&&(profile[key]=draft[key])}return profile};P.profileStoreV1=async function(){const roomId=escRoom(this);if(this._profileBusyV1||!this._profileEditV1||!roomId)return;const rows=this.profileRowsV1();let profile;try{profile=this.profileNormaliseV1(this._profileEditV1.draft)}catch(error){this._profileMessageV1={text:error.message,type:"error"},this.St();return}const duplicate=rows.find(row=>row.profile&&row.index!==this._profileEditV1.index&&row.profile.n.trim().toLowerCase()===profile.n.trim().toLowerCase());if(duplicate){this._profileMessageV1={text:"A profile with that name already exists.",type:"error"},this.St();return}let row=this._profileEditV1.index===null?rows.find(candidate=>candidate.available&&!candidate.profile&&!candidate.invalid):rows[this._profileEditV1.index];if(this._profileEditV1.index===null&&!row){this._profileMessageV1={text:`Maximum of ${SLOT_COUNT} profiles reached.`,type:"error"},this.St();return}this._profileBusyV1=!0,this._profileMessageV1={text:"Saving profile…",type:"info"},this.St();try{await this.P.callService("ha_component_backend","upsert_profile",{room_id:roomId,index:row.index,profile});const profiles=rows.filter(candidate=>candidate.profile).map(candidate=>candidate.profile);profiles[row.index]=profile;this._profileLocalProfilesV1=profiles.filter(Boolean),this._profileEditV1=null,this._profileMessageV1={text:`${profile.n} saved.`,type:"info"}}catch{this._profileMessageV1={text:"Could not save the profile.",type:"error"}}finally{this._profileBusyV1=!1,this.St(!0),this.H()}};P.profileDeleteV1=async function(){const roomId=escRoom(this);if(this._profileBusyV1||this._profileEditV1?.index===null||!roomId)return;const row=this.profileRowsV1()[this._profileEditV1.index];if(!row?.available)return;const name=row.profile?.n||"Profile";this._profileBusyV1=!0,this._profileMessageV1={text:"Deleting profile…",type:"info"},this.St();try{await this.P.callService("ha_component_backend","remove_profile",{room_id:roomId,index:row.index});const profiles=this.profileRowsV1().filter(candidate=>candidate.profile&&candidate.index!==row.index).map(candidate=>candidate.profile);this._profileLocalProfilesV1=profiles,this._profileEditV1=null,this._profileMessageV1={text:`${name} deleted.`,type:"info"}}catch{this._profileMessageV1={text:"Could not delete the profile.",type:"error"}}finally{this._profileBusyV1=!1,this.St(!0),this.H()}};P.profileApplyV1=async function(profile){if(this._profileBusyV1||!profile)return;const state=this.Z();if(state.uv){this._profileMessageV1={text:"The split system is currently unavailable.",type:"error"},this.St();return}const modes=this.ft();if(!modes.includes(profile.m)){this._profileMessageV1={text:`${profile.n} uses a mode that is no longer available.`,type:"error"},this.St();return}this._profileBusyV1=!0,this._profileMessageV1={text:`Applying ${profile.n}…`,type:"info"},this.St();try{if(Number.isFinite(profile.t)&&["heat","cool","auto"].includes(profile.m)){const temperature=this.Et(profile.t);if(temperature===null)throw new Error("Invalid target");await this.P.callService("climate","set_temperature",{entity_id:this.config.entity,temperature,hvac_mode:profile.m})}else await this.P.callService("climate","set_hvac_mode",{entity_id:this.config.entity,hvac_mode:profile.m});const calls=[];profile.f&&this.bt().includes(profile.f)&&calls.push(this.P.callService("climate","set_fan_mode",{entity_id:this.config.entity,fan_mode:profile.f}));for(const vane of this.vt()){const key=vane.axis==="vertical"?"vv":"hv";profile[key]&&vane.qs.includes(profile[key])&&calls.push(this.P.callService("select","select_option",{entity_id:vane.entityId,option:profile[key]}))}await Promise.all(calls),this._profileMessageV1=null,this.Tt(`${profile.n} profile requested.`),this.M(!0)}catch{this._profileMessageV1={text:`Could not apply ${profile.n}.`,type:"error"},this.St()}finally{this._profileBusyV1=!1,this.H()}}})})();
-}
-
-// Module: src/patches/split-profiles-ui.js
-{
-/** Live split-controller saved-profile UI patch. */
-(()=>{const TAG="component-split-controller-v4";const SLOT_COUNT=5;const install=()=>customElements.whenDefined(TAG).then(()=>{const Card=customElements.get(TAG);const P=Card?.prototype;if(!P)return;if(!P.profileSlotsV1){setTimeout(install,50);return;}if(P.__splitProfilesUiV1)return;P.__splitProfilesUiV1=true;const originalRender=P.R;const originalSignature=P.V;const originalRefresh=P.H;const originalAvailable=P.kt;const originalPanelRender=P.St;const originalClose=P.M;P.profileChoiceV1=function({title,key,options,value,optional=false,label,icon,onChange,}){const group=document.createElement("div");group.className="og";if(title){const heading=document.createElement("div");heading.className="gt";heading.textContent=title;group.append(heading);}const list=document.createElement("div");list.className="qs";list.setAttribute("role","listbox");list.setAttribute("aria-label",title||key);const choices=optional?[null,...options]:options;choices.forEach((choice,index)=>{const button=document.createElement("button");button.type="button";button.className="o";button.dataset.focusKey=`profile-${key}-${choice ?? "keep"}`;this.It(button,button.dataset.focusKey);button.setAttribute("role","option");button.setAttribute("aria-selected",String(choice===value));button.disabled=this._profileBusyV1;button.tabIndex=choice===value||(!choices.includes(value)&&index===0)?0:-1;const choiceIcon=document.createElement("ha-icon");choiceIcon.className="oi";choiceIcon.setAttribute("icon",choice===null?"mdi:minus-circle-outline":icon(choice),);const text=document.createElement("span");text.textContent=choice===null?"Keep current":label(choice);button.append(choiceIcon,text);if(choice===value){const check=document.createElement("ha-icon");check.setAttribute("icon","mdi:check");button.append(check);}else{button.append(document.createElement("span"));}button.addEventListener("click",()=>{if(this._profileBusyV1||choice===value)return;onChange(choice);this.St();});button.addEventListener("keydown",(event)=>this.Pt(event,list));list.append(button);});group.append(list);return group;};P.profileRenderListV1=function(focusInitial=false){const rows=this.profileRowsV1();const saved=rows.filter((row)=>row.profile);const invalid=rows.filter((row)=>row.invalid);const body=this.$.pb;body.replaceChildren();if(!saved.length){const empty=document.createElement("div");empty.className="pempty";empty.innerHTML="<ha-icon icon=\"mdi:account-plus-outline\"></ha-icon><strong>No saved profiles</strong><span>Create one from the split system's current settings, then adjust it before saving.</span>";body.append(empty);}else{const list=document.createElement("div");list.className="plist";for(const row of saved){const profile=row.profile;const active=this.profileActiveV1(profile);const wrap=document.createElement("div");wrap.className="prow";const apply=document.createElement("button");apply.type="button";apply.className="papply";apply.dataset.focusKey=`profile-apply-${row.index}`;this.It(apply,apply.dataset.focusKey);apply.disabled=this._profileBusyV1||this.Z().uv;apply.setAttribute("aria-current",active?"true":"false");const modeIcon=document.createElement("ha-icon");modeIcon.className="pmi";modeIcon.setAttribute("icon",this.et(profile.m));const copy=document.createElement("span");copy.className="pcopy";const name=document.createElement("strong");name.textContent=profile.n;const summary=document.createElement("small");summary.textContent=this.profileSummaryV1(profile);copy.append(name,summary);const status=document.createElement("ha-icon");status.className="pstatus";status.setAttribute("icon",active?"mdi:check-circle":"mdi:chevron-right",);apply.append(modeIcon,copy,status);apply.addEventListener("click",()=>this.profileApplyV1(profile));const edit=document.createElement("button");edit.type="button";edit.className="pedit";edit.dataset.focusKey=`profile-edit-${row.index}`;this.It(edit,edit.dataset.focusKey);edit.disabled=this._profileBusyV1;edit.setAttribute("aria-label",`Edit ${profile.n}`);const editIcon=document.createElement("ha-icon");editIcon.setAttribute("icon","mdi:pencil-outline");edit.append(editIcon);edit.addEventListener("click",()=>{this._profileEditV1={index:row.index,draft:this.profileDraftV1(profile),};this._profileMessageV1=null;this.u="profile-name";this.St(true);});wrap.append(apply,edit);list.append(wrap);}body.append(list);}if(invalid.length){const warning=document.createElement("div");warning.className="pmsg error";warning.textContent="One saved profile could not be read. Delete or recreate the affected profile.";body.append(warning);}const create=document.createElement("button");create.type="button";create.className="pnew";create.dataset.focusKey="profile-new";this.It(create,create.dataset.focusKey);const emptySlot=rows.some((row)=>row.available&&!row.profile&&!row.invalid,);create.disabled=this._profileBusyV1||!emptySlot;const addIcon=document.createElement("ha-icon");addIcon.setAttribute("icon","mdi:plus");const addText=document.createElement("span");addText.textContent=emptySlot?"Create profile":`${SLOT_COUNT} profile limit reached`;create.append(addIcon,addText);create.addEventListener("click",()=>{if(!emptySlot||this._profileBusyV1)return;this._profileEditV1={index:null,draft:this.profileDraftV1(),};this._profileMessageV1=null;this.u="profile-name";this.St(true);});body.append(create);if(this._profileMessageV1){const message=document.createElement("div");message.className=`pmsg ${
-          this._profileMessageV1.type === "error" ? "error" : ""
-        }`;message.setAttribute("role","status");message.textContent=this._profileMessageV1.text;body.append(message);}const focusKey=this.u;if(focusKey||focusInitial){queueMicrotask(()=>{const target=focusKey?body.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`,):body.querySelector("button:not([disabled])");target?.focus();});}};P.profileRenderEditorV1=function(focusInitial=false){const edit=this._profileEditV1;if(!edit)return;const draft=edit.draft;const body=this.$.pb;body.replaceChildren();const intro=document.createElement("p");intro.className="pintro";intro.textContent=edit.index===null?"Current settings are used as the starting point. Only settings saved here will change when the profile is applied.":"Adjust the saved settings below. Changes do not affect the split system until the profile is applied.";body.append(intro);const nameWrap=document.createElement("label");nameWrap.className="pname";nameWrap.textContent="Profile name";const input=document.createElement("input");input.type="text";input.maxLength=24;input.placeholder="e.g. Sleep";input.value=draft.n;input.dataset.focusKey="profile-name";this.It(input,input.dataset.focusKey);input.disabled=this._profileBusyV1;input.addEventListener("input",()=>{draft.n=input.value;this._profileMessageV1=null;});nameWrap.append(input);body.append(nameWrap);const modes=this.ft();body.append(this.profileChoiceV1({title:"Mode",key:"mode",options:modes,value:draft.m,label:(value)=>this.tt(value),icon:(value)=>this.et(value),onChange:(value)=>{draft.m=value;},}),);if(["heat","cool","auto"].includes(draft.m)){const attrs=this.Z().attributes;const step=this.K(attrs.target_temp_step)??0.5;const{minimum,maximum}=this.dt();const tempGroup=document.createElement("div");tempGroup.className="og";const heading=document.createElement("div");heading.className="gt";heading.textContent="Target temperature";const stepper=document.createElement("div");stepper.className="pstep";const down=document.createElement("button");down.type="button";down.dataset.focusKey="profile-temp-down";this.It(down,down.dataset.focusKey);down.disabled=this._profileBusyV1||(minimum!==null&&Number(draft.t)<=minimum);down.setAttribute("aria-label","Decrease profile target temperature");const downIcon=document.createElement("ha-icon");downIcon.setAttribute("icon","mdi:minus");down.append(downIcon);const value=document.createElement("strong");value.textContent=this.it(draft.t)??"—";const up=document.createElement("button");up.type="button";up.dataset.focusKey="profile-temp-up";this.It(up,up.dataset.focusKey);up.disabled=this._profileBusyV1||(maximum!==null&&Number(draft.t)>=maximum);up.setAttribute("aria-label","Increase profile target temperature");const upIcon=document.createElement("ha-icon");upIcon.setAttribute("icon","mdi:plus");up.append(upIcon);const adjust=(direction)=>{const base=Number(draft.t);if(!Number.isFinite(base))return;const next=this.Dt(base+direction*step,step,minimum??base,);draft.t=this.Et(next)??next;this.St();};down.addEventListener("click",()=>adjust(-1));up.addEventListener("click",()=>adjust(1));stepper.append(down,value,up);tempGroup.append(heading,stepper);body.append(tempGroup);}const fans=this.bt();if(fans.length){body.append(this.profileChoiceV1({title:"Fan",key:"fan",options:fans,value:draft.f,optional:true,label:(value)=>this.tt(value),icon:(value)=>({auto:"mdi:fan-auto",quiet:"mdi:volume-low",low:"mdi:fan-speed-1",medium:"mdi:fan-speed-2",high:"mdi:fan-speed-3",})[String(value).toLowerCase()]??"mdi:fan",onChange:(value)=>{draft.f=value;},}),);}for(const vane of this.vt()){const key=vane.axis==="vertical"?"vv":"hv";body.append(this.profileChoiceV1({title:vane.title,key,options:vane.qs,value:draft[key],optional:true,label:(value)=>this.$t(value,vane.axis),icon:(value)=>this.At(vane,value),onChange:(value)=>{draft[key]=value;},}),);}if(this._profileMessageV1){const message=document.createElement("div");message.className=`pmsg ${
-          this._profileMessageV1.type === "error" ? "error" : ""
-        }`;message.setAttribute("role","status");message.textContent=this._profileMessageV1.text;body.append(message);}const actions=document.createElement("div");actions.className=`pactions ${edit.index !== null ? "editing" : ""}`;if(edit.index!==null){const remove=document.createElement("button");remove.type="button";remove.className="pdelete";remove.dataset.focusKey="profile-delete";this.It(remove,remove.dataset.focusKey);remove.disabled=this._profileBusyV1;remove.textContent="Delete";remove.addEventListener("click",()=>this.profileDeleteV1());actions.append(remove);}const cancel=document.createElement("button");cancel.type="button";cancel.dataset.focusKey="profile-cancel";this.It(cancel,cancel.dataset.focusKey);cancel.disabled=this._profileBusyV1;cancel.textContent="Cancel";cancel.addEventListener("click",()=>{this._profileEditV1=null;this._profileMessageV1=null;this.u="profile-new";this.St(true);});const save=document.createElement("button");save.type="button";save.className="psave";save.dataset.focusKey="profile-save";this.It(save,save.dataset.focusKey);save.disabled=this._profileBusyV1||!String(draft.n??"").trim();save.textContent=this._profileBusyV1?"Saving…":"Save";save.addEventListener("click",()=>this.profileStoreV1());actions.append(cancel,save);body.append(actions);const focusKey=this.u;if(focusKey||focusInitial){queueMicrotask(()=>{const target=focusKey?body.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`,):input;target?.focus();});}};P.R=function(...args){const result=originalRender.apply(this,args);if(this.$?.pr)return result;this._profileOverridesV1??=new Map();this._profileEditV1??=null;this._profileBusyV1??=false;this._profileMessageV1??=null;const profileButton=document.createElement("button");profileButton.className="pw pr";profileButton.type="button";profileButton.dataset.panel="profiles";profileButton.setAttribute("aria-controls","split-secondary");profileButton.setAttribute("aria-expanded","false");profileButton.setAttribute("aria-label","Saved profiles");const icon=document.createElement("ha-icon");icon.setAttribute("icon","mdi:account-circle-outline");profileButton.append(icon);this.$.sg?.before(profileButton);this.$.pr=profileButton;profileButton.addEventListener("click",()=>this.U("profiles",profileButton),);const style=document.createElement("style");style.textContent=`
-        .hd.profiled{grid-template-columns:minmax(0,1fr) 44px 44px;gap:8px}
-        .hd.settings.profiled{grid-template-columns:minmax(0,1fr) 44px 44px 44px;gap:8px}
-        .plist{display:grid;gap:8px}
-        .prow{display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:8px}
-        .papply{min-height:58px;padding:8px 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:grid;grid-template-columns:24px minmax(0,1fr) 20px;align-items:center;gap:10px;text-align:left;background:transparent}
-        .papply[aria-current=true]{color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}
-        .pmi{color:var(--secondary-text-color);--mdc-icon-size:20px}.papply[aria-current=true] .pmi{color:var(--primary-color)}
-        .pcopy{min-width:0}.pcopy strong,.pcopy small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pcopy strong{font-size:13px;line-height:1.25;font-weight:650}.pcopy small{margin-top:4px;color:var(--secondary-text-color);font-size:12px;line-height:1.2;font-weight:400}
-        .pstatus{color:var(--secondary-text-color);--mdc-icon-size:18px}.papply[aria-current=true] .pstatus{color:var(--primary-color)}
-        .pedit{width:44px;min-height:58px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:grid;place-items:center;background:transparent;color:var(--secondary-text-color)}
-        .pnew{width:100%;min-height:46px;margin-top:12px;border:1px dashed var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:flex;align-items:center;justify-content:center;gap:8px;background:transparent;color:var(--primary-color);font-size:13px;font-weight:650}
-        .pempty{min-height:126px;padding:20px 16px;border:1px dashed var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--secondary-text-color)}
-        .pempty ha-icon{--mdc-icon-size:28px;color:var(--primary-color)}.pempty strong{margin-top:10px;color:var(--primary-text-color);font-size:14px}.pempty span{max-width:280px;margin-top:5px;font-size:12px;line-height:1.4}
-        .pintro{margin:0 0 12px;color:var(--secondary-text-color);font-size:12px;line-height:1.4}
-        .pname{display:block;margin-bottom:12px;color:var(--secondary-text-color);font-size:13px;font-weight:600}.pname input{display:block;width:100%;height:44px;margin-top:6px;padding:0 11px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent}
-        .pstep{display:grid;grid-template-columns:44px minmax(90px,1fr) 44px;align-items:center;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);overflow:hidden}.pstep button{width:44px;height:46px;display:grid;place-items:center}.pstep strong{text-align:center;font-size:18px;font-variant-numeric:tabular-nums}
-        .pmsg{margin-top:10px;color:var(--secondary-text-color);font-size:12px;line-height:1.35}.pmsg.error{color:var(--error-color)}
-        .pactions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--divider-color)}.pactions.editing{grid-template-columns:1fr 1fr 1fr}.pactions button{min-height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;font-size:13px;font-weight:650}.pactions .psave{color:var(--primary-color)}.pactions .pdelete{color:var(--error-color)}
-        @media(max-width:420px){.pactions.editing{grid-template-columns:1fr 1fr}.pactions.editing .pdelete{grid-column:1/-1;grid-row:2}}
-      `;this.shadowRoot.append(style);return result;};P.V=function(){const base=originalSignature.call(this);const profiles=this.profileRowsV1().map(row=>row.raw);return`${base}|${JSON.stringify(profiles)}`;};P.kt=function(){if(this.o==="profiles")return this.profileReadyV1();return originalAvailable.call(this);};P.H=function(){const result=originalRefresh.call(this);if(!this.$?.pr)return result;const ready=this.profileReadyV1();this.$.pr.hidden=!ready;this.$.hd.classList.toggle("profiled",ready);const active=ready?this.profileRowsV1().find((row)=>row.profile&&this.profileActiveV1(row.profile),):null;this.$.pr.classList.toggle("on",Boolean(active));this.$.pr.querySelector("ha-icon")?.setAttribute("icon",active?"mdi:account-check-outline":"mdi:account-circle-outline",);this.$.pr.setAttribute("aria-label",active?`Saved profiles · ${active.profile.n} active`:"Saved profiles",);this.$.pr.setAttribute("aria-expanded",String(this.o==="profiles"),);return result;};P.St=function(focusInitial=false){if(this.o!=="profiles"){return originalPanelRender.call(this,focusInitial);}if(!this.profileReadyV1())return;this.$.pt.textContent=this._profileEditV1?.index===null?"New profile":this._profileEditV1?"Edit profile":"Saved profiles";if(this._profileEditV1){this.profileRenderEditorV1(focusInitial);}else{this.profileRenderListV1(focusInitial);}};P.M=function(restoreFocus){const wasProfiles=this.o==="profiles";const result=originalClose.call(this,restoreFocus);if(wasProfiles){this._profileEditV1=null;this._profileMessageV1=null;this.u=null;}return result;};});install();})();
-}
-
-// Module: src/patches/wled-registry-integration.js
-{
-/** Registers WLED as a dynamic dashboard control without changing its UI. */
-const { WLED_HD, WLED_DOMAIN, WLED_NAME } =
-  globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-
-if(!WLED_HD.__wledComponentPatchV1){
-  WLED_HD.__wledComponentPatchV1=true;
-  const oldUi=WLED_HD.uiEntry;
-  WLED_HD.uiEntry=e=>{if(!oldUi?.(e))return false;if(e?.platform!=='wled')return true;if(WLED_DOMAIN(e.entity_id)!=='light')return false;const n=WLED_NAME(e),u=String(e.unique_id||'');return n==='main'||!/_\d+$/.test(u)};
-  const oldControl=WLED_HD.controlConfig;
-  WLED_HD.controlConfig=(e,s,d,h,split)=>e?.platform==='wled'&&WLED_DOMAIN(e.entity_id)==='light'?{type:'custom:component-wled-controller-v1',entity:e.entity_id,device_id:e.device_id}:oldControl?.(e,s,d,h,split)||null;
-  WLED_HD.REG?.refresh?.();
-}
-}
-
-// Module: src/patches/wled-controller-current-behaviour.js
-{
-/** Preserves the current WLED controller runtime patch from Home Assistant. */
-customElements.whenDefined('component-wled-controller-v1').then(()=>{
-  const C=customElements.get('component-wled-controller-v1');
-  if(!C||C.prototype.__stateAwareV3)return;
-  C.prototype.__stateAwareV3=true;
-
-  const usable=(h,id)=>{
-    const s=h?.states?.[id];
-    return Boolean(s&&!['unknown','unavailable'].includes(String(s.state).toLowerCase()));
-  };
-
-  const originalRender=C.prototype.render;
-  C.prototype.render=function(){
-    originalRender?.call(this);
-    if(!this.h||!this.b)return;
-
-    const main=this.h.states[this.b.main];
-    const state=String(main?.state||'unavailable').toLowerCase();
-    const on=state==='on';
-    const controllable=state==='on'||state==='off';
-    const body=this.shadowRoot?.querySelector('.body');
-
-    if(body)body.style.display=on?'grid':'none';
-    if(this.power)this.power.disabled=!controllable;
-
-    if(!on&&this.dialog?.open)this.dialog.close();
-
-    if(this.statusEl){
-      if(state==='unavailable')this.statusEl.textContent='Unavailable';
-      else if(state==='unknown')this.statusEl.textContent='Unknown';
-      else if(state==='off')this.statusEl.textContent='Off';
-    }
-
-    if(this.sheetState){
-      if(state==='unavailable')this.sheetState.textContent='Unavailable';
-      else if(state==='unknown')this.sheetState.textContent='Unknown';
-      else if(state==='off')this.sheetState.textContent='Off';
-    }
-
-    const presetOk=Boolean(this.b.preset&&usable(this.h,this.b.preset));
-    const effectOk=(this.b.effectLights||[]).some(id=>usable(this.h,id));
-    const paletteOk=(this.b.palettes||[]).some(id=>usable(this.h,id));
-    const speedOk=(this.b.speeds||[]).some(id=>usable(this.h,id));
-    const intensityOk=(this.b.intensities||[]).some(id=>usable(this.h,id));
-
-    if(this.presetsBtn)this.presetsBtn.disabled=!on||!presetOk;
-    if(this.colour)this.colour.disabled=!on||!effectOk;
-    if(this.nativeColour)this.nativeColour.disabled=!on||!effectOk;
-    if(this.effect)this.effect.disabled=!on||!effectOk;
-    if(this.palette)this.palette.disabled=!on||!paletteOk;
-    if(this.speed)this.speed.disabled=!on||!speedOk;
-    if(this.intensity)this.intensity.disabled=!on||!intensityOk;
-    if(this.advanced)this.advanced.disabled=!on||!(presetOk||effectOk||paletteOk||speedOk||intensityOk);
-  };
-
-  const originalOpenAdvanced=C.prototype.openAdvanced;
-  C.prototype.openAdvanced=function(presets=false){
-    const state=String(this.h?.states?.[this.b?.main]?.state||'unavailable').toLowerCase();
-    if(state!=='on')return;
-    return originalOpenAdvanced?.call(this,presets);
-  };
-});
-}
-
-// Module: src/patches/room-navigation-current-behaviour.js
-{
-/** Preserves the current room-navigation runtime patch from Home Assistant. */
-customElements.whenDefined('component-room-navigation-v1').then(()=>{
-  const Card=customElements.get('component-room-navigation-v1');
-  const P=Card?.prototype;
-  if(!P||P.__presenceGlowV1)return;
-  P.__presenceGlowV1=true;
-
-  P._presenceDetected=function(){
-    if(this.c?.demo_presence===true)return true;
-    if(this.c?.demo_presence===false)return false;
-    const explicit=this.c?.presence_entity;
-    if(explicit){
-      const state=this._hass?.states?.[explicit];
-      return !!state&&['on','home','occupied','present','detected'].includes(String(state.state).toLowerCase());
-    }
-    const states=typeof this._entities==='function'?this._entities():[];
-    return states.some(state=>{
-      if(!state?.entity_id?.startsWith('binary_sensor.')||state.state!=='on')return false;
-      const cls=String(state.attributes?.device_class||'').toLowerCase();
-      const identity=(state.entity_id+' '+String(state.attributes?.friendly_name||'')).toLowerCase();
-      return cls==='occupancy'||cls==='presence'||identity.includes('presence')||identity.includes('occupancy')||identity.includes('mmwave')||identity.includes('mmwave');
-    });
-  };
-
-  P._presenceHue=function(){
-    const key=String(this.c?.presence_colour_key||this.c?.area||this.c?.name||'room');
-    let hash=2166136261;
-    for(let i=0;i<key.length;i++){hash^=key.charCodeAt(i);hash=Math.imul(hash,16777619)}
-    return ((hash>>>0)%360+360)%360;
-  };
-
-  const original=P._render;
-  P._render=function(){
-    original.call(this);
-    const card=this.shadowRoot?.querySelector('ha-card');
-    if(!card)return;
-    card.style.transition='border-color 220ms ease, box-shadow 220ms ease';
-    if(!this._presenceDetected()){
-      card.style.removeProperty('border-color');
-      card.style.removeProperty('box-shadow');
-      card.removeAttribute('data-presence');
-      return;
-    }
-    const hue=this._presenceHue();
-    card.setAttribute('data-presence','true');
-    card.style.borderColor=`hsl(${hue} 82% 68% / .62)`;
-    card.style.boxShadow=`0 0 0 1px hsl(${hue} 82% 68% / .18), 0 0 14px 2px hsl(${hue} 82% 64% / .14)`;
-  };
-});
-}
-
-// Module: src/patches/garage-trigger-safety.js
-{
-/** Select only an explicit garage-door operator button; never guess. */
-(() => {
-  const HD2 = globalThis.__homeDashboardV2;
-  if (!HD2 || HD2.__garageTriggerSafetyV1) return;
-  HD2.__garageTriggerSafetyV1 = true;
-
-  const domain = (entityId) => String(entityId || "").split(".")[0];
-  const identity = (entity) =>
-    `${entity?.entity_id || ""} ${entity?.name || ""} ${entity?.original_name || ""}`
-      .toLowerCase()
-      .replace(/[_./-]+/g, " ");
-
-  HD2.garageControl = (entity, data, hass) => {
-    if (!entity?.device_id) return null;
-
-    const buttons = (data?.byDevice?.get(entity.device_id) || []).filter(
-      (candidate) =>
-        domain(candidate?.entity_id) === "button" &&
-        HD2.uiEntry(candidate) &&
-        hass?.states?.[candidate.entity_id] &&
-        String(hass.states[candidate.entity_id].state).toLowerCase() !== "unavailable",
-    );
-
-    const explicit = buttons.filter((candidate) =>
-      /\bgarage\s+door\b.*\b(trigger|operate|operator)\b|\b(trigger|operate|operator)\b.*\bgarage\s+door\b/.test(
-        identity(candidate),
-      ),
-    );
-
-    return explicit.length === 1 ? explicit[0].entity_id : null;
-  };
-
-  HD2.REG?.refresh?.();
-})();
-}
-
-// Module: src/patches/garage-door-device-dedup.js
-{
-/** Prevent the smart collection from showing a garage trigger beside its controller. */
-customElements.whenDefined("component-smart-collection-v3").then(() => {
-  const Card = customElements.get("component-smart-collection-v3");
-  const prototype = Card?.prototype;
-  if (!prototype || prototype.__garageDoorDeviceDedupV1) return;
-  prototype.__garageDoorDeviceDedupV1 = true;
-
-  const previousCandidates = prototype.candidates;
-  prototype.candidates = function candidates() {
-    const rows = previousCandidates.call(this);
-    if (!Array.isArray(rows) || !this.d?.byDevice || !this.h) return rows;
-    const garageDevices = new Set(rows.filter((entity) => {
-      if (!entity?.device_id || String(entity.entity_id || "").split(".")[0] !== "binary_sensor") return false;
-      return this.h.states[entity.entity_id]?.attributes?.device_class === "garage_door";
-    }).map((entity) => entity.device_id));
-    if (!garageDevices.size) return rows;
-    return rows.filter((entity) => {
-      if (!garageDevices.has(entity?.device_id)) return true;
-      if (String(entity.entity_id || "").split(".")[0] !== "button") return true;
-      const name = `${entity.entity_id || ""} ${entity.name || ""} ${entity.original_name || ""}`.toLowerCase();
-      return !/(garage.?door|door).*(trigger|operate)|(trigger|operate).*(garage.?door|door)/.test(name);
-    });
-  };
-  globalThis.__homeDashboardV2?.REG?.refresh?.();
-});
-}
-
-// Module: src/patches/camera-controller-integration.js
-{
-/** Adds one ONVIF camera controller per device to smart collections. */
-customElements.whenDefined("component-smart-collection-v3").then(() => {
-  const HD = globalThis.__homeDashboardV2;
-  const Card = customElements.get("component-smart-collection-v3");
-  const prototype = Card?.prototype;
-  if (!HD || !prototype || prototype.__cameraDeviceDedupV1) return;
-  prototype.__cameraDeviceDedupV1 = true;
-  const oldUiEntry = HD.uiEntry;
-  const oldPotential = HD.isPotential;
-  const oldControl = HD.controlConfig;
-  const oldIcon = HD.icon;
-  const oldCandidates = prototype.candidates;
-  const domain = HD.domain;
-  const name = (entity) => String(entity?.name || entity?.original_name || entity?.entity_id || "");
-  const isOnvif = (entity) => entity?.platform === "onvif";
-  const isOwner = (entity) => isOnvif(entity) && domain(entity.entity_id) === "camera" && !/sub.?stream/i.test(`${entity.entity_id} ${name(entity)}`);
-  const cameraDeviceActive = (entity, data, hass) => {
-    if (!entity?.device_id) return false;
-    return (data?.byDevice?.get(entity.device_id) || []).some((sibling) => {
-      if (domain(sibling.entity_id) !== "binary_sensor") return false;
-      const state = hass?.states?.[sibling.entity_id];
-      const deviceClass = state?.attributes?.device_class || "";
-      const candidateName = `${sibling.entity_id} ${name(sibling)}`;
-      return state?.state === "on" && (/^(motion|occupancy|presence|sound)$/.test(deviceClass) || /motion|human|person|detect/i.test(candidateName));
-    });
-  };
-  HD.uiEntry = (entity) => oldUiEntry?.(entity) && (!isOnvif(entity) || isOwner(entity));
-  HD.isPotential = (entity, state) => isOwner(entity) || oldPotential?.(entity, state) || false;
-  HD.icon = (entity, state) => isOwner(entity) ? "mdi:cctv" : oldIcon?.(entity, state) || "mdi:gesture-tap-button";
-  HD.controlConfig = (entity, state, data, hass, split) => isOwner(entity) ? { type: "custom:component-camera-controller-v1", entity: entity.entity_id, device_id: entity.device_id } : oldControl?.(entity, state, data, hass, split) || null;
-  prototype.candidates = function candidates() {
-    const rows = oldCandidates.call(this);
-    if (!Array.isArray(rows) || !this.d || !this.h) return rows;
-    if (this.c?.mode === "active") {
-      const ids = new Set(rows.map((entity) => entity.entity_id));
-      for (const entity of this.d.entities) {
-        if (!isOwner(entity) || !this.h.states[entity.entity_id] || ids.has(entity.entity_id)) continue;
-        rows.push(entity);
-        ids.add(entity.entity_id);
-      }
-    }
-    return rows;
-  };
-  prototype.shown = function shown(rows) {
-    if (this.c?.mode !== "active") return rows;
-    return rows.filter((entity) => isOwner(entity) ? cameraDeviceActive(entity, this.d, this.h) : HD.isActive(entity, this.h.states[entity.entity_id]));
-  };
-  HD.REG?.refresh?.();
-});
-}
-
-// Module: src/patches/camera-controller-current-behaviour.js
-{
-/** Preserves the current camera controller availability behaviour. */
-customElements.whenDefined("component-camera-controller-v1").then(() => {
-  const Card = customElements.get("component-camera-controller-v1");
-  const prototype = Card?.prototype;
-  if (!prototype || prototype.__stateAwareV2) return;
-  prototype.__stateAwareV2 = true;
-  const oldRender = prototype.render;
-  prototype.render = function render() {
-    oldRender.call(this);
-    if (!this._hass || !this.bundleData) return;
-    const status = this.status();
-    const usable = (entityId) => {
-      const state = this._hass.states[entityId];
-      return Boolean(state && !["unknown", "unavailable"].includes(String(state.state).toLowerCase()));
-    };
-    const internalUsable = [...this.bundleData.switches, ...this.bundleData.detections, ...this.bundleData.buttons].some((entity) => usable(entity.entity_id));
-    if (this.view) this.view.hidden = !status.online;
-    if (this.controls) this.controls.hidden = !status.online || !internalUsable;
-    if (!status.online && this.dialog?.open) this.dialog.close();
-  };
-  const oldOpenControls = prototype.openControls;
-  prototype.openControls = function openControls() { if (!this.status()?.online) return; return oldOpenControls.call(this); };
-});
-}
-
-// Module: src/patches/runtime-reliability.js
-{
-/** Runtime compatibility and lifecycle guards for retained component DOM. */
-(() => {
-  const shared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ?? {};
-  const { createRequestCoalescer, interaction } = shared;
-
-  const patch = (type, apply) => customElements.whenDefined(type).then(() => {
-    const Card = customElements.get(type);
-    if (Card) apply(Card.prototype);
-  });
-
-  const preserveLocalInteractionFields = (prototype, fields) => {
-    const original = prototype.disconnectedCallback;
-    if (typeof original !== "function" || original.__preservesRetainedInteractions) return;
-    const wrapped = function disconnectWithRetainedInteractions(...args) {
-      const saved = fields.map((field) => [field, this[field]]);
-      for (const [field, value] of saved) this[field] = Array.isArray(value) ? [] : null;
-      try {
-        return original.apply(this, args);
-      } finally {
-        for (const [field, value] of saved) this[field] = value;
-      }
-    };
-    wrapped.__preservesRetainedInteractions = true;
-    prototype.disconnectedCallback = wrapped;
-  };
-
-  const retainedLocalFields = new Map([
-    ["component-context-strip-v3", ["_interaction"]],
-    ["component-history-graph-v2", ["interactions"]],
-    ["component-single-kpi-v2", ["_interaction"]],
-    ["component-three-stat-v2", ["_interactions"]],
-    ["component-status-row-v2", ["_interaction"]],
-    ["component-progress-v2", ["_interaction"]],
-    ["component-action-v2", ["_interaction"]],
-    ["component-list-v2", ["_interactions"]],
-    ["component-notice-v2", ["_interaction"]],
-    ["component-quick-nav-v2", ["_interactions"]],
-    ["component-favourites-v3", ["_interactionHandles"]],
-    ["component-nav-tile-v2", ["_interaction"]],
-    ["component-room-navigation-v1", ["_interaction"]],
-    ["component-control-row-v2", ["_interactions"]],
-    ["component-split-controller-v4", ["_interactionHandles"]],
-    ["component-media-row-v2", ["_interactions"]],
-    ["component-room-sheet-v2", ["_interactions"]],
-    ["component-update-summary-v3", ["_interaction"]],
-    ["component-update-row-v3", ["_interactions"]],
-    ["component-household-attention-v1", ["_interactionHandles"]],
-    ["component-welcome-header-v1", ["_interaction"]],
-    ["component-wled-controller-v1", ["_interactionHandles"]],
-  ]);
-  for (const [type, fields] of retainedLocalFields) {
-    patch(type, (prototype) => preserveLocalInteractionFields(prototype, fields));
-  }
-
-  patch("component-context-strip-v3", (prototype) => {
-    const original = prototype._render;
-    if (typeof original !== "function" || !String(original).includes("CtxEsc")) return;
-    prototype._render = function renderWithScopedEscape() {
-      const previous = globalThis.CtxEsc;
-      globalThis.CtxEsc = shared.escapeHtml ?? String;
-      try { return original.call(this); }
-      finally {
-        if (previous === undefined) delete globalThis.CtxEsc;
-        else globalThis.CtxEsc = previous;
-      }
-    };
-  });
-
-  patch("component-device-discovery-v2", (prototype) => {
-    const originalStyles = prototype.styles;
-    if (typeof originalStyles === "function" && String(originalStyles).includes("${B}")) {
-      prototype.styles = function stylesWithScopedBase() {
-        const previous = globalThis.B;
-        globalThis.B = shared.PRESENTATIONAL_CARD_STYLES ?? "";
-        try { return originalStyles.call(this); }
-        finally {
-          if (previous === undefined) delete globalThis.B;
-          else globalThis.B = previous;
-        }
-      };
-    }
-    const originalDisconnect = prototype.disconnectedCallback;
-    if (!String(originalDisconnect).includes("started = false")) {
-      prototype.disconnectedCallback = function disconnectDiscovery() {
-        originalDisconnect?.call(this);
-        this.timer = null;
-        this.started = false;
-      };
-    }
-  });
-
-  patch("component-history-graph-v2", (prototype) => {
-    if (prototype.connectedCallback) return;
-    prototype.connectedCallback = function reconnectHistoryGraph() {
-      if (this.e?.chart) this.ro?.observe(this.e.chart);
-      this.draw?.();
-    };
-  });
-
-  patch("energy-history-card-v3", (prototype) => {
-    const originalConnected = prototype.connectedCallback;
-    if (originalConnected?.__restoresResizeObserver) return;
-    const wrapped = function reconnectEnergyHistory(...args) {
-      const result = originalConnected?.apply(this, args);
-      if (this.e?.chart) this._resizeObserver?.observe(this.e.chart);
-      return result;
-    };
-    wrapped.__restoresResizeObserver = true;
-    prototype.connectedCallback = wrapped;
-  });
-
-  patch("component-camera-controller-v1", (prototype) => {
-    const original = prototype.renderControls;
-    if (typeof original !== "function" || original.__preservesUnchangedControls) return;
-    const wrapped = function renderControlsWithoutDroppingHandlers(...args) {
-      if (this.bundleData) {
-        const signature = JSON.stringify([
-          this.confirmId,
-          ...this.bundleData.detections.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
-          ...this.bundleData.switches.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
-          ...this.bundleData.buttons.map((entity) => [entity.entity_id, this.clean(entity), this._hass.states[entity.entity_id]]),
-        ]);
-        if (signature === this.controlsSignature) return;
-      }
-      return original.apply(this, args);
-    };
-    wrapped.__preservesUnchangedControls = true;
-    prototype.renderControls = wrapped;
-  });
-
-  patch("component-apple-tv-controller-v1", (prototype) => {
-    prototype.setVolumeGesture = function setVolumeGesture(pressed, model) {
-      this.volumeGestureActive = pressed;
-      if (pressed && this.optimisticVolume === null) this.optimisticVolume = model.level;
-      this.updateVolumeReadout(model);
-    };
-
-    prototype.ensureVolumeCoalescer = function ensureVolumeCoalescer() {
-      if (this.volumeCoalescer && !this.volumeCoalescer.destroyed) return this.volumeCoalescer;
-      this.volumeCoalescer = createRequestCoalescer(async (direction) => {
-        const model = this.model();
-        if (direction === "up" ? !model.canVolumeUp : !model.canVolumeDown) return;
-        if (!this.config.demo) {
-          await this._hass.callService("media_player", `volume_${direction}`, { entity_id: model.entities.media });
-        }
-      }, {
-        onError: () => this.setMessage("Apple TV did not respond", "error", 4000),
-        onIdle: () => {
-          if (this.volumeGestureActive) return;
-          this.optimisticVolume = null;
-          if (this.isConnected) this.render();
-        },
-      });
-      return this.volumeCoalescer;
-    };
-  });
-
-  patch("component-wled-controller-v1", (prototype) => {
-    const original = prototype.renderPresets;
-    if (typeof original !== "function" || original.__cleansPresetInteractions) return;
-    const wrapped = function renderPresetsWithCleanup(...args) {
-      for (const button of this.presetGrid?.querySelectorAll?.(".preset-btn") || []) {
-        button._interaction?.destroy?.();
-        button._interaction = null;
-      }
-      return original.apply(this, args);
-    };
-    wrapped.__cleansPresetInteractions = true;
-    prototype.renderPresets = wrapped;
-  });
-
-  patch("component-room-directory-v4", (prototype) => {
-    const originalHeader = prototype.renderSheetHeader;
-    if (typeof originalHeader === "function" && !originalHeader.__cleansMetricInteractions) {
-      const wrappedHeader = function renderSheetHeaderWithCleanup(...args) {
-        if (this.environment && Array.isArray(this._interactionHandles)) {
-          const retained = [];
-          for (const handle of this._interactionHandles) {
-            if (handle?.element && this.environment.contains(handle.element)) handle.destroy();
-            else retained.push(handle);
-          }
-          this._interactionHandles = retained;
-        }
-        return originalHeader.apply(this, args);
-      };
-      wrappedHeader.__cleansMetricInteractions = true;
-      prototype.renderSheetHeader = wrappedHeader;
-    }
-
-    const originalDisconnect = prototype.disconnectedCallback;
-    if (typeof originalDisconnect === "function" && !originalDisconnect.__preservesRoomTiles) {
-      const wrappedDisconnect = function disconnectRoomDirectory(...args) {
-        const saved = [];
-        for (const tile of this.tiles?.values?.() || []) {
-          saved.push([tile, tile._interaction]);
-          tile._interaction = null;
-        }
-        try {
-          return originalDisconnect.apply(this, args);
-        } finally {
-          for (const [tile, handle] of saved) tile._interaction = handle;
-        }
-      };
-      wrappedDisconnect.__preservesRoomTiles = true;
-      prototype.disconnectedCallback = wrappedDisconnect;
-    }
-  });
-
-  patch("component-update-summary-v3", (prototype) => {
-    if (prototype.disconnectedCallback) return;
-    prototype.disconnectedCallback = function disconnectUpdateSummary() {
-      window.clearTimeout(this.messageTimer);
-      this.messageTimer = null;
-    };
-  });
-})();
-}
-
-// Module: src/patches/home-editor-portal.js
-{
-(()=>{
-(()=>{const TAG='dashboard-preference-editor-v3',PATCH='__homeEditorPortalV1';async function portal(){await customElements.whenDefined(TAG);let e=globalThis.__homeDashboardEditorV3;if(!e||typeof e.open!=='function'){e=document.createElement(TAG);globalThis.__homeDashboardEditorV3=e}if(e.parentNode!==document.body){e.remove();document.body.append(e)}return e}async function patch(tag){await customElements.whenDefined(tag);const C=customElements.get(tag),p=C?.prototype;if(!p||p[PATCH]||typeof p.openEditor!=='function')return;const original=p.openEditor;p.openEditor=async function(...args){this.editor=await portal();return original.apply(this,args)};p[PATCH]=true}Promise.all(['component-room-directory-v4','component-household-directory-v3','component-smart-collection-v3'].map(patch)).catch(e=>console.error('[HOME EDITOR PORTAL]',e));})();
-})();
-}
-
-// Module: src/patches/room-directory-presence-glow.js
-{
-(()=>{
-customElements.whenDefined('component-room-directory-v4').then(()=>{
-  const Card=customElements.get('component-room-directory-v4');
-  const P=Card?.prototype;
-  if(!P||P.__roomDirectoryGlowV2)return;
-  P.__roomDirectoryGlowV2=true;
-
-  const originalEntries=P.entries;
-  P.entries=function(areaId){
-    if(!this.d||!this.h)return[];
-    const HD2=globalThis.__homeDashboardV2;
-    if(!HD2?.uiEntry||!HD2?.areaOf)return originalEntries.call(this,areaId);
-    let cache=this.__roomEntriesCache;
-    if(!cache||cache.registry!==this.d){
-      const byArea=new Map();
-      for(const entry of this.d.entities||[]){
-        if(!HD2.uiEntry(entry))continue;
-        const id=HD2.areaOf(entry,this.d);
-        if(!id)continue;
-        const entries=byArea.get(id)||[];
-        entries.push(entry);
-        byArea.set(id,entries);
-      }
-      cache={registry:this.d,byArea};
-      this.__roomEntriesCache=cache;
-    }
-    return (cache.byArea.get(areaId)||[]).map(e=>({e,s:this.h.states[e.entity_id]})).filter(x=>x.s);
-  };
-
-  P._roomActive=function(area){
-    const HD2=globalThis.__homeDashboardV2;
-    return this.entries(area.area_id).some(({e,s})=>{
-      if(e?.entity_id?.startsWith('binary_sensor.')&&s?.state==='on'){
-        const cls=String(s.attributes?.device_class||e.device_class||'').toLowerCase();
-        const identity=(e.entity_id+' '+String(e.name||e.original_name||'')+' '+String(s.attributes?.friendly_name||'')).toLowerCase();
-        if(cls==='occupancy'||cls==='presence'||identity.includes('presence')||identity.includes('occupancy')||identity.includes('mmwave'))return true;
-      }
-      return HD2?.isActive?.(e,s)===true;
-    });
-  };
-
-  P._roomPresenceHue=function(area){
-    const key=String(area?.area_id||area?.name||'room');
-    let hash=2166136261;
-    for(let i=0;i<key.length;i++){hash^=key.charCodeAt(i);hash=Math.imul(hash,16777619)}
-    return (hash>>>0)%360;
-  };
-
-  const original=P.updateTile;
-  P.updateTile=function(button,area){
-    original.call(this,button,area);
-    const active=button.classList.contains('active')||this._roomActive(area);
-    if(button.dataset.roomGlowInitialised!=='true'){
-      button.dataset.roomGlowInitialised='true';
-      button.style.transition='box-shadow 180ms ease, border-color 180ms ease';
-      button.style.borderLeft='var(--dashboard-card-border,1px solid var(--divider-color))';
-    }
-    if(!active){
-      button.style.removeProperty('border-color');
-      button.style.removeProperty('box-shadow');
-      button.removeAttribute('data-presence');
-      return;
-    }
-    const hue=this._roomPresenceHue(area);
-    button.setAttribute('data-presence','true');
-    button.style.borderColor=`hsl(${hue} 82% 68% / .72)`;
-    button.style.boxShadow=`0 0 14px 2px hsl(${hue} 82% 64% / .14)`;
-  };
-
-  const refresh=(root,seen=new Set())=>{
-    if(!root||seen.has(root))return;
-    seen.add(root);
-    root.querySelectorAll?.('component-room-directory-v4').forEach(card=>card.refreshTiles?.());
-    root.querySelectorAll?.('*').forEach(host=>refresh(host.shadowRoot,seen));
-  };
-  const refreshMounted=()=>refresh(document);
-  if(typeof requestAnimationFrame==='function')requestAnimationFrame(refreshMounted);
-  else queueMicrotask(refreshMounted);
-});
-})();
-}
-
-// Module: src/patches/split-registry-discovery.js
-{
-/** Refresh room and active collections when shared split state changes. */
-(()=>{
-  customElements.whenDefined("component-smart-collection-v3").then(()=>{
-    const Collection=customElements.get("component-smart-collection-v3");
-    const prototype=Collection?.prototype;
-    if(!prototype||prototype.__splitRegistryDiscoveryV1)return;
-    prototype.__splitRegistryDiscoveryV1=true;
-    const hassDescriptor=Object.getOwnPropertyDescriptor(prototype,"hass");
-    const originalConnected=prototype.connectedCallback;
-    const originalDisconnected=prototype.disconnectedCallback;
-    prototype.subscribeSplitRegistryV1=function(){
-      const registry=globalThis.__componentSplitRegistryV4;
-      if(this._splitRegistryUnsubV1||!this.h||!registry?.subscribe)return;
-      this._splitRegistryUnsubV1=registry.subscribe(this.h,()=>{
-        this.split=null;
-        this.structureSig="";
-        this.schedule();
-      });
-    };
-    Object.defineProperty(prototype,"hass",{
-      ...hassDescriptor,
-      set(value){
-        hassDescriptor.set.call(this,value);
-        this.subscribeSplitRegistryV1();
-      }
-    });
-    prototype.connectedCallback=function(){
-      originalConnected.call(this);
-      this.subscribeSplitRegistryV1();
-    };
-    prototype.disconnectedCallback=function(){
-      this._splitRegistryUnsubV1?.();
-      this._splitRegistryUnsubV1=null;
-      originalDisconnected.call(this);
-    };
-  });
-})();
-}
-
-// Module: src/patches/room-directory-open-guard.js
-{
-/** Prevent the Room hash update from opening the same drawer twice. */
-customElements.whenDefined("component-room-directory-v4").then(()=>{
-  const RoomDirectory=customElements.get("component-room-directory-v4");
-  const prototype=RoomDirectory?.prototype;
-  if(!prototype||prototype.__roomOpenGuardV1)return;
-  prototype.__roomOpenGuardV1=true;
-  const originalOpenRoom=prototype.openRoom;
-  prototype.openRoom=async function(area,writeHash=true){
-    const areaId=area?.area_id;
-    if(!areaId||this._roomOpenInFlightV1===areaId)return;
-    this._roomOpenInFlightV1=areaId;
-    try{return await originalOpenRoom.call(this,area,writeHash)}finally{
-      if(this._roomOpenInFlightV1===areaId)this._roomOpenInFlightV1=null;
-    }
-  };
-});
-}
-
-// Module: src/patches/split-registry-resume.js
-{
-/** Resume an off split from durable registry state instead of reopening mode selection. */
-customElements.whenDefined("component-split-controller-v4").then(()=>{
-  const Controller=customElements.get("component-split-controller-v4");
-  const prototype=Controller?.prototype;
-  if(!prototype||prototype.__splitRegistryResumeV1)return;
-  prototype.__splitRegistryResumeV1=true;
-  const originalPower=prototype.G;
-  prototype.G=function(){
-    const split=this.Z();
-    if(split.uv||split.state?.state!=="off")return originalPower.call(this);
-    const mode=this.gt();
-    if(!mode||!this.config.room_id)return originalPower.call(this);
-    this.Rt("hvac",{
-      requested:mode,
-      label:this.tt(mode),
-      call:()=>this.P.callService("ha_component_backend","resume_room",{room_id:this.config.room_id}),
-      matches:()=>this.X(this.config.entity)?.state===mode,
-      closePanel:true,
-      timeout:10000
-    },true);
-  };
-});
-}
-
-// Module: src/patches/apple-tv-header-controls.js
-{
-/** Aligns Apple TV controls with the dashboard design system. */
-customElements.whenDefined("component-apple-tv-controller-v1").then(() => {
-  const Card = customElements.get("component-apple-tv-controller-v1");
-  const prototype = Card?.prototype;
-  if (!prototype || prototype.__headerControlsV3) return;
-  prototype.__headerControlsV3 = true;
-
-  const oldRender = prototype.render;
-  const oldRenderRemote = prototype.renderRemote;
-  const oldRenderApps = prototype.renderApps;
-  const oldOpenPanel = prototype.openPanel;
-  const oldDisconnectedCallback = prototype.disconnectedCallback;
-
-  const APP_BRAND_COLOURS = [
-    [/netflix/i, "#e50914"], [/youtube/i, "#ff0000"], [/spotify/i, "#1ed760"], [/prime video|amazon/i, "#00a8e1"], [/plex/i, "#e5a00d"], [/twitch/i, "#9146ff"], [/vlc/i, "#ff8800"], [/apple tv|apple music|music/i, "var(--primary-text-color)"], [/disney/i, "#0b5bd3"], [/kayo|sport/i, "#00a651"], [/binge/i, "#8a2be2"], [/stan/i, "#00a5ff"], [/paramount/i, "#0064ff"],
-  ];
-
-  prototype.appleTvAppColour = function appleTvAppColour(source) {
-    return APP_BRAND_COLOURS.find(([pattern]) => pattern.test(source))?.[1] || "var(--primary-color)";
-  };
-
-  prototype.ensureHeaderControls = function ensureHeaderControls(model) {
-    if (!this.shadowRoot || !this.el) return;
-    if (!this.shadowRoot.querySelector("style[data-apple-tv-header-controls]")) {
-      const style = document.createElement("style");
-      style.setAttribute("data-apple-tv-header-controls", "");
-      style.textContent = `.card-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px}.identity{grid-template-columns:44px minmax(0,1fr)!important;gap:12px!important}.card-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-left:0}.header-action{width:44px;height:44px;min-width:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.header-action.power.on{color:var(--primary-color)}.header-action ha-icon{--mdc-icon-size:20px}.header-action span{display:none}.panel{padding:16px!important;overscroll-behavior:contain}.sheet{width:min(430px,calc(100vw - 32px))!important;max-height:calc(100dvh - 32px)!important;min-height:0;overflow:hidden!important;display:flex!important;flex-direction:column;border-radius:var(--dashboard-radius-dialog,8px)!important;box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))!important}.head{flex:0 0 auto}.body{flex:1 1 auto;min-height:0!important;overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}.panel-notice{flex:0 0 auto}.panel[data-mode="apps"] .body{max-height:calc(100dvh - 112px)}.apps-grid{align-content:start}.app-logo ha-icon{color:var(--apple-tv-app-colour,var(--primary-color))}@media(max-width:420px){.panel{padding:16px!important}.sheet{width:calc(100vw - 32px)!important;max-height:calc(100dvh - 32px)!important}.card-head{gap:8px}.card-actions{gap:8px}.header-action{width:44px;height:44px;min-width:44px}.header-action ha-icon{--mdc-icon-size:20px}}`;
-      this.shadowRoot.append(style);
-    }
-
-    let cardHead = this.shadowRoot.querySelector(".card-head");
-    if (!cardHead) {
-      const identity = this.shadowRoot.querySelector(".identity");
-      cardHead = document.createElement("div");
-      cardHead.className = "card-head";
-      identity?.before(cardHead);
-      if (identity) cardHead.append(identity);
-    }
-
-    let actions = this.shadowRoot.querySelector(".card-actions");
-    if (!actions) {
-      actions = document.createElement("div");
-      actions.className = "card-actions";
-      actions.setAttribute("aria-label", "Apple TV quick controls");
-      cardHead.append(actions);
-    }
-    for (const handle of this._headerInteractions || []) handle.destroy();
-    this._headerInteractions = [];
-
-    const wake = !model.awake;
-    const powerAction = wake ? "wake" : "sleep";
-    const canPower = wake ? model.canWake : model.canSleep;
-    const repeatVolume = { delay: 350, interval: 110, accelerate: true };
-    const start = this.dynamicInteractions.length;
-    const volumeDown = this.button("header-action", "Volume down", "mdi:volume-minus", () => this.queueVolume("down"), !model.canVolumeDown, false, { repeat: repeatVolume, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) });
-    const volumeUp = this.button("header-action", "Volume up", "mdi:volume-plus", () => this.queueVolume("up"), !model.canVolumeUp, false, { repeat: repeatVolume, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) });
-    const power = this.button(`header-action power ${model.awake ? "on" : ""}`, wake ? "Turn Apple TV on" : "Turn Apple TV off", "mdi:power", () => this.remoteCommand(wake ? "wakeup" : "suspend", powerAction), !canPower || this.busy(powerAction), this.busy(powerAction));
-    this._headerInteractions.push(...this.dynamicInteractions.splice(start));
-    actions.replaceChildren(volumeDown, volumeUp, power);
-  };
-
-  prototype.render = function render() {
-    oldRender.call(this);
-    if (!this.config || !this.el) return;
-    const model = this.model();
-    this.el.remoteLaunch.disabled = !model.awake || !this.canRemote(model);
-    this.el.appsLaunch.disabled = !model.awake || !model.canSelectSource;
-    this.el.panel.dataset.mode = this.panelMode || "";
-    this.ensureHeaderControls(model);
-    if (this.panelMode && !model.awake) this.closePanel(false);
-  };
-
-  prototype.renderRemote = function renderRemote(model) {
-    oldRenderRemote.call(this, model);
-    const power = this.el?.body?.querySelector(".remote-toolbar .power");
-    power?.remove();
-    const toolbar = this.el?.body?.querySelector(".remote-toolbar");
-    if (toolbar && !toolbar.childElementCount) toolbar.remove();
-    const volume = this.el?.body?.querySelector(".volume-control");
-    volume?.closest(".section")?.remove();
-  };
-
-  prototype.renderApps = function renderApps(model) {
-    oldRenderApps.call(this, model);
-    for (const app of this.el?.body?.querySelectorAll(".app") || []) {
-      const source = app.querySelector(".app-name")?.textContent?.trim() || "";
-      const logo = app.querySelector(".app-logo");
-      if (logo) logo.style.setProperty("--apple-tv-app-colour", this.appleTvAppColour(source));
-    }
-  };
-
-  prototype.openPanel = function openPanel(mode, trigger) {
-    if (!this.model().awake) return;
-    return oldOpenPanel.call(this, mode, trigger);
-  };
-
-  prototype.disconnectedCallback = function disconnectAppleTvHeaderInteractions(...args) {
-    for (const handle of this._headerInteractions || []) handle.destroy();
-    this._headerInteractions = [];
-    return oldDisconnectedCallback?.apply(this, args);
-  };
-});
-}
-
-// Module: src/patches/smart-collection-live-active.js
-{
-/** Makes Active Now react directly to Home Assistant state changes. */
-customElements.whenDefined("component-smart-collection-v3").then(() => {
-  const Card = customElements.get("component-smart-collection-v3");
-  const prototype = Card?.prototype;
-  if (!prototype || prototype.__liveActiveStatesV1) return;
-  prototype.__liveActiveStatesV1 = true;
-
-  const hassDescriptor = Object.getOwnPropertyDescriptor(prototype, "hass");
-  const baseHassSet = hassDescriptor?.set;
-  const baseSetConfig = prototype.setConfig;
-  const baseConnected = prototype.connectedCallback;
-  const baseDisconnected = prototype.disconnectedCallback;
-  const ACTIVE_DOMAINS = new Set([
-    "light",
-    "fan",
-    "switch",
-    "input_boolean",
-    "media_player",
-    "climate",
-    "cover",
-    "lock",
-    "vacuum",
-    "binary_sensor",
-  ]);
-  const ACTIVE_BINARY_CLASSES = /^(door|window|garage_door|smoke|moisture|gas)$/;
-
-  prototype.stopActiveStateStream = function stopActiveStateStream() {
-    clearTimeout(this.__activeStateRetry);
-    this.__activeStateRetry = null;
-    this.__activeStateToken = null;
-    this.__activeStateConnection = null;
-
-    const subscription = this.__activeStateSubscription;
-    this.__activeStateSubscription = null;
-    if (subscription) {
-      Promise.resolve(subscription)
-        .then((unsubscribe) => unsubscribe?.())
-        .catch(() => {});
-    }
-  };
-
-  prototype.handleActiveStateChanged = function handleActiveStateChanged(event) {
-    if (this.c?.mode !== "active" || !this.h) return;
-
-    const data = event?.data || event;
-    const entityId = data?.entity_id;
-    if (!entityId) return;
-
-    const domain = globalThis.__homeDashboardV2?.domain?.(entityId);
-    if (!ACTIVE_DOMAINS.has(domain)) return;
-
-    const oldState = data?.old_state || this.h.states?.[entityId] || null;
-    const newState = data?.new_state || null;
-    if (domain === "binary_sensor") {
-      const deviceClass =
-        newState?.attributes?.device_class || oldState?.attributes?.device_class || "";
-      if (!ACTIVE_BINARY_CLASSES.test(deviceClass)) return;
-    }
-
-    const HD2 = globalThis.__homeDashboardV2;
-    if (!HD2?.isActive) return;
-
-    let entry = this.d?.entities?.find((item) => item.entity_id === entityId) || null;
-    if (entry && !HD2.uiEntry(entry)) return;
-    entry ||= { entity_id: entityId };
-
-    const wasActive = HD2.isActive(entry, oldState);
-    const isActive = HD2.isActive(entry, newState);
-    if (wasActive === isActive) return;
-
-    const states = { ...(this.h.states || {}) };
-    if (newState) states[entityId] = newState;
-    else delete states[entityId];
-
-    this.structureSig = "";
-    if (baseHassSet) {
-      baseHassSet.call(this, { ...this.h, states });
-    } else {
-      this.h = { ...this.h, states };
-      this.schedule?.();
-    }
-  };
-
-  prototype.startActiveStateStream = function startActiveStateStream() {
-    if (this.c?.mode !== "active" || !this.isConnected) return;
-
-    const connection = this.h?.connection;
-    if (!connection?.subscribeEvents) return;
-    if (
-      this.__activeStateConnection === connection &&
-      this.__activeStateSubscription
-    ) {
-      return;
-    }
-
-    this.stopActiveStateStream();
-    this.__activeStateConnection = connection;
-    const token = {};
-    this.__activeStateToken = token;
-
-    let subscription;
-    try {
-      subscription = connection.subscribeEvents(
-        (event) => {
-          if (this.__activeStateToken === token) {
-            this.handleActiveStateChanged(event);
-          }
-        },
-        "state_changed",
-      );
-    } catch {
-      subscription = Promise.reject(new Error("state subscription failed"));
-    }
-
-    this.__activeStateSubscription = Promise.resolve(subscription).catch(() => {
-      if (this.__activeStateToken !== token) return null;
-      this.__activeStateSubscription = null;
-      this.__activeStateRetry = setTimeout(() => {
-        this.__activeStateRetry = null;
-        this.startActiveStateStream();
-      }, 10000);
-      return null;
-    });
-  };
-
-  Object.defineProperty(prototype, "hass", {
-    configurable: true,
-    get() {
-      return this.h;
-    },
-    set(hass) {
-      if (baseHassSet) baseHassSet.call(this, hass);
-      else this.h = hass;
-      this.startActiveStateStream();
-    },
-  });
-
-  prototype.setConfig = function setConfig(config) {
-    const result = baseSetConfig.call(this, config);
-    if (this.c?.mode === "active") this.startActiveStateStream();
-    else this.stopActiveStateStream();
-    return result;
-  };
-
-  prototype.connectedCallback = function connectedCallback() {
-    const result = baseConnected.call(this);
-    this.startActiveStateStream();
-    return result;
-  };
-
-  prototype.disconnectedCallback = function disconnectedCallback() {
-    this.stopActiveStateStream();
-    return baseDisconnected.call(this);
-  };
-});
-}
-
-// Module: src/patches/home-favourites-backend-only.js
-{
-/** Keep Home Favourites backend-only once the preference contract is present. */
-customElements.whenDefined("component-home-overview-v4").then(() => {
-  const prototype = customElements.get("component-home-overview-v4")?.prototype;
-  if (!prototype || prototype.__backendOnlyFavouritesV1) return;
-  prototype.__backendOnlyFavouritesV1 = true;
-  const originalSetConfig = prototype.setConfig;
-  prototype.setConfig = function setBackendOnlyHomeConfig(config) {
-    return originalSetConfig.call(this, { ...config, favourites_helpers: [] });
-  };
-});
-}
-
-// Module: src/patches/config-contracts.js
-{
-/** Install editor/stub support on legacy cards that predate registerCard. */
-(() => {
-  const install = globalThis.__HA_COMPONENT_LIBRARY_SHARED__?.installConfigContract;
-  if (!install) return;
-  for (const card of window.customCards || []) {
-    const type = String(card?.type || "");
-    if (!type) continue;
-    const element = customElements.get(type);
-    if (element) install(type, element);
-  }
-})();
-}
-
-// Module: src/patches/security-dashboard-live-polish.js
-{
-/** Live-render polish for the rebuilt Security dashboard. */
-const SecurityDashboardLivePolish = customElements.get("component-security-dashboard-v1");
-if (SecurityDashboardLivePolish) {
-  const originalRenderCameras = SecurityDashboardLivePolish.prototype.renderCameras;
-  SecurityDashboardLivePolish.prototype.renderCameras = function renderCamerasWithStableEmptyState(cameras) {
-    originalRenderCameras.call(this, cameras);
-    if (this.elements?.cameraEmpty) {
-      // Author-level `.empty { display:grid }` otherwise overrides the browser's
-      // hidden presentation, leaving a contradictory empty-state under live cameras.
-      this.elements.cameraEmpty.style.display = cameras.length ? "none" : "";
-    }
-  };
-}
 }
 
 globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "10.0.0", components: 45 });

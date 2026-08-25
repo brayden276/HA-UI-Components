@@ -1,6 +1,6 @@
 # Architecture
 
-The repository separates public cards, shared runtime logic, internal support elements and compatibility patches. HACS receives one generated file, while maintainers work in small source modules.
+The repository separates public cards, shared runtime logic and internal support elements. HACS receives one generated file, while maintainers work in small source modules.
 
 ## Layout
 
@@ -9,7 +9,6 @@ src/
   components/   one public dashboard card per file
   shared/       reusable primitives, registries, CSS tokens and runtimes
   support/      internal custom elements used by public cards
-  patches/      isolated compatibility patches retained from the live cards
   provenance/   style fingerprints captured before the refactor
   bundle-manifest.json
 dist/
@@ -42,34 +41,31 @@ The 45 public card registrations are asserted by `scripts/check-inventory.mjs`.
 - `shared/apple-tv-runtime.js` owns Apple TV discovery and supported-capability modelling; the public card owns only interaction and rendering.
 - `shared/security-runtime.js` owns capability-driven Security discovery shared by summary, camera wall and entry-point cards.
 - `shared/split-system-registry.js` owns split-system discovery and subscriptions used by the split controller and favourites.
-- `shared/dashboard-runtime.js` owns the existing entity-aware dashboard registry runtime used by split-system, garage-door, WLED and camera collection integration.
-- `shared/wled-runtime.js` owns WLED names, domain checks and registry access used by both the card and its integration patch.
+- `shared/dashboard-runtime.js` owns entity-aware registry discovery, including explicit entry-filter and control-resolver extension points. Shared integrations use those points instead of replacing public component prototypes or each other.
+- `shared/wled-runtime.js` owns WLED names, domain checks, registry access and dashboard discovery integration.
 - `shared/update-styles.js` owns the common Update-card presentation primitive.
 
-Internal elements under `support/` are bundled before public cards. Compatibility patches are bundled last so they can safely wait for or patch registered elements.
+Internal elements under `support/` are bundled before public cards. Component behaviour belongs in its component, while reusable discovery and model behaviour belongs in the relevant shared runtime. A future compatibility adaptation must be isolated, documented with an owner and removal condition, and must not replace component ownership.
 
 ## Bundle order
 
-`src/bundle-manifest.json` is the authoritative dependency order. `scripts/assemble.mjs` wraps each source module in its own lexical block and emits `dist/ha-component-library.js`. This preserves the isolation of the original separately registered resources without requiring a production dependency.
+`src/bundle-manifest.json` is the authoritative dependency order. The pure bundle-composition helper is used both by `scripts/assemble.mjs` (the explicit writer) and source validation (in memory). `scripts/assemble.mjs` wraps each source module in its own lexical block and emits `dist/ha-component-library.js`. This preserves the isolation of the original separately registered resources without requiring a production dependency.
 
 Do not hand-edit the generated distributable. Change source modules, update the manifest if needed, and regenerate it.
 
 ## Style preservation
 
-This work does not redesign components. `src/provenance/style-fingerprints.json` records the accepted presentation baseline after intentional micro-polish such as 44 px targets and stable control rows. `scripts/check-style-preservation.mjs` blocks unreviewed drift from that baseline.
+This work does not redesign components. `src/provenance/style-fingerprints.json` records the accepted presentation baseline after intentional micro-polish such as 44 px targets and stable control rows. `npm run check:style` is the blocking provenance gate for unreviewed drift; normal source validation reports existing provenance drift as advisory and never regenerates the fingerprints.
 
-## Validation
+## Validation boundaries
 
-`npm run check` performs the source, runtime and release-contract checks:
+`npm run check:source` is the normal, refactor-stable engineering gate. It validates current source only: syntax and policy, manifest/inventory, automatically discovered generic component contracts and migrated black-box component specifications, shared runtime behaviour, advisory style provenance, and in-memory load order. It neither reads nor writes `dist/`. An ordinary behaviour-preserving component refactor should normally require only `src/` changes.
 
-- JavaScript syntax for the distributable.
-- Exactly one descriptively named registration for each of the 45 public card types.
-- Preservation of all original style fingerprints.
-- Isolated bundle loading with mocked browser/Home Assistant primitives, including dependency and patch order.
-- Bundle version, public component count, manifest coverage and HACS filename validation.
-- Reconnect activation, request coalescing/backoff, Security discovery, Apple TV capability modelling and editor/stub contracts.
+Component specifications are discovered from the authoritative public inventory. The runner rejects missing, orphaned, duplicate or unknown specifications and invalid contract profiles. Generic contracts cover the common public surface; migrated specialised specifications retain stable, component-specific async, lifecycle, controller and composition scenarios.
 
-The isolated loader does not connect to or modify Home Assistant.
+Bundle freshness is a separate release boundary. It composes the expected bundle in memory and compares it with the checked-in generated artefact byte-for-byte; it does not cause source validation to write that artefact. Only the explicit bundle/release workflow writes `dist/ha-component-library.js`.
+
+Live Home Assistant/HACS proof is a third boundary. It verifies installation, browser/runtime integration and physical-device behaviour and cannot be inferred from source checks. Source validation uses a strict capability-based harness and never connects to or modifies Home Assistant.
 
 ## Adding a component
 
@@ -77,6 +73,6 @@ The isolated loader does not connect to or modify Home Assistant.
 2. Put reusable logic in `src/shared/`; do not copy registry, action or escaping helpers.
 3. Register the card with `registerCard`.
 4. Add the source file to `src/bundle-manifest.json` after its dependencies.
-5. Add the card type and constructor to `scripts/check-inventory.mjs` and `scripts/check-load-order.mjs`.
+5. Add the deliberately independent public compatibility-oracle entry and an automatically discovered specialised specification only when generic contracts are insufficient.
 6. Document its configuration in `docs/components.md`.
-7. Run `npm run release:dry-run`, then `npm run release` to bump the version, regenerate the distributable and run the complete validation suite.
+7. Run `npm run check:source`; use the explicit release workflow only when preparing a distributable.

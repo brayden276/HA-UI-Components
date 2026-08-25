@@ -442,6 +442,9 @@ class ComponentSecurityDashboardV1 extends HTMLElement {
       ? "Unavailable"
       : `${cameras.filter((camera) => camera.online).length}/${cameras.length} online`;
     this.elements.cameraEmpty.hidden = cameras.length > 0;
+    // `.camera-empty` is a grid container by design, so make the hidden state
+    // explicit when live cameras exist rather than relying on browser defaults.
+    this.elements.cameraEmpty.style.display = cameras.length ? "none" : "";
     this.elements.cameraEmpty.textContent = this.model?.profileMissing
       ? `Configure ${this.config.profile} in HA Component Backend`
       : this.model?.error

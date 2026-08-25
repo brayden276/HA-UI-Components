@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { composeBundleFromSource } from "./bundle-composition.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packagePath = resolve(root, "package.json");
@@ -44,6 +45,10 @@ if (!bundlePath) {
 }
 
 const bundle = await readFile(bundlePath, "utf8");
+const expectedBundle = await composeBundleFromSource(root);
+if (bundle !== expectedBundle) {
+  fail("generated bundle does not exactly match the current ordered source composition");
+}
 const publicComponentCount = manifest.filter((entry) =>
   entry.file.startsWith("src/components/"),
 ).length;

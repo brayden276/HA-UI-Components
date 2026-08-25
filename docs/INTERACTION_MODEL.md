@@ -286,4 +286,4 @@ For sliders, keep the native `<input type="range">` interaction and send values 
 - Continuous controls update locally first and coalesce backend work.
 - Missing/unavailable entities disable direct actions and remain inspectable only where inspection is meaningful.
 - A visual element that looks interactive must have a meaningful action; otherwise render non-interactive semantics.
-- New direct user interactions belong in canonical component/shared source. `src/patches/` is not the implementation path for new behaviour.
+- New direct user interactions belong in canonical component/shared source; do not introduce a compatibility layer for normal behaviour.
