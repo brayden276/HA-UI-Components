@@ -20,6 +20,21 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 
 ## Component entries
 
+### `component-context-strip-v3`
+
+- Component: `src/components/context-strip.js`
+- Risk: Medium; optional navigation/More Info actions share retained disconnect/reconnect lifecycle compatibility and exact two-style-tag presentation.
+- Original complexity: 3,780 bytes across 26 physical lines; configuration, action selection, rendering and interaction ownership were densely interleaved.
+- Primary architectural problems: Rendered action closures re-read mutable configuration at invocation, so an existing button could be redirected after render, and runtime reliability retained a dead `CtxEsc` compatibility wrapper after the component adopted the shared `escapeHtml` helper.
+- Refactor: Expanded the component readably and snapshots the selected truthy navigation path or entity once per render, preserving navigation precedence while preventing getter side effects and post-render redirection.
+- Shared changes: Removed only the obsolete guarded Context Strip `CtxEsc` runtime wrapper. The retained `_interaction` disconnect entry remains intentional so reconnect destroys the preserved detached handle once before binding a fresh handle.
+- Removed complexity: Eliminated mutable action-target drift and a no-op legacy escape shim without changing metadata, prototype shape, configuration defaults, DOM or CSS.
+- Behavioural contracts verified: Metadata/editor/stub, constructor/prototype descriptors, falsey config fallback, immediate render, Hass storage, exact static/actionable DOM and escaping, three ordered metrics, snapshot action precedence, exact interaction options, teardown and retained reconnect behaviour.
+- Tests added/changed: Added `scripts/check-context-strip.mjs` and wired it into `scripts/check-all.mjs`; it evaluates the real lifecycle patch alongside exact component output.
+- Validation: Focused checker; Action, Three-stat and List leaf regressions; source/patch/checker/runner syntax; maintainability; interaction contracts; interaction runtime; advisory style; and diff whitespace checks pass. The refactor restores Context Strip's recognised style fingerprint; strict style now fails only on the nine unrelated established drifts. Generated bundle, full aggregate and live HA remain outside the source-only boundary.
+- Reviewer findings: Independent Sol review found no production regression; two LOW checker/report completeness findings and two unused checker fields were resolved.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified.
+
 ### `component-list-v2`
 
 - Component: `src/components/list-ranking.js`

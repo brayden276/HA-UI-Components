@@ -46,20 +46,6 @@
     patch(type, (prototype) => preserveLocalInteractionFields(prototype, fields));
   }
 
-  patch("component-context-strip-v3", (prototype) => {
-    const original = prototype._render;
-    if (typeof original !== "function" || !String(original).includes("CtxEsc")) return;
-    prototype._render = function renderWithScopedEscape() {
-      const previous = globalThis.CtxEsc;
-      globalThis.CtxEsc = shared.escapeHtml ?? String;
-      try { return original.call(this); }
-      finally {
-        if (previous === undefined) delete globalThis.CtxEsc;
-        else globalThis.CtxEsc = previous;
-      }
-    };
-  });
-
   patch("component-device-discovery-v2", (prototype) => {
     const originalStyles = prototype.styles;
     if (typeof originalStyles === "function" && String(originalStyles).includes("${B}")) {

@@ -9,6 +9,7 @@ const checks = [
   ["scripts/check-maintainability.mjs"],
   ["scripts/check-interactions.mjs"],
   ["scripts/check-interaction-runtime.mjs"],
+  ["scripts/check-context-strip.mjs"],
   ["scripts/check-single-kpi.mjs"],
   ["scripts/check-three-stat.mjs"],
   ["scripts/check-navigation-tile.mjs"],
