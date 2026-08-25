@@ -49,3 +49,18 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 - Validation: Focused check, syntax, maintainability and diff checks pass. Style retains unrelated pre-existing drift. Bundle checks remain blocked by the build gate.
 - Reviewer findings: MEDIUM own-property drift and LOW render-indirection findings resolved; independent Sol re-review found no remaining findings.
 - Status: Source refactor accepted; generated distributable and live HA remain unverified.
+
+### `component-empty-state-v3`
+
+- Component: `src/components/empty-state.js`
+- Risk: Low; static presentational card with shared Update styling.
+- Original complexity: 1.5 kB across 30 readable lines.
+- Primary architectural problems: None found; the direct source architecture already meets the required presentational-card shape.
+- Refactor: No production refactor or source change.
+- Shared changes: None.
+- Removed complexity: None; the existing direct implementation remains canonical.
+- Behavioural contracts verified: Open shadow root, configuration defaults and native spread semantics, synchronous and overridable rendering, own `c` shape, no-op `hass`, exact DOM/CSS and escaping, registration metadata, shared editor/stub contract, and lifecycle-free behaviour.
+- Tests added/changed: Added `scripts/check-empty-state.mjs` and wired it into `scripts/check-all.mjs`.
+- Validation: Focused source-level check, syntax checks and diff whitespace check pass. No build or generated-bundle validation was run; `dist` remains outside this source-only validation boundary.
+- Reviewer findings: Two MEDIUM coverage gaps and two LOW completeness/report findings resolved; independent Sol re-review found no remaining findings.
+- Status: Source coverage complete; generated distributable and live HA remain unverified.
