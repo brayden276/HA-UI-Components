@@ -8,6 +8,7 @@ const sources = Object.fromEntries(await Promise.all([
   "src/components/welcome-header.js",
   "src/components/home-overview.js",
   "src/components/household-directory.js",
+  "src/components/split-system-controller.js",
   "src/components/history-graph.js",
   "src/components/energy-history-card.js",
   "src/components/camera-controller-v2.js",
@@ -33,6 +34,8 @@ requireText("src/shared/dashboard-style-tokens.js", "prefers-reduced-motion:redu
 requireText("src/components/media-row.js", ".btn{position:relative;width:44px;height:44px", "Media transport controls must retain 44px targets");
 requireText("src/components/welcome-header.js", ".row{min-height:44px", "Welcome header must retain a stable 44px row");
 requireText("src/components/home-overview.js", ".weather{appearance:none;border:0;min-height:44px", "Overview weather control must retain a 44px target");
+requireText("src/components/split-system-controller.js", 'interaction(this.$.decrease,{primary:()=>this.W(-1),feedback:!0})', "Split temperature decrement must activate once per discrete press");
+requireText("src/components/split-system-controller.js", 'interaction(this.$.increase,{primary:()=>this.W(1),feedback:!0})', "Split temperature increment must activate once per discrete press");
 requireText("src/components/home-overview.js", 'quick_action_label: "dashboard_quick_action"', "Home must configure reusable labelled quick actions");
 requireText("src/components/household-directory.js", 'action: "perform-action"', "Labelled Home quick actions must execute native Home Assistant actions");
 requireText("src/components/household-directory.js", "labels.includes(this.c.quick_action_label)", "Home quick actions must be discovered by registry label");
@@ -45,8 +48,7 @@ requireText("src/components/camera-controller-v2.js", 'wasOn ? "turn_off" : "tur
 requireText("src/components/camera-controller-v2.js", "dialogController.setBusy(true)", "Camera controls must expose pending state semantics");
 requireText("src/components/security-camera-wall.js", ">Settings</span>", "Security camera tiles must expose a labelled Settings action");
 requireText("src/components/security-dashboard.js", 'document.createElement("ha-camera-stream")', "Security camera imagery must open a dedicated live viewer");
-requireText("src/components/security-dashboard.js", "createDialogController", "Security camera modals must use the shared native dialog controller");
-requireText("src/components/security-dashboard.js", '<dialog class="viewer-dialog">', "Security live viewing must be owned by a native dialog");
+requireText("src/components/security-dashboard.js", "createOverlayController", "Security camera overlays must use the shared resilient overlay controller");
 requireText("src/components/security-dashboard.js", "Quick actions", "Security composition must retain backend-mapped quick actions");
 requireText("src/shared/lifecycle.js", "backdropPointerStarted", "Overlay dismissal must not consume the click that opened it");
 requireText("src/components/camera-controller-v2.js", "Last detections", "Camera settings must expose the latest classification snapshots");
