@@ -1,7 +1,7 @@
 /** Runtime compatibility and lifecycle guards for retained component DOM. */
 (() => {
   const shared = globalThis.__HA_COMPONENT_LIBRARY_SHARED__ ?? {};
-  const { createRequestCoalescer, interaction } = shared;
+  const { createRequestCoalescer } = shared;
 
   const patch = (type, apply) => customElements.whenDefined(type).then(() => {
     const Card = customElements.get(type);

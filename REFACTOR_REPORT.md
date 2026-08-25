@@ -8,7 +8,7 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 
 | Batch | Components | Status |
 | --- | --- | --- |
-| Leaf presentation | Section Separator, Empty State, Navigation Tile, Single KPI, Notice, Progress, Status Row, Action, Three-stat, List, Context Strip | In progress |
+| Leaf presentation | Section Separator, Empty State, Navigation Tile, Single KPI, Notice, Progress, Status Row, Action, Three-stat, List, Context Strip | Accepted (source-only) |
 | Local state and visualisation | Text Effect, Quick Navigation, Welcome Header, History Graph | Pending |
 | Registry and shells | Household Attention, Room Navigation, Device Discovery, Room Sheet | Pending |
 | Energy | Energy Day Selector, Metric Pair, Solar Daylight, Energy Summary, Energy History, Energy Dashboard | Pending |
@@ -17,6 +17,15 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 | Home composition | Favourites V3, Favourites Minimal, Smart Collection, Household Directory, Room Directory, Home Overview | Pending |
 | Security and physical control | Security Summary, Security Camera Wall, Garage Door Controller, Security Entry Points | Pending |
 | Highest-risk runtimes | Split Controller, Security Dashboard | Pending |
+
+## Cross-component reviews
+
+### Leaf presentation
+
+- Scope: Eleven accepted component commits from `14110c7` through `f0068d9`, their focused checkers, the shared leaf harness, interaction lifecycle compatibility entries, aggregate registration and report entries.
+- Result: Independent Sol architecture review found no material source, checker, lifecycle, public-surface or styling regressions. Differences between snapshotted and current-value actions, and between direct and retained lifecycle ownership, are documented compatibility contracts rather than safe abstraction targets.
+- Cleanup: Marked the batch accepted, corrected the Three-stat retention note, and removed one unused runtime destructure plus one unused checker destructure.
+- Validation: All eleven focused checks, maintainability, interaction contracts/runtime, component-model, polish and advisory style checks pass. Strict style fails only on the nine unrelated established drifts. Generated bundle, full aggregate and live HA remain unverified.
 
 ## Component entries
 
@@ -72,7 +81,7 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 - Original complexity: 2,919 bytes (about 2.9 kB) compressed into eight physical lines; configuration, per-metric action selection, rendering and teardown were interleaved.
 - Primary architectural problem: `r()` resolved each metric action twice, allowing getter side effects or overridden selection to make button markup and bound closures disagree.
 - Refactor: Expanded the existing `c` configuration, action, render and lifecycle paths while preserving the exact prototype surface, defaults, rendered string/CSS and action precedence. Each render now resolves one `{ index, action }` record per metric and reuses it for matching markup and interaction binding.
-- Shared changes: The `component-three-stat-v2` retained `_interactions` entry in `runtime-reliability.js` is intentionally unchanged pending review; its disconnect wrapper retains handles, then reconnect clears each old handle once and binds fresh ones.
+- Shared changes: The `component-three-stat-v2` retained `_interactions` entry in `runtime-reliability.js` is intentionally unchanged after component and batch review; its disconnect wrapper retains handles, then reconnect clears each old handle once and binds fresh ones.
 - Tests added/changed: Added `scripts/check-three-stat.mjs`, registered it in `scripts/check-all.mjs`, and minimally extended the leaf harness with metric `dataset` and `querySelectorAll` support.
 - Validation: Focused checker; source/checker syntax; and target diff whitespace checks pass. No build, generated bundle, full aggregate check or live HA validation was run: the source-only boundary remains in force and the pre-existing deleted `dist/ha-component-library.js` keeps bundle-dependent checks unavailable.
 - Reviewer findings: Owner and independent Sol reviews found no remaining material findings.

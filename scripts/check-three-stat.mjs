@@ -10,7 +10,7 @@ const [source, runtimeReliability] = await Promise.all([
   readFile(resolve(root, "src/patches/runtime-reliability.js"), "utf8"),
 ]);
 const test = createLeafCardHarness({ source, filename: "src/components/three-stat-summary.js", buttonSelector: "button.stat" });
-const { Card, registrations, installedContracts, interactions, navigations, moreInfoRequests, escapeHtml, assertConfig } = test;
+const { Card, registrations, installedContracts, navigations, moreInfoRequests, escapeHtml, assertConfig } = test;
 
 assert.equal(registrations.length, 1, "Three-stat must retain one public registration");
 const registration = registrations[0];
