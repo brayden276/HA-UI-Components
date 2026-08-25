@@ -50,6 +50,21 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 - Reviewer findings: Two LOW focused-coverage/report findings resolved; independent Sol re-review found no remaining findings.
 - Status: Source refactor accepted; generated distributable and live HA remain unverified.
 
+### `component-progress-v2`
+
+- Component: `src/components/progress-target.js`
+- Risk: Low; optional navigation or More Info interaction with a bounded numeric fill calculation.
+- Original complexity: approximately 2.6 kB compressed into seven physical lines; configuration, calculation, action selection, rendering and teardown were interleaved.
+- Primary architectural problems: Dense source obscured the owned interaction lifecycle, while a generic runtime retained-field patch overrode the component's local disconnect behaviour.
+- Refactor: Expanded the existing direct `c` configuration-to-`r()` render path while retaining the exact public surface, defaults, calculation, markup and action semantics.
+- Shared changes: Removed only the stale Progress retained-interaction entry from `runtime-reliability.js`.
+- Removed complexity: Progress now owns its interaction teardown and reconnect lifecycle directly.
+- Behavioural contracts verified: Metadata/editor/stub, prototype and own property descriptors, defaults and native spread replacement, exact DOM/CSS/whitespace/escaping/ARIA, display-versus-progress separation, finite and coercive numeric bounds, Symbol failure timing, navigation precedence, current-value action closures, interaction options, teardown and reconnect.
+- Tests added/changed: Added `scripts/check-progress.mjs` and wired it into `scripts/check-all.mjs`; it evaluates the real lifecycle patch alongside the component contract.
+- Validation: Focused checker; syntax for the component, runtime patch, focused checker and aggregate runner; maintainability; interaction contracts; interaction runtime; advisory style baseline; and diff whitespace checks pass. Advisory style reports the established ten unrelated baseline drifts, while the focused exact-markup assertions confirm Progress CSS is unchanged. Bundle checks and live HA remain outside the source-only boundary.
+- Reviewer findings: One LOW unused checker accumulator removed during owner review; independent Sol review found no remaining findings.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified.
+
 ### `component-single-kpi-v2`
 
 - Component: `src/components/single-kpi.js`
