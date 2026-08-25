@@ -35,6 +35,21 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 - Reviewer findings: Independent Sol review found no findings.
 - Status: Source refactor accepted; generated distributable and live HA remain unverified.
 
+### `component-notice-v2`
+
+- Component: `src/components/notice.js`
+- Risk: Low; optional navigation or More Info uses the shared interaction lifecycle.
+- Original complexity: approximately 2.4 kB compressed into seven physical lines; configuration, action selection, rendering and teardown were interleaved.
+- Primary architectural problems: Dense source obscured the owned interaction lifecycle, while a generic runtime retained-field patch overrode the component's local disconnect behaviour.
+- Refactor: Expanded the existing direct `c` configuration-to-`r()` render path without changing the public prototype surface, defaults, DOM/CSS or action semantics.
+- Shared changes: Removed only the stale Notice retained-interaction entry from `runtime-reliability.js`.
+- Removed complexity: Notice now owns its interaction teardown and reconnect lifecycle directly.
+- Behavioural contracts verified: Metadata/editor/stub, defaults and native spread semantics, own state descriptors, exact static/actionable DOM and escaping, supported tones, navigation precedence, current-value action closures, interaction options, teardown and reconnect.
+- Tests added/changed: Added `scripts/check-notice.mjs` and wired it into `scripts/check-all.mjs`; it evaluates the real runtime patch alongside the component contract.
+- Validation: Focused Notice checker, syntax for the component/runtime patch/checker/aggregate runner, maintainability, interaction contracts, interaction runtime and target diff whitespace checks pass. Advisory style reports the established ten unrelated baseline drifts; strict style fails only on those same unrelated fingerprints, while the focused exact-markup assertions confirm Notice CSS is unchanged. Bundle checks remain blocked by the build gate.
+- Reviewer findings: Two LOW focused-coverage/report findings resolved; independent Sol re-review found no remaining findings.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified.
+
 ### `component-single-kpi-v2`
 
 - Component: `src/components/single-kpi.js`

@@ -13,6 +13,7 @@ const checks = [
   ["scripts/check-navigation-tile.mjs"],
   ["scripts/check-section-separator.mjs"],
   ["scripts/check-empty-state.mjs"],
+  ["scripts/check-notice.mjs"],
   ["scripts/check-async-broker.mjs"],
   ["scripts/check-component-models.mjs"],
   ["scripts/check-polish-contracts.mjs"],

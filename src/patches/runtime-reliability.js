@@ -32,7 +32,6 @@
     ["component-progress-v2", ["_interaction"]],
     ["component-action-v2", ["_interaction"]],
     ["component-list-v2", ["_interactions"]],
-    ["component-notice-v2", ["_interaction"]],
     ["component-quick-nav-v2", ["_interactions"]],
     ["component-favourites-v3", ["_interactionHandles"]],
     ["component-room-navigation-v1", ["_interaction"]],
