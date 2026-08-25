@@ -27,7 +27,6 @@
   const retainedLocalFields = new Map([
     ["component-context-strip-v3", ["_interaction"]],
     ["component-history-graph-v2", ["interactions"]],
-    ["component-single-kpi-v2", ["_interaction"]],
     ["component-three-stat-v2", ["_interactions"]],
     ["component-status-row-v2", ["_interaction"]],
     ["component-progress-v2", ["_interaction"]],

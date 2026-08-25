@@ -9,6 +9,7 @@ const checks = [
   ["scripts/check-maintainability.mjs"],
   ["scripts/check-interactions.mjs"],
   ["scripts/check-interaction-runtime.mjs"],
+  ["scripts/check-single-kpi.mjs"],
   ["scripts/check-async-broker.mjs"],
   ["scripts/check-component-models.mjs"],
   ["scripts/check-polish-contracts.mjs"],
