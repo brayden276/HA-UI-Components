@@ -29,6 +29,21 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 
 ## Component entries
 
+### `component-text-effect-v1`
+
+- Component: `src/components/text-effect.js`
+- Risk: Medium; the component owns a one-cycle animation settlement timer whose disconnect/reconnect behaviour determines whether transient motion ever stops.
+- Original complexity: 6,232 bytes across 32 physical lines; configuration validation, effect selection, exact motion CSS, rendering and timer ownership were compressed together.
+- Primary architectural problem: Disconnect cleared the only settlement timer, but no reconnect callback restarted it, so a card detached before settlement could retain endlessly animating output after reconnect.
+- Refactor: Expanded the component readably and added a component-local reconnect path that restarts only configured, unfinished output with no pending timer; already-settled output is retained without replay.
+- Shared changes: None. Timer and reconnect ownership remain local; no runtime compatibility patch was added.
+- Removed complexity: Made the single timer lifecycle explicit while preserving required-text failure timing, native numeric coercion, effect fallback and exact motion output.
+- Behavioural contracts verified: Metadata/editor/stub, prototype and own fields, error-before-mutation, defaults/overrides, effect whitelist, speed coercion/clamping and failure timing, exact two-style-tag DOM/CSS/escaping, optional icon/description, timer replacement, settlement callback ordering, detach/reconnect restart, settled reconnect idempotence and Hass no-render storage.
+- Tests added/changed: Added `scripts/check-text-effect.mjs` and wired it into `scripts/check-all.mjs`; it uses deterministic DOM/class-list and timer fakes for the full local lifecycle.
+- Validation: Focused checker, source/checker/runner syntax and target diff whitespace pass. Advisory style recognises the preserved Text Effect fingerprint and now reports only eight unrelated established drifts. Generated bundle, full aggregate and live HA remain outside the source-only boundary.
+- Reviewer findings: One MEDIUM source-fingerprint regression and two LOW timer-edge coverage gaps were resolved; independent Sol final-delta acceptance is recorded before commit.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified.
+
 ### `component-context-strip-v3`
 
 - Component: `src/components/context-strip.js`
