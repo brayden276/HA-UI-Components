@@ -20,6 +20,21 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 
 ## Component entries
 
+### `component-nav-tile-v2`
+
+- Component: `src/components/navigation-tile.js`
+- Risk: Low; optional navigation uses the shared interaction lifecycle.
+- Original complexity: 1.4 kB compressed into seven physical lines; configuration, rendering and interaction teardown were interleaved.
+- Primary architectural problems: The component source was needlessly dense and a generic runtime patch obscured its local disconnect ownership.
+- Refactor: Expanded the existing direct configuration-to-render path while preserving the exact public surface, markup and navigation semantics.
+- Shared changes: Removed only the Navigation Tile retained-interaction entry from `runtime-reliability.js`.
+- Removed complexity: The component now owns its own interaction teardown without a runtime lifecycle override.
+- Behavioural contracts verified: Metadata/editor/stub, defaults and native override semantics, legacy instance surface, exact DOM/CSS and escaping, static/button semantics, truthy captured navigation paths, shared interaction delegation, teardown and reconnect.
+- Tests added/changed: Added `scripts/check-navigation-tile.mjs` and wired it into `scripts/check-all.mjs`; it evaluates the real lifecycle patch and covers the component contract.
+- Validation: Focused checker; syntax for the component, runtime patch, focused checker and aggregate runner; maintainability; interaction contracts; interaction runtime; and diff whitespace checks pass. Advisory style reports the established ten unrelated baseline drifts; strict style fails only on those same unrelated fingerprints, while the focused exact-markup assertion confirms Navigation Tile CSS is unchanged. Bundle checks remain blocked by the build gate.
+- Reviewer findings: Independent Sol review found no findings.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified.
+
 ### `component-single-kpi-v2`
 
 - Component: `src/components/single-kpi.js`

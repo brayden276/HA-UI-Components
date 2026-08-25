@@ -10,6 +10,7 @@ const checks = [
   ["scripts/check-interactions.mjs"],
   ["scripts/check-interaction-runtime.mjs"],
   ["scripts/check-single-kpi.mjs"],
+  ["scripts/check-navigation-tile.mjs"],
   ["scripts/check-section-separator.mjs"],
   ["scripts/check-empty-state.mjs"],
   ["scripts/check-async-broker.mjs"],

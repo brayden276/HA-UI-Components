@@ -35,7 +35,6 @@
     ["component-notice-v2", ["_interaction"]],
     ["component-quick-nav-v2", ["_interactions"]],
     ["component-favourites-v3", ["_interactionHandles"]],
-    ["component-nav-tile-v2", ["_interaction"]],
     ["component-room-navigation-v1", ["_interaction"]],
     ["component-control-row-v2", ["_interactions"]],
     ["component-split-controller-v4", ["_interactionHandles"]],
