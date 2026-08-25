@@ -34,3 +34,18 @@ Validation boundary: source-only until the user explicitly authorises `RUN A BUI
 - Validation: Focused check, syntax, maintainability, interaction contracts, interaction runtime and diff checks pass. Strict style retains the same ten unrelated baseline drifts. Bundle checks remain blocked by the build gate.
 - Reviewer findings: Initial HIGH compatibility and MEDIUM test-integration findings resolved; independent Sol re-review found no remaining findings.
 - Status: Source refactor accepted; generated distributable and live HA remain unverified.
+
+### `component-section-separator-v2`
+
+- Component: `src/components/section-separator.js`
+- Risk: Low; static presentational card with escaped configuration.
+- Original complexity: 1.1 kB compressed into seven physical lines.
+- Primary architectural problems: Configuration, size contract and rendering were compressed together and lacked focused regression coverage.
+- Refactor: Expanded the existing direct configuration-to-render path into readable methods without adding state, lifecycle or abstraction.
+- Shared changes: None.
+- Removed complexity: Dense/minified control flow only; the original own `c` property and direct `r()` renderer remain canonical.
+- Behavioural contracts verified: Defaults and override edge cases, immediate render, own-property semantics, `r()` dispatch, inherited `hass`, size, exact DOM/CSS, escaping, metadata and lifecycle-free reconnect.
+- Tests added/changed: Added `scripts/check-section-separator.mjs` and wired it into `scripts/check-all.mjs`.
+- Validation: Focused check, syntax, maintainability and diff checks pass. Style retains unrelated pre-existing drift. Bundle checks remain blocked by the build gate.
+- Reviewer findings: MEDIUM own-property drift and LOW render-indirection findings resolved; independent Sol re-review found no remaining findings.
+- Status: Source refactor accepted; generated distributable and live HA remain unverified.
