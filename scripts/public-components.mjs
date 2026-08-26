@@ -66,9 +66,9 @@ export const publicComponentContracts = Object.freeze({
   "src/components/navigation-tile.js": contract("presentational", "shared-optional"),
   "src/components/room-navigation.js": contract("registry-driven", "shared"),
   "src/components/control-row.js": contract("direct-controller", "native-continuous"),
-  "src/components/split-system-controller.js": contract("direct-controller", "shared"),
+  "src/components/split-system-controller.js": contract("composition-wrapper", "delegated"),
   "src/components/media-row.js": contract("direct-controller", "shared"),
-  "src/components/component-apple-tv-controller-v1.js": contract("direct-controller", "shared"),
+  "src/components/component-apple-tv-controller-v1.js": contract("composition-wrapper", "delegated"),
   "src/components/section-separator.js": contract("presentational", "none"),
   "src/components/room-sheet.js": contract("composition-wrapper", "shared-optional"),
   "src/components/update-summary.js": contract("direct-controller", "shared-optional"),
@@ -105,8 +105,6 @@ export const supportedComponentCategories = Object.freeze([
   "composition-wrapper",
 ]);
 
-// This is deliberately authored separately from source registrations. These scenarios
-// have behavioural risks that generic public contracts cannot express.
 export const requiredSpecialisedComponentTypes = Object.freeze([
   "component-single-kpi-v2",
   "component-smart-collection-v3",
