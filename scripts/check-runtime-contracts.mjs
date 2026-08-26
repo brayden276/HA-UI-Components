@@ -306,6 +306,41 @@ if (failures.length) throw new Error(`Runtime contract failures:\n${failures.joi
 }
 
 {
+  const AppleTv = definitions.get("component-apple-tv-controller-v1");
+  const appleTv = new AppleTv();
+  let awake = false;
+  let resolveRequest;
+  const model = () => ({
+    entities: { media: "media_player.smoke_apple_tv", remote: "remote.smoke_apple_tv" },
+    media: { attributes: { friendly_name: "Smoke Apple TV" } },
+    available: true,
+    awake,
+    sleeping: !awake,
+    status: awake ? "Idle" : "Sleeping",
+    sources: [],
+    canWake: !awake,
+    canSleep: awake,
+    canVolumeDown: false,
+    canVolumeUp: false,
+  });
+  appleTv.setConfig({ entity: "media_player.smoke_apple_tv" });
+  appleTv._hass = {
+    callService: () => new Promise((resolve) => { resolveRequest = resolve; }),
+  };
+  appleTv.model = model;
+  appleTv.render();
+  const request = appleTv.remoteCommand("wakeup", "power");
+  awake = true;
+  appleTv.render();
+  if (!appleTv.el.headerActions.children[2]?.disabled) {
+    throw new Error("Apple TV power control must remain locked while a wake command is in flight");
+  }
+  resolveRequest();
+  await request;
+  appleTv.disconnectedCallback();
+}
+
+{
   const Energy = definitions.get("component-energy-dashboard-v1");
   const energy = new Energy();
   energy.setConfig({ profile: "first-energy", day_channel: "first-day" });

@@ -1,5 +1,5 @@
 /**
- * HA Component Library v10.0.2
+ * HA Component Library v10.0.3
  * Generated HACS Dashboard bundle.
  *
  * Source is organised by component under src/components. Shared logic lives
@@ -4339,7 +4339,11 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.headerInteractions = [];
 
     const wake = !model.awake;
-    const powerAction = wake ? "wake" : "sleep";
+    // A wake request can cause Home Assistant to report the Apple TV as awake
+    // before the originating pointer gesture has finished. Keep both power
+    // directions under one lock so that render cannot turn that same gesture
+    // into an immediate suspend request.
+    const powerAction = "power";
     const canPower = wake ? model.canWake : model.canSleep;
     const repeatVolume = { delay: 350, interval: 110, accelerate: true };
     const start = this.dynamicInteractions.length;
@@ -14038,4 +14042,4 @@ class ComponentEnergyDashboardV1 extends HTMLElement {
 registerCard({ type: "component-energy-dashboard-v1", element: ComponentEnergyDashboardV1, name: "Energy Dashboard V1", description: "Single-card Energy composition using shared day state and one backend data contract." });
 }
 
-globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "10.0.2", components: 45 });
+globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "10.0.3", components: 45 });
