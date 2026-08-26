@@ -1,5 +1,5 @@
 /** ComponentEmptyStateV3 — reusable Home Assistant dashboard card. */
-const { UPDATE_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const { DashboardBaseCard, UPDATE_CARD_STYLES, escapeHtml, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 class ComponentEmptyStateV3 extends HTMLElement {
   constructor() {
     super();
@@ -28,3 +28,34 @@ class ComponentEmptyStateV3 extends HTMLElement {
 }
 registerCard({ type: "component-empty-state-v3", element: ComponentEmptyStateV3, name: "Empty State", description: "Reusable empty-state component." });
 
+/**
+ * Compatibility surface for dashboards that still reference the original
+ * compact card type. The current Empty State module owns both registrations so
+ * there is no separate support module or load-order dependency.
+ */
+class ComponentCompactEmptyState extends DashboardBaseCard {
+  setConfig(config) {
+    this.config = {
+      icon: "mdi:check-circle-outline",
+      title: "Nothing requires attention",
+      message: "Supporting empty-state message.",
+      ...config,
+    };
+    this.render();
+  }
+
+  getCardSize() {
+    return 1;
+  }
+
+  render() {
+    this.shadowRoot.innerHTML = `<style>${this.cardStyles()}ha-card{border:0;background:transparent;box-shadow:none}.wrap{min-height:40px;padding:0 2px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px}.icon{width:24px;height:24px;display:grid;place-items:center;background:transparent;color:var(--primary-color)}.icon ha-icon{--mdc-icon-size:18px}.desc{margin-top:1px;font-size:12px;line-height:1.3}</style><ha-card><div class="wrap"><span class="icon"><ha-icon icon="${escapeHtml(this.config.icon)}"></ha-icon></span><span><div class="title">${escapeHtml(this.config.title)}</div><div class="desc">${escapeHtml(this.config.message)}</div></span></div></ha-card>`;
+  }
+}
+
+registerCard({
+  type: "component-empty-state-v2",
+  element: ComponentCompactEmptyState,
+  name: "Empty State V2",
+  description: "Reusable compact empty-state component.",
+});

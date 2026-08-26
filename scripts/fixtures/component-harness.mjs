@@ -33,6 +33,15 @@ export function createComponentHarness({ capabilities = [], hass = createHassFix
   const moreInfo = [];
   const portals = [];
   const childCards = [];
+  class HarnessDashboardBaseCard extends dom.HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" });
+    }
+    set hass(_hass) {}
+    escapeHtml(value) { return shared.escapeHtml(value); }
+    cardStyles() { return ".shared-dashboard-card{}"; }
+  }
   const eventTarget = (label) => {
     const listeners = new Map();
     return {
@@ -54,6 +63,7 @@ export function createComponentHarness({ capabilities = [], hass = createHassFix
   const globalEvents = eventTarget("globalThis");
   const shared = {
     PRESENTATIONAL_CARD_STYLES: ".shared-card{}",
+    DashboardBaseCard: HarnessDashboardBaseCard,
     escapeHtml: (value) => value == null ? "" : String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"),
     installConfigContract(type, element) {
       element.getStubConfig ??= () => ({ type: `custom:${type}` });

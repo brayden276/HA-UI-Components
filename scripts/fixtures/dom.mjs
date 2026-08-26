@@ -37,8 +37,12 @@ class HarnessClassList {
 
 const selectorMatches = (node, selector) => {
   const value = selector.trim();
-  if (!value || /[>+~:,]/.test(value)) unsupported(`selector ${selector}`);
-  const last = value.split(/\s+/).at(-1);
+  const notAttribute = /:not\(\[([\w-]+)\]\)$/.exec(value)?.[1] ?? null;
+  const supportedValue = notAttribute
+    ? value.replace(/:not\(\[[\w-]+\]\)$/, "")
+    : value;
+  if (!supportedValue || /[>+~:,]/.test(supportedValue)) unsupported(`selector ${selector}`);
+  const last = supportedValue.split(/\s+/).at(-1);
   const id = /#([\w-]+)/.exec(last)?.[1];
   const classes = [...last.matchAll(/\.([\w-]+)/g)].map((match) => match[1]);
   const tag = /^([a-z][\w-]*)/i.exec(last)?.[1]?.toLowerCase();
@@ -47,7 +51,8 @@ const selectorMatches = (node, selector) => {
   return (!tag || node.localName === tag)
     && (!id || node.id === id)
     && classes.every((name) => node.classList.contains(name))
-    && (!attribute || (attribute[2] === undefined ? node.hasAttribute(attribute[1]) : node.getAttribute(attribute[1]) === attribute[2]));
+    && (!attribute || (attribute[2] === undefined ? node.hasAttribute(attribute[1]) : node.getAttribute(attribute[1]) === attribute[2]))
+    && (!notAttribute || !node.hasAttribute(notAttribute));
 };
 
 export class HarnessNode {
@@ -70,6 +75,22 @@ export class HarnessNode {
   get lastElementChild() { return this.children.at(-1) ?? null; }
   append(...nodes) { for (const node of nodes) this.#adopt(node); }
   appendChild(node) { this.#adopt(node); return node; }
+  before(...nodes) {
+    const parent = this.parentNode;
+    if (!parent) return;
+    for (const node of nodes) {
+      if (!(node instanceof HarnessNode)) {
+        throw new TypeError("Harness DOM before accepts HarnessNode instances only");
+      }
+      if (node === this) continue;
+      node.remove();
+      const index = parent.children.indexOf(this);
+      if (index < 0) throw new Error("Harness DOM before target is not owned by its parent");
+      parent.children.splice(index, 0, node);
+      node.parentNode = parent;
+      node._setConnected(parent.isConnected);
+    }
+  }
   replaceChildren(...nodes) { for (const child of [...this.children]) child.remove(); this.append(...nodes); }
   #adopt(node) {
     if (!(node instanceof HarnessNode)) throw new TypeError("Harness DOM append accepts HarnessNode instances only");

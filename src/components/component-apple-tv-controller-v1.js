@@ -25,6 +25,20 @@ const APP_BRAND_COLOURS = [
   [/stan/i, "#00a5ff"],
   [/paramount/i, "#0064ff"],
 ];
+const HEADER_VOLUME_REPEAT = { delay: 350, interval: 110, accelerate: true };
+const PANEL_VOLUME_REPEAT = { delay: 350, interval: 120, coalesce: true };
+const NAVIGATION_GRID = [null, "up", null, "left", "select", "right", null, "down", null];
+const NAVIGATION_COMMANDS = new Set(["up", "down", "left", "right", "select"]);
+const PLAYBACK_ACTIONS = [
+  ["canPrevious", "media_previous_track", "Previous", "mdi:skip-previous"],
+  ["canPlay", "media_play", "Play", "mdi:play"],
+  ["canPause", "media_pause", "Pause", "mdi:pause"],
+  ["canNext", "media_next_track", "Next", "mdi:skip-next"],
+  ["canStop", "media_stop", "Stop", "mdi:stop"],
+];
+
+const supportsVolumeDirection = (model, direction) => direction === "up" ? model.canVolumeUp : model.canVolumeDown;
+const clampVolume = (value) => Math.max(0, Math.min(1, value));
 
 class ComponentAppleTvControllerV1 extends HTMLElement {
   static getGridOptions() {
@@ -48,6 +62,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     this.volumeCoalescer = null;
     this.volumeGestureActive = false;
     this.optimisticVolume = null;
+    this.registryGeneration = 0;
   }
 
   setConfig(config) {
@@ -59,6 +74,9 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       ...config,
       entity: config?.entity || "media_player.demo_apple_tv",
     };
+    this.stopRegistrySubscription();
+    this.registry = null;
+    this.subscribe();
     this.render();
   }
 
@@ -74,16 +92,11 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   disconnectedCallback() {
-    for (const handle of this.interactionHandles) handle.destroy();
-    this.interactionHandles = [];
-    for (const handle of this.dynamicInteractions) handle.destroy();
-    this.dynamicInteractions = [];
-    for (const handle of this.headerInteractions) handle.destroy();
-    this.headerInteractions = [];
-    this.volumeCoalescer?.destroy();
-    this.volumeCoalescer = null;
-    this.unsubscribe?.();
-    this.unsubscribe = null;
+    this.destroyInteractions("interactionHandles");
+    this.destroyInteractions("dynamicInteractions");
+    this.destroyInteractions("headerInteractions");
+    this.destroyVolumeCoalescer();
+    this.stopRegistrySubscription();
     clearTimeout(this.messageTimer);
     this.panelMode = null;
     this.volumeGestureActive = false;
@@ -105,10 +118,28 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     ) {
       return;
     }
+    const generation = ++this.registryGeneration;
     this.unsubscribe = registry.subscribe(this._hass, (data) => {
+      if (generation !== this.registryGeneration) return;
       this.registry = data;
       this.render();
     });
+  }
+
+  stopRegistrySubscription() {
+    this.registryGeneration += 1;
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+  }
+
+  destroyInteractions(property) {
+    for (const handle of this[property]) handle.destroy();
+    this[property] = [];
+  }
+
+  destroyVolumeCoalescer() {
+    this.volumeCoalescer?.destroy();
+    this.volumeCoalescer = null;
   }
 
   model() {
@@ -388,13 +419,11 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   renderHeaderControls(model) {
-    for (const handle of this.headerInteractions) handle.destroy();
-    this.headerInteractions = [];
+    this.destroyInteractions("headerInteractions");
 
     const wake = !model.awake;
     const powerAction = wake ? "wake" : "sleep";
     const canPower = wake ? model.canWake : model.canSleep;
-    const repeatVolume = { delay: 350, interval: 110, accelerate: true };
     const start = this.dynamicInteractions.length;
     const volumeDown = this.button(
       "header-action",
@@ -403,7 +432,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       () => this.queueVolume("down"),
       !model.canVolumeDown,
       false,
-      { repeat: repeatVolume, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
+      { repeat: HEADER_VOLUME_REPEAT, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
     );
     const volumeUp = this.button(
       "header-action",
@@ -412,7 +441,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       () => this.queueVolume("up"),
       !model.canVolumeUp,
       false,
-      { repeat: repeatVolume, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
+      { repeat: HEADER_VOLUME_REPEAT, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
     );
     const power = this.button(
       `header-action power ${model.awake ? "on" : ""}`,
@@ -436,8 +465,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
           direction: active.selectionDirection,
         }
       : null;
-    for (const handle of this.dynamicInteractions) handle.destroy();
-    this.dynamicInteractions = [];
+    this.destroyInteractions("dynamicInteractions");
     const scrollTop = this.el.body.scrollTop;
     this.el.body.replaceChildren();
     this.el.sheetName.textContent =
@@ -524,17 +552,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     const grid = document.createElement("div");
     grid.className = "dpad";
 
-    for (const command of [
-      null,
-      "up",
-      null,
-      "left",
-      "select",
-      "right",
-      null,
-      "down",
-      null,
-    ]) {
+    for (const command of NAVIGATION_GRID) {
       if (!command || !commands.has(command)) {
         const blank = document.createElement("span");
         blank.className = "blank";
@@ -566,7 +584,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     );
     const items = NAV.filter(
       ([command]) =>
-        !["up", "down", "left", "right", "select"].includes(command) &&
+        !NAVIGATION_COMMANDS.has(command) &&
         commands.has(command),
     );
     if (!items.length) return null;
@@ -590,13 +608,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
   }
 
   playback(model) {
-    const actions = [
-      [model.canPrevious, "media_previous_track", "Previous", "mdi:skip-previous"],
-      [model.canPlay, "media_play", "Play", "mdi:play"],
-      [model.canPause, "media_pause", "Pause", "mdi:pause"],
-      [model.canNext, "media_next_track", "Next", "mdi:skip-next"],
-      [model.canStop, "media_stop", "Stop", "mdi:stop"],
-    ].filter(([available]) => available);
+    const actions = PLAYBACK_ACTIONS.filter(([capability]) => model[capability]);
     if (!actions.length) return null;
 
     const section = this.section("Playback");
@@ -643,7 +655,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         () => this.queueVolume("down"),
         !model.canVolumeDown,
         false,
-        { repeat: { delay: 350, interval: 120, coalesce: true }, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
+        { repeat: PANEL_VOLUME_REPEAT, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
       ),
       readout,
       this.button(
@@ -653,7 +665,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
         () => this.queueVolume("up"),
         !model.canVolumeUp,
         false,
-        { repeat: { delay: 350, interval: 120, coalesce: true }, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
+        { repeat: PANEL_VOLUME_REPEAT, onPressChange: (pressed) => this.setVolumeGesture(pressed, model) },
       ),
     );
     return control;
@@ -741,7 +753,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
       || "var(--primary-color)";
   }
 
-  async invoke(action, request, success) {
+  async runCommand(action, request, success) {
     if (this.busy(action)) return;
     this.pending.add(action);
     this.setMessage("Sending command…");
@@ -758,16 +770,8 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
 
   remoteCommand(command, action) {
     const model = this.model();
-    if (
-      command === "wakeup"
-        ? !model.canWake
-        : command === "suspend"
-          ? !model.canSleep
-          : !model.canNavigate
-    ) {
-      return;
-    }
-    return this.invoke(
+    if (!this.canSendRemoteCommand(model, command)) return;
+    return this.runCommand(
       action,
       () =>
         this._hass.callService("remote", "send_command", {
@@ -778,9 +782,15 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     );
   }
 
+  canSendRemoteCommand(model, command) {
+    if (command === "wakeup") return model.canWake;
+    if (command === "suspend") return model.canSleep;
+    return model.canNavigate;
+  }
+
   mediaAction(service) {
     const model = this.model();
-    return this.invoke(
+    return this.runCommand(
       service,
       () =>
         this._hass.callService("media_player", service, {
@@ -794,7 +804,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     if (this.volumeCoalescer && !this.volumeCoalescer.destroyed) return this.volumeCoalescer;
     this.volumeCoalescer = createRequestCoalescer(async (direction) => {
       const model = this.model();
-      if (direction === "up" ? !model.canVolumeUp : !model.canVolumeDown) return;
+      if (!supportsVolumeDirection(model, direction)) return;
       if (!this.config.demo) await this._hass.callService("media_player", `volume_${direction}`, { entity_id: model.entities.media });
     }, {
       onError: () => this.setMessage("Apple TV did not respond", "error", 4000),
@@ -823,34 +833,18 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
 
   queueVolume(direction) {
     const model = this.model();
-    if (direction === "up" ? !model.canVolumeUp : !model.canVolumeDown) return;
+    if (!supportsVolumeDirection(model, direction)) return;
     const base = this.optimisticVolume ?? model.level;
     if (base !== null) {
       const step = Math.max(0.01, Math.min(0.25, Number(this.config?.volume_step) || 0.05));
-      this.optimisticVolume = Math.max(0, Math.min(1, base + (direction === "up" ? step : -step)));
+      this.optimisticVolume = clampVolume(base + (direction === "up" ? step : -step));
       this.updateVolumeReadout(model);
     }
     this.ensureVolumeCoalescer().request(direction);
   }
 
-  adjustVolume(direction) {
-    const model = this.model();
-    if (direction === "up" ? !model.canVolumeUp : !model.canVolumeDown) {
-      return;
-    }
-    const action = `volume-${direction}`;
-    return this.invoke(
-      action,
-      () =>
-        this._hass.callService("media_player", `volume_${direction}`, {
-          entity_id: model.entities.media,
-        }),
-      "Volume changed",
-    );
-  }
-
   mute(model) {
-    return this.invoke(
+    return this.runCommand(
       "mute",
       () =>
         this._hass.callService("media_player", "volume_mute", {
@@ -865,7 +859,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     const model = this.model();
     if (!model.canSelectSource || !model.sources.includes(source)) return;
     const action = `source-${source}`;
-    return this.invoke(
+    return this.runCommand(
       action,
       () =>
         this._hass.callService("media_player", "select_source", {
@@ -881,7 +875,7 @@ class ComponentAppleTvControllerV1 extends HTMLElement {
     if (!model.keyboardFocused || !model.entities.configEntryId) return;
     const data = { config_entry_id: model.entities.configEntryId };
     if (text !== null) data.text = text;
-    return this.invoke(
+    return this.runCommand(
       action,
       () => this._hass.callService("apple_tv", service, data),
       "Keyboard updated",

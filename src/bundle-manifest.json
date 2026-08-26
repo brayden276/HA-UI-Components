@@ -60,10 +60,6 @@
     "file": "src/support/device-aware-auto-entities.js"
   },
   {
-    "order": 16,
-    "file": "src/support/empty-state-v2.js"
-  },
-  {
     "order": 17,
     "file": "src/support/dashboard-preference-editor.js"
   },

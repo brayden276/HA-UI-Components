@@ -35,6 +35,28 @@ child.remove();
 assert.equal(child.isConnected, false, "removal must disconnect the child");
 assert.equal(child.disconnected, 2, "removal must invoke disconnectedCallback once");
 
+const anchor = harness.context.document.createElement("div");
+harness.context.document.body.append(anchor);
+const enabledButton = harness.context.document.createElement("button");
+const disabledButton = harness.context.document.createElement("button");
+disabledButton.setAttribute("disabled", "");
+anchor.append(disabledButton, enabledButton);
+assert.equal(
+  anchor.querySelector("button:not([disabled])"),
+  enabledButton,
+  "the strict selector surface must support a simple negated attribute",
+);
+anchor.before(child);
+assert.equal(
+  harness.context.document.body.children.indexOf(child),
+  harness.context.document.body.children.indexOf(anchor) - 1,
+  "before must insert a node immediately before its connected sibling",
+);
+assert.equal(child.connected, 3, "before must apply normal connection lifecycle semantics");
+child.remove();
+assert.equal(child.disconnected, 3, "a node inserted with before must disconnect normally");
+assert.throws(() => anchor.before("text"), /HarnessNode instances only/);
+
 const configured = harness.createChildCard("harness-child", { mode: "fixture" }, { states: {} });
 assert.deepEqual(configured.config, { mode: "fixture" }, "child-card helper must apply configuration");
 assert.deepEqual(configured.hass, { states: {} }, "child-card helper must forward Hass");

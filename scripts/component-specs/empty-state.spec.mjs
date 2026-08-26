@@ -13,7 +13,10 @@ export default {
     await harness.customElements.whenDefined(component);
     const Card = harness.customElements.get(component);
     assert.ok(Card);
-    assert.deepEqual(harness.context.customCards.map(({ type, name, description, preview }) => ({ type, name, description, preview })), [{ type: component, name: "Empty State", description: "Reusable empty-state component.", preview: true }]);
+    assert.deepEqual(harness.context.customCards.map(({ type, name, description, preview }) => ({ type, name, description, preview })), [
+      { type: component, name: "Empty State", description: "Reusable empty-state component.", preview: true },
+      { type: "component-empty-state-v2", name: "Empty State V2", description: "Reusable compact empty-state component.", preview: true },
+    ]);
     assert.deepEqual(Card.getStubConfig(), { type: `custom:${component}` });
     assert.deepEqual(await Card.getConfigElement(), { cardType: component });
 
@@ -49,5 +52,11 @@ export default {
     card.hass = { states: { "sensor.example": {} } };
     assert.equal(card.shadowRoot.innerHTML, before, "Hass updates must not rerender static empty state");
     assert.equal(harness.interactions.length, 0, "empty state must not create interactions");
+
+    const compact = harness.card("component-empty-state-v2");
+    compact.setConfig({ title: "Compact", message: "Compatibility" });
+    assert.equal(compact.getCardSize(), 1);
+    assert.match(compact.shadowRoot.innerHTML, /Compact/);
+    assert.match(compact.shadowRoot.innerHTML, /Compatibility/);
   },
 };

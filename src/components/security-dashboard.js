@@ -8,6 +8,22 @@ const {
   registerCard,
 } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
 
+const SECURITY_UNAVAILABLE_STATES = new Set(["unknown", "unavailable"]);
+const SECURITY_SNAPSHOT_TTL_MS = 10_000;
+const SECURITY_QUICK_ACTION_RESET_MS = 2_600;
+const SECURITY_ENTRY_CONFIRMATION_MS = 3_000;
+
+const isUsableSecurityState = (state) =>
+  Boolean(state && !SECURITY_UNAVAILABLE_STATES.has(String(state.state).toLowerCase()));
+
+const entryService = (entityId, open) => {
+  const domain = String(entityId || "").split(".")[0];
+  if (domain === "button") return ["button", "press"];
+  if (domain === "cover") return ["cover", open ? "close_cover" : "open_cover"];
+  if (domain === "lock") return ["lock", open ? "lock" : "unlock"];
+  return ["homeassistant", "toggle"];
+};
+
 class ComponentSecurityDashboardV1 extends HTMLElement {
   static stubConfig = { profile: "household-security", camera_columns: 2 };
   static getGridOptions() { return { columns: 12, rows: "auto" }; }
@@ -270,6 +286,74 @@ class ComponentSecurityDashboardV1 extends HTMLElement {
 
   destroyInteractions(collection) {
     for (const handle of collection.splice(0)) handle.destroy();
+  }
+
+  clearDashboardTimers() {
+    clearTimeout(this.refreshTimer);
+    clearInterval(this.snapshotTimer);
+    clearTimeout(this.entryConfirmTimer);
+    this.refreshTimer = null;
+    this.snapshotTimer = null;
+    this.entryConfirmTimer = null;
+    for (const timer of this.quickResetTimers) clearTimeout(timer);
+    this.quickResetTimers.clear();
+  }
+
+  clearCameraTiles() {
+    for (const tile of this.cameraTiles.values()) this.destroyCameraTile(tile);
+    this.cameraTiles.clear();
+  }
+
+  cameraState(camera) {
+    return this._hass?.states?.[camera.entityId] || null;
+  }
+
+  cameraSnapshotUrl(camera) {
+    const picture = this.cameraState(camera)?.attributes?.entity_picture;
+    if (!picture) return null;
+    const base = this._hass?.hassUrl ? this._hass.hassUrl(picture) : picture;
+    return `${base}${base.includes("?") ? "&" : "?"}_=${Math.floor(Date.now() / SECURITY_SNAPSHOT_TTL_MS)}`;
+  }
+
+  updateCameraSnapshot(tile, force = false) {
+    const camera = tile.camera;
+    if (!camera?.online) return;
+    const url = this.cameraSnapshotUrl(camera);
+    if (!url || (!force && tile.image.src === url)) return;
+    tile.lastSnapshotUrl = tile.image.src || tile.lastSnapshotUrl;
+    tile.image.src = url;
+  }
+
+  viewerState(camera) {
+    const requestedEntityId = camera.streamEntityId || camera.entityId;
+    const requestedState = this._hass?.states?.[requestedEntityId];
+    const fallbackState = this.cameraState(camera);
+    return {
+      requestedEntityId,
+      state: isUsableSecurityState(requestedState)
+        ? requestedState
+        : fallbackState,
+    };
+  }
+
+  viewerMessage(text) {
+    const message = document.createElement("div");
+    message.className = "viewer-message";
+    message.textContent = text;
+    return message;
+  }
+
+  settingGroup(groups, title, className = "") {
+    const section = document.createElement("section");
+    section.className = "settings-group";
+    const heading = document.createElement("div");
+    heading.className = "settings-title";
+    heading.textContent = title;
+    const body = document.createElement("div");
+    if (className) body.className = className;
+    section.append(heading, body);
+    groups.append(section);
+    return body;
   }
 
   scheduleSnapshots() {

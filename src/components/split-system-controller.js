@@ -1177,14 +1177,14 @@ class ComponentSplitControllerV4 extends HTMLElement {
     );
   }
   setConfig(config) {
-    this._profileEditV1 = null;
-    this._profileBusyV1 = false;
-    this._profileMessageV1 = null;
-    this._profileLocalProfilesV1 = null;
+    this._profileEdit = null;
+    this._profileBusy = false;
+    this._profileMessage = null;
+    this._profileLocalProfiles = null;
     return this._setConfigCore(config);
   }
 
-  profileSlotsV1() {
+  profileSlots() {
     const roomId = splitProfileRoomId(this);
     return roomId
       ? Array.from(
@@ -1194,11 +1194,11 @@ class ComponentSplitControllerV4 extends HTMLElement {
       : [];
   }
 
-  profileRowsV1() {
+  profileRows() {
     const roomId = splitProfileRoomId(this);
     if (!roomId) return [];
-    const profiles = Array.isArray(this._profileLocalProfilesV1)
-      ? this._profileLocalProfilesV1
+    const profiles = Array.isArray(this._profileLocalProfiles)
+      ? this._profileLocalProfiles
       : Array.isArray(this.config?.profiles)
         ? this.config.profiles
         : [];
@@ -1243,14 +1243,14 @@ class ComponentSplitControllerV4 extends HTMLElement {
     });
   }
 
-  profileReadyV1() {
+  profilesAvailable() {
     return Boolean(
       splitProfileRoomId(this) &&
-        this.profileRowsV1().length === SPLIT_PROFILE_SLOT_COUNT,
+        this.profileRows().length === SPLIT_PROFILE_SLOT_COUNT,
     );
   }
 
-  profileActiveV1(profile) {
+  isProfileActive(profile) {
     if (!profile) return false;
     const state = this.Z();
     if (
@@ -1280,7 +1280,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
     return true;
   }
 
-  profileSummaryV1(profile) {
+  profileSummary(profile) {
     const parts = [this.tt(profile.m)];
     if (
       Number.isFinite(profile.t) &&
@@ -1293,7 +1293,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
     return parts.filter(Boolean).join(" · ");
   }
 
-  profileDraftV1(profile = null) {
+  createProfileDraft(profile = null) {
     const state = this.Z();
     const modes = this.ft();
     let mode = profile?.m;
@@ -1335,7 +1335,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
     return draft;
   }
 
-  profileNormaliseV1(draft) {
+  normaliseProfile(draft) {
     const name = String(draft?.n ?? "").trim();
     const modes = this.ft();
     if (!name) throw new Error("Enter a profile name.");
@@ -1357,26 +1357,26 @@ class ComponentSplitControllerV4 extends HTMLElement {
     return profile;
   }
 
-  async profileStoreV1() {
+  async saveProfile() {
     const roomId = splitProfileRoomId(this);
-    if (this._profileBusyV1 || !this._profileEditV1 || !roomId) return;
-    const rows = this.profileRowsV1();
+    if (this._profileBusy || !this._profileEdit || !roomId) return;
+    const rows = this.profileRows();
     let profile;
     try {
-      profile = this.profileNormaliseV1(this._profileEditV1.draft);
+      profile = this.normaliseProfile(this._profileEdit.draft);
     } catch (error) {
-      this._profileMessageV1 = { text: error.message, type: "error" };
+      this._profileMessage = { text: error.message, type: "error" };
       this.St();
       return;
     }
     const duplicate = rows.find(
       (row) =>
         row.profile &&
-        row.index !== this._profileEditV1.index &&
+        row.index !== this._profileEdit.index &&
         row.profile.n.trim().toLowerCase() === profile.n.trim().toLowerCase(),
     );
     if (duplicate) {
-      this._profileMessageV1 = {
+      this._profileMessage = {
         text: "A profile with that name already exists.",
         type: "error",
       };
@@ -1384,22 +1384,22 @@ class ComponentSplitControllerV4 extends HTMLElement {
       return;
     }
     const row =
-      this._profileEditV1.index === null
+      this._profileEdit.index === null
         ? rows.find(
             (candidate) =>
               candidate.available && !candidate.profile && !candidate.invalid,
           )
-        : rows[this._profileEditV1.index];
+        : rows[this._profileEdit.index];
     if (!row) {
-      this._profileMessageV1 = {
+      this._profileMessage = {
         text: `Maximum of ${SPLIT_PROFILE_SLOT_COUNT} profiles reached.`,
         type: "error",
       };
       this.St();
       return;
     }
-    this._profileBusyV1 = true;
-    this._profileMessageV1 = { text: "Saving profile…", type: "info" };
+    this._profileBusy = true;
+    this._profileMessage = { text: "Saving profile…", type: "info" };
     this.St();
     try {
       await this.P.callService("ha_component_backend", "upsert_profile", {
@@ -1411,60 +1411,60 @@ class ComponentSplitControllerV4 extends HTMLElement {
         .filter((candidate) => candidate.profile)
         .map((candidate) => candidate.profile);
       profiles[row.index] = profile;
-      this._profileLocalProfilesV1 = profiles.filter(Boolean);
-      this._profileEditV1 = null;
-      this._profileMessageV1 = { text: `${profile.n} saved.`, type: "info" };
+      this._profileLocalProfiles = profiles.filter(Boolean);
+      this._profileEdit = null;
+      this._profileMessage = { text: `${profile.n} saved.`, type: "info" };
     } catch {
-      this._profileMessageV1 = {
+      this._profileMessage = {
         text: "Could not save the profile.",
         type: "error",
       };
     } finally {
-      this._profileBusyV1 = false;
+      this._profileBusy = false;
       this.St(true);
       this.H();
     }
   }
 
-  async profileDeleteV1() {
+  async deleteProfile() {
     const roomId = splitProfileRoomId(this);
-    if (this._profileBusyV1 || this._profileEditV1?.index === null || !roomId)
+    if (this._profileBusy || this._profileEdit?.index === null || !roomId)
       return;
-    const row = this.profileRowsV1()[this._profileEditV1.index];
+    const row = this.profileRows()[this._profileEdit.index];
     if (!row?.available) return;
     const name = row.profile?.n || "Profile";
-    this._profileBusyV1 = true;
-    this._profileMessageV1 = { text: "Deleting profile…", type: "info" };
+    this._profileBusy = true;
+    this._profileMessage = { text: "Deleting profile…", type: "info" };
     this.St();
     try {
       await this.P.callService("ha_component_backend", "remove_profile", {
         room_id: roomId,
         index: row.index,
       });
-      this._profileLocalProfilesV1 = this.profileRowsV1()
+      this._profileLocalProfiles = this.profileRows()
         .filter(
           (candidate) => candidate.profile && candidate.index !== row.index,
         )
         .map((candidate) => candidate.profile);
-      this._profileEditV1 = null;
-      this._profileMessageV1 = { text: `${name} deleted.`, type: "info" };
+      this._profileEdit = null;
+      this._profileMessage = { text: `${name} deleted.`, type: "info" };
     } catch {
-      this._profileMessageV1 = {
+      this._profileMessage = {
         text: "Could not delete the profile.",
         type: "error",
       };
     } finally {
-      this._profileBusyV1 = false;
+      this._profileBusy = false;
       this.St(true);
       this.H();
     }
   }
 
-  async profileApplyV1(profile) {
-    if (this._profileBusyV1 || !profile) return;
+  async applyProfile(profile) {
+    if (this._profileBusy || !profile) return;
     const state = this.Z();
     if (state.uv) {
-      this._profileMessageV1 = {
+      this._profileMessage = {
         text: "The split system is currently unavailable.",
         type: "error",
       };
@@ -1472,15 +1472,15 @@ class ComponentSplitControllerV4 extends HTMLElement {
       return;
     }
     if (!this.ft().includes(profile.m)) {
-      this._profileMessageV1 = {
+      this._profileMessage = {
         text: `${profile.n} uses a mode that is no longer available.`,
         type: "error",
       };
       this.St();
       return;
     }
-    this._profileBusyV1 = true;
-    this._profileMessageV1 = { text: `Applying ${profile.n}…`, type: "info" };
+    this._profileBusy = true;
+    this._profileMessage = { text: `Applying ${profile.n}…`, type: "info" };
     this.St();
     try {
       if (
@@ -1519,22 +1519,22 @@ class ComponentSplitControllerV4 extends HTMLElement {
           );
       }
       await Promise.all(calls);
-      this._profileMessageV1 = null;
+      this._profileMessage = null;
       this.Tt(`${profile.n} profile requested.`);
       this.M(true);
     } catch {
-      this._profileMessageV1 = {
+      this._profileMessage = {
         text: `Could not apply ${profile.n}.`,
         type: "error",
       };
       this.St();
     } finally {
-      this._profileBusyV1 = false;
+      this._profileBusy = false;
       this.H();
     }
   }
 
-  profileChoiceV1({
+  createProfileChoice({
     title,
     key,
     options,
@@ -1565,7 +1565,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
       this.It(button, button.dataset.focusKey);
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", String(choice === value));
-      button.disabled = this._profileBusyV1;
+      button.disabled = this._profileBusy;
       button.tabIndex =
         choice === value || (!choices.includes(value) && index === 0) ? 0 : -1;
       const choiceIcon = document.createElement("ha-icon");
@@ -1585,7 +1585,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
         button.append(document.createElement("span"));
       }
       button.addEventListener("click", () => {
-        if (this._profileBusyV1 || choice === value) return;
+        if (this._profileBusy || choice === value) return;
         onChange(choice);
         this.St();
       });
@@ -1596,8 +1596,8 @@ class ComponentSplitControllerV4 extends HTMLElement {
     return group;
   }
 
-  profileRenderListV1(focusInitial = false) {
-    const rows = this.profileRowsV1();
+  renderProfileList(focusInitial = false) {
+    const rows = this.profileRows();
     const saved = rows.filter((row) => row.profile);
     const invalid = rows.filter((row) => row.invalid);
     const body = this.$.pb;
@@ -1613,7 +1613,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
       list.className = "plist";
       for (const row of saved) {
         const profile = row.profile;
-        const active = this.profileActiveV1(profile);
+        const active = this.isProfileActive(profile);
         const wrap = document.createElement("div");
         wrap.className = "prow";
         const apply = document.createElement("button");
@@ -1621,7 +1621,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
         apply.className = "papply";
         apply.dataset.focusKey = `profile-apply-${row.index}`;
         this.It(apply, apply.dataset.focusKey);
-        apply.disabled = this._profileBusyV1 || this.Z().uv;
+        apply.disabled = this._profileBusy || this.Z().uv;
         apply.setAttribute("aria-current", active ? "true" : "false");
         const modeIcon = document.createElement("ha-icon");
         modeIcon.className = "pmi";
@@ -1631,7 +1631,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
         const name = document.createElement("strong");
         name.textContent = profile.n;
         const summary = document.createElement("small");
-        summary.textContent = this.profileSummaryV1(profile);
+        summary.textContent = this.profileSummary(profile);
         copy.append(name, summary);
         const status = document.createElement("ha-icon");
         status.className = "pstatus";
@@ -1640,24 +1640,24 @@ class ComponentSplitControllerV4 extends HTMLElement {
           active ? "mdi:check-circle" : "mdi:chevron-right",
         );
         apply.append(modeIcon, copy, status);
-        apply.addEventListener("click", () => this.profileApplyV1(profile));
+        apply.addEventListener("click", () => this.applyProfile(profile));
 
         const edit = document.createElement("button");
         edit.type = "button";
         edit.className = "pedit";
         edit.dataset.focusKey = `profile-edit-${row.index}`;
         this.It(edit, edit.dataset.focusKey);
-        edit.disabled = this._profileBusyV1;
+        edit.disabled = this._profileBusy;
         edit.setAttribute("aria-label", `Edit ${profile.n}`);
         const editIcon = document.createElement("ha-icon");
         editIcon.setAttribute("icon", "mdi:pencil-outline");
         edit.append(editIcon);
         edit.addEventListener("click", () => {
-          this._profileEditV1 = {
+          this._profileEdit = {
             index: row.index,
-            draft: this.profileDraftV1(profile),
+            draft: this.createProfileDraft(profile),
           };
-          this._profileMessageV1 = null;
+          this._profileMessage = null;
           this.u = "profile-name";
           this.St(true);
         });
@@ -1681,7 +1681,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
     const emptySlot = rows.some(
       (row) => row.available && !row.profile && !row.invalid,
     );
-    create.disabled = this._profileBusyV1 || !emptySlot;
+    create.disabled = this._profileBusy || !emptySlot;
     const addIcon = document.createElement("ha-icon");
     addIcon.setAttribute("icon", "mdi:plus");
     const addText = document.createElement("span");
@@ -1690,14 +1690,14 @@ class ComponentSplitControllerV4 extends HTMLElement {
       : `${SPLIT_PROFILE_SLOT_COUNT} profile limit reached`;
     create.append(addIcon, addText);
     create.addEventListener("click", () => {
-      if (!emptySlot || this._profileBusyV1) return;
-      this._profileEditV1 = { index: null, draft: this.profileDraftV1() };
-      this._profileMessageV1 = null;
+      if (!emptySlot || this._profileBusy) return;
+      this._profileEdit = { index: null, draft: this.createProfileDraft() };
+      this._profileMessage = null;
       this.u = "profile-name";
       this.St(true);
     });
     body.append(create);
-    this.profileAppendMessageV1(body);
+    this.appendProfileMessage(body);
     const focusKey = this.u;
     if (focusKey || focusInitial) {
       queueMicrotask(() => {
@@ -1709,17 +1709,17 @@ class ComponentSplitControllerV4 extends HTMLElement {
     }
   }
 
-  profileAppendMessageV1(body) {
-    if (!this._profileMessageV1) return;
+  appendProfileMessage(body) {
+    if (!this._profileMessage) return;
     const message = document.createElement("div");
-    message.className = `pmsg ${this._profileMessageV1.type === "error" ? "error" : ""}`;
+    message.className = `pmsg ${this._profileMessage.type === "error" ? "error" : ""}`;
     message.setAttribute("role", "status");
-    message.textContent = this._profileMessageV1.text;
+    message.textContent = this._profileMessage.text;
     body.append(message);
   }
 
-  profileRenderEditorV1(focusInitial = false) {
-    const edit = this._profileEditV1;
+  renderProfileEditor(focusInitial = false) {
+    const edit = this._profileEdit;
     if (!edit) return;
     const draft = edit.draft;
     const body = this.$.pb;
@@ -1742,16 +1742,16 @@ class ComponentSplitControllerV4 extends HTMLElement {
     input.value = draft.n;
     input.dataset.focusKey = "profile-name";
     this.It(input, input.dataset.focusKey);
-    input.disabled = this._profileBusyV1;
+    input.disabled = this._profileBusy;
     input.addEventListener("input", () => {
       draft.n = input.value;
-      this._profileMessageV1 = null;
+      this._profileMessage = null;
     });
     nameWrap.append(input);
     body.append(nameWrap);
 
     body.append(
-      this.profileChoiceV1({
+      this.createProfileChoice({
         title: "Mode",
         key: "mode",
         options: this.ft(),
@@ -1780,7 +1780,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
         button.dataset.focusKey = `profile-temp-${direction < 0 ? "down" : "up"}`;
         this.It(button, button.dataset.focusKey);
         button.disabled =
-          this._profileBusyV1 ||
+          this._profileBusy ||
           (direction < 0
             ? minimum !== null && Number(draft.t) <= minimum
             : maximum !== null && Number(draft.t) >= maximum);
@@ -1810,7 +1810,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
     const fans = this.bt();
     if (fans.length) {
       body.append(
-        this.profileChoiceV1({
+        this.createProfileChoice({
           title: "Fan",
           key: "fan",
           options: fans,
@@ -1834,7 +1834,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
     for (const vane of this.vt()) {
       const key = vane.axis === "vertical" ? "vv" : "hv";
       body.append(
-        this.profileChoiceV1({
+        this.createProfileChoice({
           title: vane.title,
           key,
           options: vane.qs,
@@ -1848,7 +1848,7 @@ class ComponentSplitControllerV4 extends HTMLElement {
         }),
       );
     }
-    this.profileAppendMessageV1(body);
+    this.appendProfileMessage(body);
     const actions = document.createElement("div");
     actions.className = `pactions ${edit.index !== null ? "editing" : ""}`;
     if (edit.index !== null) {
@@ -1857,20 +1857,20 @@ class ComponentSplitControllerV4 extends HTMLElement {
       remove.className = "pdelete";
       remove.dataset.focusKey = "profile-delete";
       this.It(remove, remove.dataset.focusKey);
-      remove.disabled = this._profileBusyV1;
+      remove.disabled = this._profileBusy;
       remove.textContent = "Delete";
-      remove.addEventListener("click", () => this.profileDeleteV1());
+      remove.addEventListener("click", () => this.deleteProfile());
       actions.append(remove);
     }
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.dataset.focusKey = "profile-cancel";
     this.It(cancel, cancel.dataset.focusKey);
-    cancel.disabled = this._profileBusyV1;
+    cancel.disabled = this._profileBusy;
     cancel.textContent = "Cancel";
     cancel.addEventListener("click", () => {
-      this._profileEditV1 = null;
-      this._profileMessageV1 = null;
+      this._profileEdit = null;
+      this._profileMessage = null;
       this.u = "profile-new";
       this.St(true);
     });
@@ -1879,9 +1879,9 @@ class ComponentSplitControllerV4 extends HTMLElement {
     save.className = "psave";
     save.dataset.focusKey = "profile-save";
     this.It(save, save.dataset.focusKey);
-    save.disabled = this._profileBusyV1 || !String(draft.n ?? "").trim();
-    save.textContent = this._profileBusyV1 ? "Saving…" : "Save";
-    save.addEventListener("click", () => this.profileStoreV1());
+    save.disabled = this._profileBusy || !String(draft.n ?? "").trim();
+    save.textContent = this._profileBusy ? "Saving…" : "Save";
+    save.addEventListener("click", () => this.saveProfile());
     actions.append(cancel, save);
     body.append(actions);
     const focusKey = this.u;
@@ -1921,9 +1921,9 @@ class ComponentSplitControllerV4 extends HTMLElement {
   R(...args) {
     const result = this._renderCore(...args);
     if (this.$?.pr) return result;
-    this._profileEditV1 ??= null;
-    this._profileBusyV1 ??= false;
-    this._profileMessageV1 ??= null;
+    this._profileEdit ??= null;
+    this._profileBusy ??= false;
+    this._profileMessage ??= null;
     const button = document.createElement("button");
     button.className = "pw pr";
     button.type = "button";
@@ -1944,24 +1944,24 @@ class ComponentSplitControllerV4 extends HTMLElement {
   }
 
   V() {
-    return `${this._signatureCore()}|${JSON.stringify(this.profileRowsV1().map((row) => row.raw))}`;
+    return `${this._signatureCore()}|${JSON.stringify(this.profileRows().map((row) => row.raw))}`;
   }
 
   kt() {
     return this.o === "profiles"
-      ? this.profileReadyV1()
+      ? this.profilesAvailable()
       : this._panelAvailableCore();
   }
 
   H() {
     const result = this._refreshCore();
     if (!this.$?.pr) return result;
-    const ready = this.profileReadyV1();
+    const ready = this.profilesAvailable();
     this.$.pr.hidden = !ready;
     this.$.hd.classList.toggle("profiled", ready);
     const active = ready
-      ? this.profileRowsV1().find(
-          (row) => row.profile && this.profileActiveV1(row.profile),
+      ? this.profileRows().find(
+          (row) => row.profile && this.isProfileActive(row.profile),
         )
       : null;
     this.$.pr.classList.toggle("on", Boolean(active));
@@ -1982,23 +1982,23 @@ class ComponentSplitControllerV4 extends HTMLElement {
   St(focusInitial = false) {
     if (this.o !== "profiles")
       return this._renderPanelCore(focusInitial);
-    if (!this.profileReadyV1()) return;
+    if (!this.profilesAvailable()) return;
     this.$.pt.textContent =
-      this._profileEditV1?.index === null
+      this._profileEdit?.index === null
         ? "New profile"
-        : this._profileEditV1
+        : this._profileEdit
           ? "Edit profile"
           : "Saved profiles";
-    if (this._profileEditV1) this.profileRenderEditorV1(focusInitial);
-    else this.profileRenderListV1(focusInitial);
+    if (this._profileEdit) this.renderProfileEditor(focusInitial);
+    else this.renderProfileList(focusInitial);
   }
 
   M(restoreFocus) {
     const wasProfiles = this.o === "profiles";
     const result = this._closePanelCore(restoreFocus);
     if (wasProfiles) {
-      this._profileEditV1 = null;
-      this._profileMessageV1 = null;
+      this._profileEdit = null;
+      this._profileMessage = null;
       this.u = null;
     }
     return result;

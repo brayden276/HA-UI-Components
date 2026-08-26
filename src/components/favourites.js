@@ -28,90 +28,94 @@ const FAVOURITES_V3_DOMAINS = new Set([
   FAVOURITES_V3_INVALID = new Set(["unavailable", "unknown"]);
 class ComponentFavouritesV3 extends HTMLElement {
   constructor() {
-    super(),
-      this.attachShadow({ mode: "open" }),
-      (this._registry = null),
-      (this._registryPromise = null),
-      (this._selected = []),
-      (this._draft = []),
-      (this._originalDraft = ""),
-      (this._pending = new Map()),
-      (this._flash = new Map()),
-      (this._flashTimers = new Map()),
-      (this._lastStorageSignature = ""),
-      (this._noticeTimer = null),
-      (this._registrySubscription = null),
-      (this._registryRefreshTimer = null),
-      (this._renderSignature = ""),
-      (this._editorStorageSignature = ""),
-      (this._connection = null),
-      (this._interactionHandles = []),
-      (this._optimistic = new Map()),
-      (this._preferenceLoaded = false),
-      (this._preferenceError = null),
-      (this._preferencePromise = null),
-      (this._preferenceSubscription = null),
-      (this._preferenceReloadPending = false);
+    super();
+    this.attachShadow({ mode: "open" });
+    this._registry = null;
+    this._registryPromise = null;
+    this._selected = [];
+    this._draft = [];
+    this._originalDraft = "";
+    this._pending = new Map();
+    this._flash = new Map();
+    this._flashTimers = new Map();
+    this._lastStorageSignature = "";
+    this._noticeTimer = null;
+    this._registrySubscription = null;
+    this._registryRefreshTimer = null;
+    this._renderSignature = "";
+    this._editorStorageSignature = "";
+    this._connection = null;
+    this._interactionHandles = [];
+    this._optimistic = new Map();
+    this._preferenceLoaded = false;
+    this._preferenceError = null;
+    this._preferencePromise = null;
+    this._preferenceSubscription = null;
+    this._preferenceReloadPending = false;
   }
-  setConfig(t) {
+  setConfig(config) {
     this._unsubscribePreferenceEvents();
-    const e = Array.isArray(t?.helpers)
-        ? t.helpers.filter((t) => "string" == typeof t)
+    const legacyHelpers = Array.isArray(config?.helpers)
+        ? config.helpers.filter((helper) => typeof helper === "string")
         : [],
-      i = Array.isArray(t?.items) ? t.items.slice(0, 4) : [],
-      s = String(t?.preference_key || "").trim();
-    if (!e.length && !i.length && !s)
+      demoItems = Array.isArray(config?.items) ? config.items.slice(0, 4) : [],
+      preferenceKey = String(config?.preference_key || "").trim();
+    if (!legacyHelpers.length && !demoItems.length && !preferenceKey)
       throw new Error("helpers, items or preference_key is required");
-    this._legacyFavouriteHelpers = s ? e.slice(0, 4) : [];
-    this._preferenceLoaded = !s;
+    this._legacyFavouriteHelpers = preferenceKey ? legacyHelpers.slice(0, 4) : [];
+    this._preferenceLoaded = !preferenceKey;
     this._preferenceError = null;
     this._preferencePromise = null;
     this._preferenceReloadPending = false;
-    (this.config = {
+    this.config = {
       title: "Favourites",
       max: 4,
-      show_header: e.length > 0 || Boolean(s),
-      ...t,
-      helpers: s ? [] : e.slice(0, 4),
-      items: i,
-      preference_key: s || null,
-    }),
-      this._build(),
-      this._subscribePreferenceEvents(),
-      this._syncStored(),
-      this._renderGrid();
+      show_header: legacyHelpers.length > 0 || Boolean(preferenceKey),
+      ...config,
+      helpers: preferenceKey ? [] : legacyHelpers.slice(0, 4),
+      items: demoItems,
+      preference_key: preferenceKey || null,
+    };
+    this._build();
+    this._subscribePreferenceEvents();
+    this._syncStored();
+    this._renderGrid();
   }
-  set hass(t) {
-    const e = this._connection;
-    (this._hass = t),
-      (this._connection = t?.connection || null),
-      this._built || this._build(),
-      e !== this._connection &&
-        (this._unsubscribeRegistryEvents(), this._subscribeRegistryEvents()),
-      this._syncStored(),
-      this._ensureRegistry();
-    const i = this._gridSignature();
-    i !== this._renderSignature &&
-      ((this._renderSignature = i), this._renderGrid()),
-      this.$?.editor?.open && this._updateEditorState(),
-      this._controllerCard && (this._controllerCard.hass = t);
+  set hass(hass) {
+    const previousConnection = this._connection;
+    this._hass = hass;
+    this._connection = hass?.connection || null;
+    if (!this._built) this._build();
+    if (previousConnection !== this._connection) {
+      this._unsubscribeRegistryEvents();
+      this._subscribeRegistryEvents();
+    }
+    this._syncStored();
+    void this._ensureRegistry();
+    const signature = this._gridSignature();
+    if (signature !== this._renderSignature) {
+      this._renderSignature = signature;
+      this._renderGrid();
+    }
+    if (this.$?.editor?.open) this._updateEditorState();
+    if (this._controllerCard) this._controllerCard.hass = hass;
   }
   getCardSize() {
     return 2;
   }
   connectedCallback() {
-    (this._connection = this._hass?.connection || null),
-      this._subscribeRegistryEvents(),
-      this._ensureRegistry();
+    this._connection = this._hass?.connection || null;
+    this._subscribeRegistryEvents();
+    void this._ensureRegistry();
   }
   disconnectedCallback() {
     // Controls are bound to retained shadow DOM and are replaced on render.
     this._optimistic.clear();
-    clearTimeout(this._noticeTimer),
-      clearTimeout(this._registryRefreshTimer),
-      (this._registryRefreshTimer = null),
-      this._unsubscribeRegistryEvents();
-    for (const t of this._flashTimers.values()) clearTimeout(t);
+    clearTimeout(this._noticeTimer);
+    clearTimeout(this._registryRefreshTimer);
+    this._registryRefreshTimer = null;
+    this._unsubscribeRegistryEvents();
+    for (const timer of this._flashTimers.values()) clearTimeout(timer);
     this._flashTimers.clear();
   }
   _subscribeRegistryEvents() {
@@ -121,21 +125,23 @@ class ComponentFavouritesV3 extends HTMLElement {
       !this._connection?.subscribeEvents
     )
       return;
-    const t = Promise.all(
+    const subscription = Promise.all(
       [
         "entity_registry_updated",
         "device_registry_updated",
         "area_registry_updated",
-      ].map((e) =>
-        this._connection.subscribeEvents(() => this._queueRegistryRefresh(), e),
+      ].map((eventType) =>
+        this._connection.subscribeEvents(() => this._queueRegistryRefresh(), eventType),
       ),
-    ).then((t) => () => {
-      for (const e of t) e?.();
+    ).then((unsubscribeAll) => () => {
+      for (const unsubscribe of unsubscribeAll) unsubscribe?.();
     });
-    (this._registrySubscription = t),
-      t.catch(() => {
-        this._registrySubscription === t && (this._registrySubscription = null);
-      });
+    this._registrySubscription = subscription;
+    subscription.catch(() => {
+      if (this._registrySubscription === subscription) {
+        this._registrySubscription = null;
+      }
+    });
     this._subscribePreferenceEvents();
   }
   _subscribePreferenceEvents() {
@@ -162,12 +168,13 @@ class ComponentFavouritesV3 extends HTMLElement {
     });
   }
   _unsubscribeRegistryEvents() {
-    const t = this._registrySubscription;
-    (this._registrySubscription = null),
-      t &&
-        Promise.resolve(t)
+    const subscription = this._registrySubscription;
+    this._registrySubscription = null;
+    if (subscription) {
+      Promise.resolve(subscription)
           .then((t) => t?.())
           .catch(() => {});
+    }
     this._unsubscribePreferenceEvents();
   }
   _unsubscribePreferenceEvents() {
@@ -179,15 +186,15 @@ class ComponentFavouritesV3 extends HTMLElement {
         .catch(() => {});
   }
   _queueRegistryRefresh() {
-    clearTimeout(this._registryRefreshTimer),
-      (this._registryRefreshTimer = setTimeout(() => {
-        (this._registryRefreshTimer = null),
-          (this._registry = null),
-          (this._registryPromise = null),
-          (this._registryError = null),
-          (this._renderSignature = ""),
-          this.isConnected && this._ensureRegistry();
-      }, 180));
+    clearTimeout(this._registryRefreshTimer);
+    this._registryRefreshTimer = setTimeout(() => {
+      this._registryRefreshTimer = null;
+      this._registry = null;
+      this._registryPromise = null;
+      this._registryError = null;
+      this._renderSignature = "";
+      if (this.isConnected) void this._ensureRegistry();
+    }, 180);
   }
   _storageSignature() {
     if (this.config?.preference_key) return JSON.stringify(this._selected);
@@ -297,26 +304,54 @@ class ComponentFavouritesV3 extends HTMLElement {
       return;
     }
     if (!this.config || !this._hass || !this.config.helpers.length) return;
-    const t = JSON.stringify(
-      this.config.helpers.map((t) => this._hass.states?.[t]?.state),
+    const storageSignature = JSON.stringify(
+      this.config.helpers.map((entityId) => this._hass.states?.[entityId]?.state),
     );
-    t !== this._lastStorageSignature &&
-      ((this._lastStorageSignature = t),
-      (this._selected = this.config.helpers
-        .map((t) => this._parseSlot(this._hass.states?.[t]?.state))
-        .filter(Boolean)
-        .slice(0, this.config.max)));
+    if (storageSignature === this._lastStorageSignature) return;
+    this._lastStorageSignature = storageSignature;
+    this._selected = this.config.helpers
+      .map((entityId) => this._parseSlot(this._hass.states?.[entityId]?.state))
+      .filter(Boolean)
+      .slice(0, this.config.max);
+  }
+  _isCurrentPreferenceRequest(hass, key) {
+    return hass === this._hass && key === this.config?.preference_key;
+  }
+  _normaliseStoredFavourites(stored) {
+    return Array.isArray(stored)
+      ? stored
+          .map((item) => this._normaliseRef(item))
+          .filter(Boolean)
+          .slice(0, this.config.max)
+      : [];
+  }
+  async _migrateLegacyFavourites(hass, key) {
+    const selected = this._legacyFavouriteHelpers
+      .map((entityId) => this._parseSlot(hass.states?.[entityId]?.state))
+      .filter(Boolean)
+      .slice(0, this.config.max);
+    if (selected.length) {
+      await globalThis.__homeDashboardV2.savePrefs(hass, key, selected);
+    }
+    return selected;
+  }
+  _applyLoadedFavourites(selected) {
+    this._selected = selected;
+    this._preferenceLoaded = true;
+    this._preferenceError = null;
+    this._lastStorageSignature = this._storageSignature();
+    this._renderSignature = "";
+    this._renderGrid();
+    if (this.$?.editor?.open) this._updateEditorState();
   }
   async _loadBackendFavourites(force = false) {
     if (!this._hass || !this.config?.preference_key) return;
     const hass = this._hass;
     const key = this.config.preference_key;
     if (this._preferencePromise) {
-      if (
-        force ||
-        this._preferenceRequestHass !== hass ||
-        this._preferenceRequestKey !== key
-      ) {
+      const requestHasChanged =
+        this._preferenceRequestHass !== hass || this._preferenceRequestKey !== key;
+      if (force || requestHasChanged) {
         this._preferenceReloadPending = true;
       }
       return this._preferencePromise;
@@ -324,35 +359,19 @@ class ComponentFavouritesV3 extends HTMLElement {
     if (this._preferenceLoaded && !force) return;
     this._preferenceRequestHass = hass;
     this._preferenceRequestKey = key;
-    const request = globalThis.__homeDashboardV2
-      .prefs(hass, key)
+    const request = Promise.resolve(globalThis.__homeDashboardV2.prefs(hass, key))
       .then(async (stored) => {
-        if (hass !== this._hass || key !== this.config?.preference_key) return;
-        let selected = Array.isArray(stored)
-          ? stored
-              .map((item) => this._normaliseRef(item))
-              .filter(Boolean)
-              .slice(0, this.config.max)
-          : [];
+        if (!this._isCurrentPreferenceRequest(hass, key)) return;
+        let selected = this._normaliseStoredFavourites(stored);
         if (!Array.isArray(stored) && this._legacyFavouriteHelpers.length) {
-          selected = this._legacyFavouriteHelpers
-            .map((entityId) => this._parseSlot(hass.states?.[entityId]?.state))
-            .filter(Boolean)
-            .slice(0, this.config.max);
-          if (selected.length) {
-            await globalThis.__homeDashboardV2.savePrefs(hass, key, selected);
-          }
+          selected = await this._migrateLegacyFavourites(hass, key);
         }
-        this._selected = selected;
-        this._preferenceLoaded = true;
-        this._preferenceError = null;
-        this._lastStorageSignature = this._storageSignature();
-        this._renderSignature = "";
-        this._renderGrid();
-        if (this.$?.editor?.open) this._updateEditorState();
+        if (this._isCurrentPreferenceRequest(hass, key)) {
+          this._applyLoadedFavourites(selected);
+        }
       })
       .catch((error) => {
-        if (hass !== this._hass || key !== this.config?.preference_key) return;
+        if (!this._isCurrentPreferenceRequest(hass, key)) return;
         this._preferenceError = error;
         this._renderGrid();
       })
@@ -373,73 +392,69 @@ class ComponentFavouritesV3 extends HTMLElement {
     return request;
   }
   async _ensureRegistry() {
-    return (
-      this._registry ||
-        this._registryPromise ||
-        !this._hass?.connection?.sendMessagePromise ||
-        (this._registryPromise = Promise.all([
-          this._hass.connection.sendMessagePromise({
-            type: "config/entity_registry/list",
-          }),
-          this._hass.connection.sendMessagePromise({
-            type: "config/device_registry/list",
-          }),
-          this._hass.connection.sendMessagePromise({
-            type: "config/area_registry/list",
-          }),
-        ])
-          .then(async ([t, e, i]) => {
-            const s = Array.isArray(t) ? t : [],
-              r = Array.isArray(e) ? e : [],
-              a = Array.isArray(i) ? i : [],
-              o = new Map(),
-              n = new Map();
-            for (const t of s) {
-              const e = this._entryKey(t);
-              e && o.set(e, t),
-                t.device_id &&
-                  (n.has(t.device_id) || n.set(t.device_id, []),
-                  n.get(t.device_id).push(t));
-            }
-            return (
-              (this._registry = {
-                entities: s,
-                devices: new Map(r.map((t) => [t.id, t])),
-                areas: new Map(a.map((t) => [t.area_id, t.name])),
-                byKey: o,
-                byDevice: n,
-                claimed: new Set(),
-                splitSystems: new Map(),
-              }),
-              await this._refreshSplitRegistry(),
-              (this._renderSignature = ""),
-              this._renderGrid(),
-              this.$?.editor?.open && this._renderEditor(),
-              this._registry
-            );
-          })
-          .catch(
-            (t) => (
-              (this._registryError = t),
-              (this._registryPromise = null),
-              this._renderGrid(),
-              null
-            ),
-          )),
-      this._registryPromise
-    );
+    if (this._registry) return this._registry;
+    if (this._registryPromise) return this._registryPromise;
+    const connection = this._hass?.connection;
+    if (!connection?.sendMessagePromise) return null;
+    this._registryPromise = Promise.all([
+      connection.sendMessagePromise({ type: "config/entity_registry/list" }),
+      connection.sendMessagePromise({ type: "config/device_registry/list" }),
+      connection.sendMessagePromise({ type: "config/area_registry/list" }),
+    ])
+      .then(async ([entityEntries, deviceEntries, areaEntries]) => {
+        this._registry = this._createRegistry(
+          entityEntries,
+          deviceEntries,
+          areaEntries,
+        );
+        await this._refreshSplitRegistry();
+        this._renderSignature = "";
+        this._renderGrid();
+        if (this.$?.editor?.open) this._renderEditor();
+        return this._registry;
+      })
+      .catch((error) => {
+        this._registryError = error;
+        this._registryPromise = null;
+        this._renderGrid();
+        return null;
+      });
+    return this._registryPromise;
+  }
+  _createRegistry(entityEntries, deviceEntries, areaEntries) {
+    const entities = Array.isArray(entityEntries) ? entityEntries : [];
+    const devices = Array.isArray(deviceEntries) ? deviceEntries : [];
+    const areas = Array.isArray(areaEntries) ? areaEntries : [];
+    const byKey = new Map();
+    const byDevice = new Map();
+    for (const entry of entities) {
+      const key = this._entryKey(entry);
+      if (key) byKey.set(key, entry);
+      if (!entry.device_id) continue;
+      if (!byDevice.has(entry.device_id)) byDevice.set(entry.device_id, []);
+      byDevice.get(entry.device_id).push(entry);
+    }
+    return {
+      entities,
+      devices: new Map(devices.map((entry) => [entry.id, entry])),
+      areas: new Map(areas.map((entry) => [entry.area_id, entry.name])),
+      byKey,
+      byDevice,
+      claimed: new Set(),
+      splitSystems: new Map(),
+    };
   }
   async _refreshSplitRegistry() {
-    const t = globalThis.__componentSplitRegistryV4;
-    if (this._registry && t?.load && this._hass)
-      try {
-        const e = await t.load(this._hass);
-        (this._registry.claimed = e?.claimed || new Set()),
-          (this._registry.splitSystems = e?.systems || new Map());
-      } catch (t) {
-        (this._registry.claimed = new Set()),
-          (this._registry.splitSystems = new Map());
-      }
+    const splitRegistry = globalThis.__componentSplitRegistryV4;
+    if (!this._registry || !splitRegistry?.load || !this._hass) return;
+    try {
+      const result = await splitRegistry.load(this._hass);
+      this._registry.claimed = result?.claimed || new Set();
+      this._registry.splitSystems = result?.systems || new Map();
+    } catch {
+      this._registry.claimed = new Set();
+      this._registry.splitSystems = new Map();
+    }
   }
   _entryKey(t) {
     return t?.entity_id && t.platform && t.unique_id
@@ -458,12 +473,12 @@ class ComponentFavouritesV3 extends HTMLElement {
       n: e,
     };
   }
-  _record(t) {
-    const e = this._registry?.byKey.get(this._refKey(t)) || null;
+  _record(ref) {
+    const entry = this._registry?.byKey.get(this._refKey(ref)) || null;
     return {
-      ref: t,
-      entry: e,
-      state: (e && this._hass?.states?.[e.entity_id]) || null,
+      ref,
+      entry,
+      state: (entry && this._hass?.states?.[entry.entity_id]) || null,
     };
   }
   _name(t) {
@@ -715,13 +730,13 @@ class ComponentFavouritesV3 extends HTMLElement {
         : (this.$.grid.innerHTML = `<div class="${this._registryError ? "load-error" : "empty"}">${this._registryError ? "Favourites could not load the entity registry." : "Loading favourites…"}</div>`);
   }
   _renderDemo() {
-    this.$.grid.replaceChildren(),
-      this.config.items.slice(0, 4).forEach((t) => {
-        const e = document.createElement("div");
-        (e.className = "item"),
-          (e.innerHTML = `<div class="main"><span class="icon"><ha-icon icon="${this._escape(t.icon || "mdi:star-outline")}"></ha-icon></span><span class="copy"><div class="name">${this._escape(t.title || "Favourite")}</div><div class="state">${this._escape(t.state || "Supporting state")}</div></span></div>`),
-          this.$.grid.append(e);
-      });
+    this.$.grid.replaceChildren();
+    for (const item of this.config.items.slice(0, 4)) {
+      const tile = document.createElement("div");
+      tile.className = "item";
+      tile.innerHTML = `<div class="main"><span class="icon"><ha-icon icon="${this._escape(item.icon || "mdi:star-outline")}"></ha-icon></span><span class="copy"><div class="name">${this._escape(item.title || "Favourite")}</div><div class="state">${this._escape(item.state || "Supporting state")}</div></span></div>`;
+      this.$.grid.append(tile);
+    }
   }
   async _activate(t) {
     if (this._pending.has(t)) return;
@@ -813,25 +828,25 @@ class ComponentFavouritesV3 extends HTMLElement {
       this._setFlash(t, "error", "Command failed");
     }
   }
-  _setPending(t, e) {
-    this._pending.set(t, { label: e }),
-      this._flash.delete(t),
-      this._renderGrid();
+  _setPending(index, label) {
+    this._pending.set(index, { label });
+    this._flash.delete(index);
+    this._renderGrid();
   }
-  _setFlash(t, e, i) {
-    this._optimistic.delete(t),
-      this._pending.delete(t),
-      this._flash.set(t, { kind: e, label: i }),
-      clearTimeout(this._flashTimers.get(t)),
-      this._flashTimers.set(
-        t,
-        setTimeout(() => {
-          this._flash.delete(t),
-            this._flashTimers.delete(t),
-            this._renderGrid();
-        }, 3200),
-      ),
-      this._renderGrid();
+  _setFlash(index, kind, label) {
+    this._optimistic.delete(index);
+    this._pending.delete(index);
+    this._flash.set(index, { kind, label });
+    clearTimeout(this._flashTimers.get(index));
+    this._flashTimers.set(
+      index,
+      setTimeout(() => {
+        this._flash.delete(index);
+        this._flashTimers.delete(index);
+        this._renderGrid();
+      }, 3200),
+    );
+    this._renderGrid();
   }
   _waitFor(t, e, i) {
     return waitForEntityState(() => this._hass, t, e, { timeout: i });
@@ -853,19 +868,21 @@ class ComponentFavouritesV3 extends HTMLElement {
       this.$.controllerClose.focus();
   }
   async _openEditor() {
-    await this._ensureRegistry(),
-      await this._refreshSplitRegistry(),
-      (this._editorStorageSignature = this._storageSignature()),
-      (this._draft = this._selected.map((t) => ({ ...t }))),
-      (this._originalDraft = JSON.stringify(this._draft)),
-      (this.$.search.value = ""),
-      (this.$.editorError.textContent = ""),
-      this._renderEditor(),
-      this.$.editor.showModal(),
-      setTimeout(() => this.$.search.focus(), 30);
+    await this._ensureRegistry();
+    await this._refreshSplitRegistry();
+    this._editorStorageSignature = this._storageSignature();
+    this._draft = this._selected.map((item) => ({ ...item }));
+    this._originalDraft = JSON.stringify(this._draft);
+    this.$.search.value = "";
+    this.$.editorError.textContent = "";
+    this._renderEditor();
+    this.$.editor.showModal();
+    setTimeout(() => this.$.search.focus(), 30);
   }
   _renderEditor() {
-    this._renderSelected(), this._renderAvailable(), this._updateEditorState();
+    this._renderSelected();
+    this._renderAvailable();
+    this._updateEditorState();
   }
   _renderSelected() {
     this.$.selected.replaceChildren(),
@@ -893,12 +910,14 @@ class ComponentFavouritesV3 extends HTMLElement {
         : (this.$.selected.innerHTML =
             '<div class="available-empty">No favourites selected.</div>');
   }
-  _move(t, e) {
-    const i = t + e;
-    i < 0 ||
-      i >= this._draft.length ||
-      (([this._draft[t], this._draft[i]] = [this._draft[i], this._draft[t]]),
-      this._renderEditor());
+  _move(index, direction) {
+    const destination = index + direction;
+    if (destination < 0 || destination >= this._draft.length) return;
+    [this._draft[index], this._draft[destination]] = [
+      this._draft[destination],
+      this._draft[index],
+    ];
+    this._renderEditor();
   }
   _eligibleEntries() {
     if (!this._registry || !this._hass) return [];
@@ -1106,14 +1125,14 @@ class ComponentFavouritesV3 extends HTMLElement {
       if (error) this.$.editorError.textContent = error;
     }
   }
-  _notice(t, e = !1) {
-    clearTimeout(this._noticeTimer),
-      (this.$.notice.textContent = t),
-      this.$.notice.classList.toggle("error", e),
-      (this._noticeTimer = setTimeout(() => {
-        (this.$.notice.textContent = ""),
-          this.$.notice.classList.remove("error");
-      }, 3600));
+  _notice(message, isError = false) {
+    clearTimeout(this._noticeTimer);
+    this.$.notice.textContent = message;
+    this.$.notice.classList.toggle("error", isError);
+    this._noticeTimer = setTimeout(() => {
+      this.$.notice.textContent = "";
+      this.$.notice.classList.remove("error");
+    }, 3600);
   }
 }
 registerCard({
