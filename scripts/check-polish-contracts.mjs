@@ -51,8 +51,8 @@ requireText("src/components/security-dashboard.js", "Quick actions", "Security c
 requireText("src/shared/lifecycle.js", "backdropPointerStarted", "Overlay dismissal must not consume the click that opened it");
 requireText("src/components/camera-controller-v2.js", "Last detections", "Camera settings must expose the latest classification snapshots");
 requireText("src/components/camera-controller.js", ".switchbtn{min-width:58px;height:44px", "Camera V1 switch controls must retain 44px targets");
-requireText("src/components/component-apple-tv-controller-v1.js", ".keyboard-input{width:100%;min-height:44px", "Apple TV keyboard input must retain a 44px target");
-requireText("src/components/room-directory.js", ".metric{appearance:none;border:0;background:transparent;min-height:44px", "Room sheet metrics must retain 44px targets");
+requireText("src/components/component-apple-tv-controller-v1.js", ".keyboard input{min-width:0;height:44px", "Apple TV keyboard input must retain a 44px target");
+requireText("src/components/room-directory.js", ".metric{appearance:none;border:0;background:transparent;min-height:44px", "Room sheet metrics must retain a 44px target");
 requireText("src/components/wled-controller.js", ".preset-btn{appearance:none;min-height:44px", "WLED presets must retain 44px targets");
 
 if (failures.length) throw new Error(`Polish contract failures:\n${failures.join("\n")}`);
