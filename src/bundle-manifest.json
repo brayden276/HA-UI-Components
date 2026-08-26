@@ -29,30 +29,26 @@
   },
   {
     "order": 8,
-    "file": "src/shared/split-system-registry.js"
-  },
-  {
-    "order": 9,
     "file": "src/shared/dashboard-runtime.js"
   },
   {
-    "order": 10,
+    "order": 9,
     "file": "src/shared/registry-health.js"
   },
   {
-    "order": 11,
+    "order": 10,
     "file": "src/shared/wled-runtime.js"
   },
   {
-    "order": 12,
+    "order": 11,
     "file": "src/shared/update-styles.js"
   },
   {
-    "order": 13,
+    "order": 12,
     "file": "src/support/device-aware-auto-entities.js"
   },
   {
-    "order": 14,
+    "order": 13,
     "file": "src/support/empty-state-v2.js"
   },
   {

@@ -120,19 +120,6 @@ export default {
     assert.deepEqual(initialChildren.map((child) => child.entityId), ["light.alpha", "switch.beta"], "registry-derived controls must be visibly ordered by their display names");
     assert.equal(initialChildren.every((child) => child.hass === hass), true, "Hass must be forwarded to every visible child card");
 
-    const splitListeners = [];
-    harness.context.__componentSplitRegistryV4 = {
-      load: async () => ({ systems: new Map(), claimed: new Set() }),
-      subscribe(_hass, listener) {
-        splitListeners.push(listener);
-        return () => splitListeners.splice(splitListeners.indexOf(listener), 1);
-      },
-    };
-    collection.hass = hass;
-    assert.equal(splitListeners.length, 1, "the collection must own a single split-registry subscription");
-    splitListeners[0]({ systems: new Map(), claimed: new Set() });
-    await harness.flushMicrotasks(4);
-
     const refreshedHass = { ...hass, states: { ...hass.states } };
     collection.hass = refreshedHass;
     assert.deepEqual([...body.children], initialChildren, "a state refresh without a structural change must retain visible child identity and ordering");

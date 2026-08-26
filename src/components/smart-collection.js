@@ -14,11 +14,9 @@
       this.c = null;
       this.h = null;
       this.d = null;
-      this.split = null;
       this.prefs = { order: [], hidden: [] };
       this.prefsLoaded = false;
       this.unsub = null;
-      this.splitUnsub = null;
       this.activeStateSubscription = null;
       this.activeStateToken = null;
       this.activeStateConnection = null;
@@ -62,7 +60,6 @@
       this.h = hass;
       for (const record of this.cards.values()) record.el.hass = hass;
       this.unsub || this.subscribe();
-      this.splitUnsub || this.subscribeSplitRegistry();
       if (!this.prefsLoaded) this.loadPrefs();
       if (!this.d || this.c?.mode === "active" || this.reconcileIncomplete) this.schedule();
       this.startActiveStateStream();
@@ -70,7 +67,6 @@
 
     connectedCallback() {
       this.subscribe();
-      this.subscribeSplitRegistry();
       this.schedule();
       this.startActiveStateStream();
     }
@@ -78,8 +74,6 @@
     disconnectedCallback() {
       this.unsub?.();
       this.unsub = null;
-      this.splitUnsub?.();
-      this.splitUnsub = null;
       this.stopActiveStateStream();
       this.gen++;
     }
@@ -92,16 +86,6 @@
       if (this.unsub || !this.h || !HD2.REG?.subscribe) return;
       this.unsub = HD2.REG.subscribe(this.h, (data) => {
         this.d = data;
-        this.structureSig = "";
-        this.schedule();
-      });
-    }
-
-    subscribeSplitRegistry() {
-      const registry = globalThis.__componentSplitRegistryV4;
-      if (this.splitUnsub || !this.h || !registry?.subscribe) return;
-      this.splitUnsub = registry.subscribe(this.h, (split) => {
-        this.split = split;
         this.structureSig = "";
         this.schedule();
       });
@@ -176,8 +160,7 @@
               (this.c.mode === "active" && domain === "binary_sensor" && /^(door|window|smoke|moisture|gas)$/.test(state.attributes?.device_class || ""));
           }
           return false;
-        })
-        .filter((entry) => !this.split || !this.split.claimed?.has(entry.entity_id) || this.split.systems?.has(entry.entity_id));
+        });
       const garageDevices = new Set(candidates
         .filter((entry) => HD2.domain(entry.entity_id) === "binary_sensor" && this.h.states[entry.entity_id]?.attributes?.device_class === "garage_door")
         .map((entry) => entry.device_id)
@@ -276,11 +259,6 @@
       if (generation !== this.gen) return;
       this.d ||= data;
 
-      const registry = globalThis.__componentSplitRegistryV4;
-      const split = registry?.load ? await registry.load(this.h) : null;
-      if (generation !== this.gen) return;
-      this.split = split;
-
       const candidates = this.candidates().sort((left, right) =>
         HD2.stateName(this.h, left, this.h.states[left.entity_id]).localeCompare(
           HD2.stateName(this.h, right, this.h.states[right.entity_id]),
@@ -294,7 +272,7 @@
       for (const entry of visible) {
         const config = this.isCameraOwner(entry)
           ? { type: "custom:component-camera-controller-v1", entity: entry.entity_id, device_id: entry.device_id }
-          : HD2.controlConfig(entry, this.h.states[entry.entity_id], this.d, this.h, this.split);
+          : HD2.controlConfig(entry, this.h.states[entry.entity_id], this.d, this.h);
         if (config) rows.push({ entry, config, signature: JSON.stringify(config) });
       }
 
@@ -358,8 +336,6 @@
       if (!this.h || !this.c?.pref_key || !HD2.REG?.load) return;
       const editor = await HD2.preferenceEditor();
       this.d = this.d || await HD2.REG.load(this.h);
-      const registry = globalThis.__componentSplitRegistryV4;
-      this.split = registry?.load ? await registry.load(this.h) : null;
       const items = this.candidates().map((entry) => ({
         id: entry.entity_id,
         name: HD2.stateName(this.h, entry, this.h.states[entry.entity_id]),

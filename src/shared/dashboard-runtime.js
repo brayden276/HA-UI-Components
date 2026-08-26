@@ -126,9 +126,9 @@ HD2.registerControlResolver ??= (resolver) => {
 };
 
 const defaultControlConfig = HD2.controlConfig;
-HD2.controlConfig = (entry, state, registry, hass, splitRegistry) => {
+HD2.controlConfig = (entry, state, registry, hass) => {
   for (const resolveControl of HD2.controlResolvers) {
-    const configuration = resolveControl(entry, state, registry, hass, splitRegistry);
+    const configuration = resolveControl(entry, state, registry, hass);
     if (configuration) return configuration;
   }
   return defaultControlConfig(entry, state, registry, hass);

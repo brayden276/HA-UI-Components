@@ -408,10 +408,7 @@ class ComponentFavouritesV3 extends HTMLElement {
                 areas: new Map(a.map((t) => [t.area_id, t.name])),
                 byKey: o,
                 byDevice: n,
-                claimed: new Set(),
-                splitSystems: new Map(),
               }),
-              await this._refreshSplitRegistry(),
               (this._renderSignature = ""),
               this._renderGrid(),
               this.$?.editor?.open && this._renderEditor(),
@@ -428,18 +425,6 @@ class ComponentFavouritesV3 extends HTMLElement {
           )),
       this._registryPromise
     );
-  }
-  async _refreshSplitRegistry() {
-    const t = globalThis.__componentSplitRegistryV4;
-    if (this._registry && t?.load && this._hass)
-      try {
-        const e = await t.load(this._hass);
-        (this._registry.claimed = e?.claimed || new Set()),
-          (this._registry.splitSystems = e?.systems || new Map());
-      } catch (t) {
-        (this._registry.claimed = new Set()),
-          (this._registry.splitSystems = new Map());
-      }
   }
   _entryKey(t) {
     return t?.entity_id && t.platform && t.unique_id
@@ -760,9 +745,7 @@ class ComponentFavouritesV3 extends HTMLElement {
           }
           return;
         }
-        "climate" === s && this._registry?.splitSystems?.has(i)
-          ? this._openSplit(e)
-          : this._moreInfo(i);
+        this._moreInfo(i);
       }
     else this._moreInfo(i);
   }
@@ -839,22 +822,8 @@ class ComponentFavouritesV3 extends HTMLElement {
   _moreInfo(t) {
     openMoreInfo(this, t);
   }
-  _openSplit(t) {
-    const e = "component-split-controller-v4";
-    if (!customElements.get(e)) return void this._moreInfo(t.entry.entity_id);
-    (this.$.controllerTitle.textContent = this._name(t)),
-      this.$.controllerBody.replaceChildren();
-    const i = document.createElement(e);
-    i.setConfig({ entity: t.entry.entity_id }),
-      (i.hass = this._hass),
-      (this._controllerCard = i),
-      this.$.controllerBody.append(i),
-      this.$.controller.showModal(),
-      this.$.controllerClose.focus();
-  }
   async _openEditor() {
     await this._ensureRegistry(),
-      await this._refreshSplitRegistry(),
       (this._editorStorageSignature = this._storageSignature()),
       (this._draft = this._selected.map((t) => ({ ...t }))),
       (this._originalDraft = JSON.stringify(this._draft)),
@@ -915,7 +884,6 @@ class ComponentFavouritesV3 extends HTMLElement {
         !i.entity_category &&
         this._hass.states?.[i.entity_id] &&
         !e.has(i.entity_id) &&
-        !this._registry.claimed.has(i.entity_id) &&
         !t.has(this._entryKey(i))
       );
     });

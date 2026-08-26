@@ -67,7 +67,7 @@ for (const retiredAppleRuntime of ["appleTvModel", "createRequestCoalescer", "su
     throw new Error(`Apple TV controller must not reintroduce ${retiredAppleRuntime}`);
   }
 }
-if (!appleTvController.includes("remote_entity") || !appleTvController.includes('command:')) {
+if (!appleTvController.includes("remote_entity") || !appleTvController.includes('"send_command"')) {
   throw new Error("Apple TV remote navigation must target an explicit Remote entity");
 }
 
