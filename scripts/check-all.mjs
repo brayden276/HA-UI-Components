@@ -8,7 +8,7 @@ const categories = [
   ["component contracts", "scripts/check-components.mjs"],
   ["shared runtime contracts", "scripts/check-interaction-runtime.mjs"],
   ["shared component harness", "scripts/check-component-harness.mjs"],
-  ["style/provenance", "scripts/check-style-preservation.mjs"],
+  ["style/provenance", "scripts/check-style-preservation.mjs", ["--strict"]],
   ["in-memory bundle/load-order", "scripts/check-load-order.mjs"],
   ["generated-artifact freshness/release checks", "scripts/check-bundle-freshness.mjs"],
   ["generated-artifact release contract", "scripts/check-release-contract.mjs"],
