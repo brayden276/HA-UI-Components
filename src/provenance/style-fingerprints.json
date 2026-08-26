@@ -1,7 +1,7 @@
 {
   "algorithm": "fnv1a-64-utf16",
-  "normalisation_version": 1,
-  "fragment_count": 48,
+  "normalisation_version": 2,
+  "fragment_count": 47,
   "fingerprints": [
     {
       "kind": "shared-style",
@@ -110,12 +110,6 @@
       "hash": "83fe6872f6c9295b",
       "count": 1,
       "example_source": "02-core-components-and-device-discovery.js"
-    },
-    {
-      "kind": "style-tag",
-      "hash": "894ae80bd66c424e",
-      "count": 1,
-      "example_source": "14-dashboard-shared-runtime.js"
     },
     {
       "kind": "style-tag",
@@ -233,15 +227,15 @@
     },
     {
       "kind": "runtime-style",
-      "hash": "6acc8bd77b9afdc7",
+      "hash": "199b56fdeed1bbd1",
       "count": 1,
-      "example_source": "split-profiles-ui.js"
+      "example_source": "src/components/split-system-controller.js"
     },
     {
       "kind": "style-tag",
-      "hash": "9b46e00761504b11",
+      "hash": "3a8de80d1ab81ae6",
       "count": 1,
-      "example_source": "dashboard-preference-editor-v3"
+      "example_source": "src/support/dashboard-preference-editor.js"
     },
     {
       "kind": "style-tag",

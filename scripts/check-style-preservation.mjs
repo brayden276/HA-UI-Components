@@ -17,6 +17,7 @@ const combined = sources.map(({ source }) => source).join("\n");
 
 const normalise = (value) =>
   value
+    .replaceAll("\r\n", "\n")
     .replaceAll("${B}", "${PRESENTATIONAL_CARD_STYLES}")
     .replaceAll("${this.b()}", "${this.cardStyles()}")
     .replaceAll("${UB}", "${UPDATE_CARD_STYLES}")
@@ -49,6 +50,18 @@ for (const [name, pattern] of namedPatterns) {
   if (!value) throw new Error(`Missing shared style primitive: ${name}`);
   fragments.push({ kind: "shared-style", source: name, value: normalise(value.slice(1, -1)) });
 }
+
+const splitProfileStyles = combined.match(
+  /const SPLIT_PROFILE_STYLES\s*=\s*`([\s\S]*?)`;/,
+)?.[1];
+if (!splitProfileStyles) {
+  throw new Error("Missing shared style primitive: split-profile-styles");
+}
+fragments.push({
+  kind: "runtime-style",
+  source: "split-profile-styles",
+  value: normalise(splitProfileStyles),
+});
 
 const fnv1a64 = (value) => {
   let hash = 14695981039346656037n;
