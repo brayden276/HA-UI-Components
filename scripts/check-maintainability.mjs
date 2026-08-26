@@ -33,6 +33,11 @@ const dashboardRuntime = await readFile(resolve(root, "src/shared/dashboard-runt
 if (dashboardRuntime.includes("replace(/[&<>\"']")) {
   throw new Error("dashboard-runtime.js must use the shared escapeHtml helper");
 }
+for (const retiredDiscovery of ["appleTvRegistry", "splitBundle", "splitRegistryConfig"]) {
+  if (dashboardRuntime.includes(retiredDiscovery)) {
+    throw new Error(`dashboard-runtime.js must not reintroduce ${retiredDiscovery}`);
+  }
+}
 
 const core = await readFile(resolve(root, "src/shared/core.js"), "utf8");
 for (const helper of ["escapeHtml", "navigateTo", "openMoreInfo", "registerCard"]) {
@@ -52,11 +57,30 @@ if (signatureGuard < 0 || dynamicTeardown < signatureGuard) {
 }
 
 const appleTvController = await readFile(resolve(componentDirectory, "component-apple-tv-controller-v1.js"), "utf8");
-if (!appleTvController.includes(":is(button,input,.identity):focus-visible")) {
-  throw new Error("Apple TV identity control must retain a visible keyboard focus treatment");
+for (const nativeFeature of ["media-player-playback", "media-player-volume-buttons", "media-player-source"]) {
+  if (!appleTvController.includes(nativeFeature)) {
+    throw new Error(`Apple TV controller must delegate ${nativeFeature} to a native Home Assistant tile`);
+  }
 }
-if (!appleTvController.includes("const keyboardState = active?.classList?.contains(\"keyboard-input\")")) {
-  throw new Error("Apple TV panel refresh must preserve in-progress keyboard input");
+for (const retiredAppleRuntime of ["appleTvModel", "createRequestCoalescer", "supported_features", "optimisticVolume"]) {
+  if (appleTvController.includes(retiredAppleRuntime)) {
+    throw new Error(`Apple TV controller must not reintroduce ${retiredAppleRuntime}`);
+  }
+}
+if (!appleTvController.includes("remote_entity") || !appleTvController.includes('command:')) {
+  throw new Error("Apple TV remote navigation must target an explicit Remote entity");
 }
 
-console.log(`Maintainability check passed: ${componentFiles.length} public component modules use shared helpers`);
+const splitController = await readFile(resolve(componentDirectory, "split-system-controller.js"), "utf8");
+for (const nativeFeature of ["target-temperature", "climate-hvac-modes", "climate-fan-modes", "select-options"]) {
+  if (!splitController.includes(nativeFeature)) {
+    throw new Error(`Split controller must delegate ${nativeFeature} to native Home Assistant cards`);
+  }
+}
+for (const retiredSplitRuntime of ["ha_component_backend", "minimum_target", "maximum_target", "fan_ceiling", "set_temperature", "set_timer"]) {
+  if (splitController.includes(retiredSplitRuntime)) {
+    throw new Error(`Split controller must not reintroduce ${retiredSplitRuntime}`);
+  }
+}
+
+console.log(`Maintainability check passed: ${componentFiles.length} public component modules use shared/native helpers`);
