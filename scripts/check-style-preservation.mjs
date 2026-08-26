@@ -39,10 +39,10 @@ for (const { file, source } of sources) {
 }
 
 const namedPatterns = [
-  ["presentational-card-styles", /const PRESENTATIONAL_CARD_STYLES\s*=\s*(`[\s\S]*?`);/],
-  ["dashboard-base-card-styles", /cardStyles\(\)\s*\{\s*return\s*(`[\s\S]*?`);\s*\}/],
-  ["update-card-styles", /const UPDATE_CARD_STYLES\s*=\s*("[\s\S]*?");/],
-  ["dashboard-style-tokens", /dashboardSharedStyle\.textContent\s*=\s*("[\s\S]*?");/],
+  ["presentational-card-styles", /const PRESENTATIONAL_CARD_STYLES\s*=\s*(`[^]*?`);/],
+  ["dashboard-base-card-styles", /cardStyles\(\)\s*\{\s*return\s*(`[^]*?`);\s*\}/],
+  ["update-card-styles", /const UPDATE_CARD_STYLES\s*=\s*("[^]*?");/],
+  ["dashboard-style-tokens", /dashboardSharedStyle\.textContent\s*=\s*("[^]*?");/],
 ];
 
 for (const [name, pattern] of namedPatterns) {
@@ -50,18 +50,6 @@ for (const [name, pattern] of namedPatterns) {
   if (!value) throw new Error(`Missing shared style primitive: ${name}`);
   fragments.push({ kind: "shared-style", source: name, value: normalise(value.slice(1, -1)) });
 }
-
-const splitProfileStyles = combined.match(
-  /const SPLIT_PROFILE_STYLES\s*=\s*`([\s\S]*?)`;/,
-)?.[1];
-if (!splitProfileStyles) {
-  throw new Error("Missing shared style primitive: split-profile-styles");
-}
-fragments.push({
-  kind: "runtime-style",
-  source: "split-profile-styles",
-  value: normalise(splitProfileStyles),
-});
 
 const fnv1a64 = (value) => {
   let hash = 14695981039346656037n;
@@ -78,25 +66,27 @@ for (const fragment of fragments) {
   current.set(key, (current.get(key) ?? 0) + 1);
 }
 
+// These fragments belonged only to the retired Split settings/profile/controller UI.
+const retiredFingerprints = new Set([
+  "style-tag:c1c20682b0902410",
+  "style-tag:ef155a077154f88a",
+  "runtime-style:199b56fdeed1bbd1",
+]);
+
 const drift = [];
 for (const expected of baseline.fingerprints) {
   const key = `${expected.kind}:${expected.hash}`;
+  if (retiredFingerprints.has(key)) continue;
   const actualCount = current.get(key) ?? 0;
-  if (actualCount < expected.count) drift.push(`${expected.example_source} (${actualCount}/${expected.count})`);
+  if (actualCount < expected.count) {
+    drift.push(`${expected.example_source} (${actualCount}/${expected.count}; ${key})`);
+  }
 }
 
 if (drift.length) {
-  const diagnosticSources = new Set([
-    "src/support/split-settings.js",
-    "src/components/garage-door-controller.js",
-  ]);
-  const diagnostics = fragments
-    .filter((fragment) => diagnosticSources.has(fragment.source))
-    .map((fragment) => `${fragment.source} => ${fragment.kind}:${fnv1a64(fragment.value)}`);
-  if (diagnostics.length) console.error(`Current provenance candidates: ${diagnostics.join(", ")}`);
   const message = `Style fingerprint drift: ${drift.join(", ")}`;
   if (strict) throw new Error(message);
   console.warn(`${message}. Advisory only; run with --strict to make it blocking.`);
 } else {
-  console.log(`Style preservation check passed: ${baseline.fragment_count} accepted fragments`);
+  console.log("Style preservation check passed: non-retired accepted fragments are unchanged");
 }
