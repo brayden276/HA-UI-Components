@@ -21,250 +21,242 @@
   },
   {
     "order": 6,
-    "file": "src/shared/apple-tv-runtime.js"
-  },
-  {
-    "order": 7,
     "file": "src/shared/registry-cache.js"
   },
   {
-    "order": 8,
+    "order": 7,
     "file": "src/shared/dashboard-style-tokens.js"
   },
   {
-    "order": 9,
+    "order": 8,
     "file": "src/shared/split-system-registry.js"
   },
   {
-    "order": 10,
+    "order": 9,
     "file": "src/shared/dashboard-runtime.js"
   },
   {
-    "order": 11,
+    "order": 10,
     "file": "src/shared/registry-health.js"
   },
   {
-    "order": 12,
+    "order": 11,
     "file": "src/shared/wled-runtime.js"
   },
   {
-    "order": 13,
+    "order": 12,
     "file": "src/shared/update-styles.js"
   },
   {
-    "order": 14,
-    "file": "src/support/split-settings.js"
-  },
-  {
-    "order": 15,
+    "order": 13,
     "file": "src/support/device-aware-auto-entities.js"
   },
   {
-    "order": 16,
+    "order": 14,
     "file": "src/support/empty-state-v2.js"
   },
   {
-    "order": 17,
+    "order": 15,
     "file": "src/support/dashboard-preference-editor.js"
   },
   {
-    "order": 18,
+    "order": 16,
     "file": "src/support/config-editor.js"
   },
   {
-    "order": 19,
+    "order": 17,
     "file": "src/support/backend-preferences.js"
   },
   {
-    "order": 20,
+    "order": 18,
     "file": "src/support/backend-profiles.js"
   },
   {
-    "order": 21,
+    "order": 19,
     "file": "src/support/energy-store.js"
   },
   {
-    "order": 22,
+    "order": 20,
     "file": "src/shared/security-runtime.js"
   },
   {
-    "order": 23,
+    "order": 21,
     "file": "src/components/single-kpi.js"
   },
   {
-    "order": 24,
+    "order": 22,
     "file": "src/components/three-stat-summary.js"
   },
   {
-    "order": 25,
+    "order": 23,
     "file": "src/components/status-row.js"
   },
   {
-    "order": 26,
+    "order": 24,
     "file": "src/components/progress-target.js"
   },
   {
-    "order": 27,
+    "order": 25,
     "file": "src/components/action-card.js"
   },
   {
-    "order": 28,
+    "order": 26,
     "file": "src/components/list-ranking.js"
   },
   {
-    "order": 29,
+    "order": 27,
     "file": "src/components/notice.js"
   },
   {
-    "order": 30,
+    "order": 28,
     "file": "src/components/device-discovery.js"
   },
   {
-    "order": 31,
+    "order": 29,
     "file": "src/components/quick-navigation.js"
   },
   {
-    "order": 32,
+    "order": 30,
     "file": "src/components/navigation-tile.js"
   },
   {
-    "order": 33,
+    "order": 31,
     "file": "src/components/control-row.js"
   },
   {
-    "order": 34,
+    "order": 32,
     "file": "src/components/media-row.js"
   },
   {
-    "order": 35,
+    "order": 33,
     "file": "src/components/component-apple-tv-controller-v1.js"
   },
   {
-    "order": 36,
+    "order": 34,
     "file": "src/components/section-separator.js"
   },
   {
-    "order": 37,
+    "order": 35,
     "file": "src/components/room-sheet.js"
   },
   {
-    "order": 38,
+    "order": 36,
     "file": "src/components/household-attention.js"
   },
   {
-    "order": 39,
+    "order": 37,
     "file": "src/components/room-navigation.js"
   },
   {
-    "order": 40,
+    "order": 38,
     "file": "src/components/history-graph.js"
   },
   {
-    "order": 41,
+    "order": 39,
     "file": "src/components/context-strip.js"
   },
   {
-    "order": 42,
+    "order": 40,
     "file": "src/components/metric-pair.js"
   },
   {
-    "order": 43,
+    "order": 41,
     "file": "src/components/energy-summary.js"
   },
   {
-    "order": 44,
+    "order": 42,
     "file": "src/components/update-summary.js"
   },
   {
-    "order": 45,
+    "order": 43,
     "file": "src/components/update-row.js"
   },
   {
-    "order": 46,
+    "order": 44,
     "file": "src/components/empty-state.js"
   },
   {
-    "order": 47,
+    "order": 45,
     "file": "src/components/energy-day-selector.js"
   },
   {
-    "order": 48,
+    "order": 46,
     "file": "src/components/text-effect.js"
   },
   {
-    "order": 49,
+    "order": 47,
     "file": "src/components/split-system-controller.js"
   },
   {
-    "order": 50,
+    "order": 48,
     "file": "src/components/favourites.js"
   },
   {
-    "order": 51,
+    "order": 49,
     "file": "src/components/welcome-header.js"
   },
   {
-    "order": 52,
+    "order": 50,
     "file": "src/components/wled-controller.js"
   },
   {
-    "order": 53,
+    "order": 51,
     "file": "src/components/garage-door-controller.js"
   },
   {
-    "order": 54,
+    "order": 52,
     "file": "src/components/camera-controller.js"
   },
   {
-    "order": 55,
+    "order": 53,
     "file": "src/components/camera-controller-v2.js"
   },
   {
-    "order": 56,
+    "order": 54,
     "file": "src/components/security-summary.js"
   },
   {
-    "order": 57,
+    "order": 55,
     "file": "src/components/security-camera-wall.js"
   },
   {
-    "order": 58,
+    "order": 56,
     "file": "src/components/security-entry-points.js"
   },
   {
-    "order": 59,
+    "order": 57,
     "file": "src/components/security-dashboard.js"
   },
   {
-    "order": 60,
+    "order": 58,
     "file": "src/components/smart-collection.js"
   },
   {
-    "order": 61,
+    "order": 59,
     "file": "src/components/household-directory.js"
   },
   {
-    "order": 62,
+    "order": 60,
     "file": "src/components/favourites-minimal.js"
   },
   {
-    "order": 63,
+    "order": 61,
     "file": "src/components/room-directory.js"
   },
   {
-    "order": 64,
+    "order": 62,
     "file": "src/components/home-overview.js"
   },
   {
-    "order": 65,
+    "order": 63,
     "file": "src/components/solar-daylight-card.js"
   },
   {
-    "order": 66,
+    "order": 64,
     "file": "src/components/energy-history-card.js"
   },
   {
-    "order": 67,
+    "order": 65,
     "file": "src/components/energy-dashboard.js"
   }
 ]
