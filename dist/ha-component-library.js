@@ -1,5 +1,5 @@
 /**
- * HA Component Library v10.0.3
+ * HA Component Library v10.0.4
  * Generated HACS Dashboard bundle.
  *
  * Source is organised by component under src/components. Shared logic lives
@@ -11254,4 +11254,4 @@ class ComponentEnergyDashboardV1 extends HTMLElement {
 registerCard({ type: "component-energy-dashboard-v1", element: ComponentEnergyDashboardV1, name: "Energy Dashboard V1", description: "Single-card Energy composition using shared day state and one backend data contract." });
 }
 
-globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "10.0.3", components: 45 });
+globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "10.0.4", components: 45 });
