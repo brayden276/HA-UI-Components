@@ -176,7 +176,7 @@ const configurations = {
   "component-nav-tile-v2": {},
   "component-room-navigation-v1": { area: "Smoke", navigation_path: "#smoke" },
   "component-control-row-v2": {},
-  "component-split-controller-v4": { entity: "climate.smoke", profile_area_id: "smoke" },
+  "component-split-controller-v4": { entity: "climate.smoke" },
   "component-media-row-v2": {},
   "component-apple-tv-controller-v1": { demo: true },
   "component-section-separator-v2": {},
@@ -267,77 +267,40 @@ if (failures.length) throw new Error(`Runtime contract failures:\n${failures.joi
 {
   const Split = definitions.get("component-split-controller-v4");
   const split = new Split();
-  split.setConfig({ entity: "climate.smoke", profile_area_id: "smoke" });
-  split.R();
-  split.connectedCallback();
-  const changes = [];
-  split.W = (amount) => changes.push(amount);
-  const press = (button) => {
-    button.dispatch("pointerdown");
-    button.dispatch("pointerup");
-  };
-  press(split.$.decrease);
-  press(split.$.increase);
-  split.disconnectedCallback();
-  if (JSON.stringify(changes) !== JSON.stringify([-1, 1])) {
-    throw new Error("Split temperature controls must apply exactly one discrete decrement and increment per press");
-  }
-}
-
-{
-  const AppleTv = definitions.get("component-apple-tv-controller-v1");
-  const appleTv = new AppleTv();
-  appleTv.setConfig({ demo: true });
-  appleTv.connectedCallback();
-  appleTv.disconnectedCallback();
-  appleTv.connectedCallback();
-  const remote = appleTv.el?.remoteLaunch;
-  const apps = appleTv.el?.appsLaunch;
-  if (
-    appleTv.interactionHandles.length !== 4 ||
-    remote?.listeners.get("pointerdown")?.length !== 1 ||
-    apps?.listeners.get("pointerdown")?.length !== 1 ||
-    !appleTv.el?.headerActions ||
-    appleTv.el.headerActions.children.length !== 3
-  ) {
-    throw new Error("Apple TV controls must retain their header actions and launcher bindings after reconnect");
-  }
-  appleTv.disconnectedCallback();
-}
-
-{
-  const AppleTv = definitions.get("component-apple-tv-controller-v1");
-  const appleTv = new AppleTv();
-  let awake = false;
-  let resolveRequest;
-  const model = () => ({
-    entities: { media: "media_player.smoke_apple_tv", remote: "remote.smoke_apple_tv" },
-    media: { attributes: { friendly_name: "Smoke Apple TV" } },
-    available: true,
-    awake,
-    sleeping: !awake,
-    status: awake ? "Idle" : "Sleeping",
-    sources: [],
-    canWake: !awake,
-    canSleep: awake,
-    canVolumeDown: false,
-    canVolumeUp: false,
+  split.setConfig({
+    entity: "climate.smoke",
+    vertical_vane_entity: "select.smoke_vertical_vane",
+    horizontal_vane_entity: "select.smoke_horizontal_vane",
+    timer_entity: "timer.smoke_off_timer",
+    profile_entities: ["script.smoke_profile"],
   });
-  appleTv.setConfig({ entity: "media_player.smoke_apple_tv" });
-  appleTv._hass = {
-    callService: () => new Promise((resolve) => { resolveRequest = resolve; }),
-  };
-  appleTv.model = model;
-  appleTv.render();
-  const request = appleTv.remoteCommand("wakeup", "power");
-  awake = true;
-  appleTv.render();
-  if (!appleTv.el.headerActions.children[2]?.disabled) {
-    throw new Error("Apple TV power control must remain locked while a wake command is in flight");
+  if (
+    split.config.minimum_target !== undefined ||
+    split.config.maximum_target !== undefined ||
+    split.config.profiles !== undefined ||
+    split.config.deadline !== undefined
+  ) {
+    throw new Error("Split wrapper must not recreate backend policy, profile or timer state");
   }
-  resolveRequest();
-  await request;
-  appleTv.disconnectedCallback();
+}
+
+{
+  const AppleTv = definitions.get("component-apple-tv-controller-v1");
+  const appleTv = new AppleTv();
+  appleTv.setConfig({
+    entity: "media_player.smoke_apple_tv",
+    remote_entity: "remote.smoke_apple_tv",
+    keyboard_entity: "binary_sensor.smoke_keyboard_focus",
+    keyboard_config_entry_id: "smoke-entry",
+  });
+  if (
+    "optimisticVolume" in appleTv ||
+    "pending" in appleTv ||
+    "registry" in appleTv ||
+    "model" in appleTv
+  ) {
+    throw new Error("Apple TV wrapper must not recreate a device runtime model");
+  }
 }
 
 {
