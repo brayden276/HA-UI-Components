@@ -1,5 +1,5 @@
 /**
- * HA Component Library v10.0.4
+ * HA Component Library v10.0.5
  * Generated HACS Dashboard bundle.
  *
  * Source is organised by component under src/components. Shared logic lives
@@ -1198,11 +1198,41 @@ HD2.garageControl = (entry, registry, hass) => {
   return explicit.length === 1 ? explicit[0].entity_id : null;
 };
 
-// Apple TV and climate controls intentionally do not discover sibling entities.
-// Their public wrappers accept explicit capability entities and otherwise delegate
-// to the primary Home Assistant entity only.
+const splitIdentity = (entry, hass) => `${entry?.entity_id || ""} ${entry?.name || ""} ${entry?.original_name || ""} ${hass?.states?.[entry?.entity_id]?.attributes?.friendly_name || ""}`.toLowerCase();
+HD2.nativeClimateControlConfig = (entry, state, registry, hass) => {
+  if (HD2.domain(entry?.entity_id) !== "climate") return null;
+  const areaId = HD2.areaOf(entry, registry);
+  const sameDevice = entry.device_id ? registry?.byDevice?.get(entry.device_id) || [] : [];
+  const sameArea = areaId ? (registry?.entities || []).filter((candidate) => HD2.areaOf(candidate, registry) === areaId) : [];
+  const helpers = (registry?.entities || []).filter((candidate) => ["timer", "script", "scene"].includes(HD2.domain(candidate?.entity_id)));
+  const candidates = [...new Map([...sameDevice, ...sameArea, ...helpers].map((candidate) => [candidate.entity_id, candidate])).values()]
+    .filter((candidate) => hass?.states?.[candidate.entity_id]);
+  const climateName = splitIdentity(entry, hass).replace(/climate\.|split|system|climate|air conditioner|aircon|hvac/g, " ").trim().split(/\s+/).filter((part) => part.length > 2);
+  const related = (candidate) => {
+    const identity = splitIdentity(candidate, hass);
+    return Boolean(entry.device_id && candidate.device_id === entry.device_id) || climateName.some((part) => identity.includes(part));
+  };
+  const select = (axis) => {
+    const matches = candidates.filter((candidate) => HD2.domain(candidate.entity_id) === "select" && splitIdentity(candidate, hass).includes(axis) && /(vane|swing)/.test(splitIdentity(candidate, hass)) && related(candidate));
+    return matches.length === 1 ? matches[0].entity_id : null;
+  };
+  const timer = candidates.find((candidate) => HD2.domain(candidate.entity_id) === "timer" && related(candidate) && /(split|climate|air.?con|hvac|timer)/.test(splitIdentity(candidate, hass)))?.entity_id || null;
+  const profiles = candidates.filter((candidate) => ["script", "scene"].includes(HD2.domain(candidate.entity_id)) && related(candidate) && /(split|climate|air.?con|hvac)/.test(splitIdentity(candidate, hass))).map((candidate) => ({ entity: candidate.entity_id, name: HD2.stateName(hass, candidate, hass.states[candidate.entity_id]) }));
+  return {
+    type: "custom:component-split-controller-v4",
+    entity: entry.entity_id,
+    title: HD2.stateName(hass, entry, state),
+    vertical_vane_entity: select("vertical"),
+    horizontal_vane_entity: select("horizontal"),
+    timer_entity: timer,
+    profile_entities: profiles,
+  };
+};
+
+// Apple TV controls intentionally do not discover sibling entities. The Split
+// wrapper resolves only native HA entities that belong to the same device/area.
 HD2.appleTvBundle=(e,s,_d,h)=>HD2.domain(e?.entity_id)==='media_player'&&e?.platform==='apple_tv'?{type:'custom:component-apple-tv-controller-v1',entity:e.entity_id,title:HD2.stateName(h,e,s),icon:'mdi:apple'}:null;
-HD2.controlConfig=(e,s,d,h)=>{const id=e.entity_id,dom=HD2.domain(id);if(dom==='binary_sensor'&&s?.attributes?.device_class==='garage_door'){const b=HD2.garageControl(e,d,h);return b?{type:'custom:component-garage-door-controller-v1',title:HD2.stateName(h,e,s).replace(/ Garage Door Status$/i,''),entity:id,control_entity:b}:{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true}}if(['light','fan','number'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'slider',entity:id,show_state:true,tap_action:{action:'more-info'}};if(['switch','input_boolean'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'switch',entity:id,show_state:true,button_action:{tap_action:{action:'toggle'}},tap_action:{action:'more-info'}};if(dom==='media_player')return HD2.appleTvBundle(e,s,d,h)||{type:'custom:bubble-card',card_type:'media-player',entity:id,show_state:true,tap_action:{action:'more-info'}};if(dom==='climate')return{type:'custom:component-split-controller-v4',entity:id,title:HD2.stateName(h,e,s)};if(dom==='cover')return{type:'custom:bubble-card',card_type:'cover',entity:id,show_state:true};if(dom==='lock')return{type:'custom:mushroom-lock-card',entity:id};if(dom==='vacuum')return{type:'custom:mushroom-vacuum-card',entity:id};if(dom==='select')return{type:'custom:mushroom-select-card',entity:id};if(dom==='button')return{type:'custom:mushroom-entity-card',entity:id,tap_action:{action:'perform-action',perform_action:'button.press',target:{entity_id:id},confirmation:{text:'Run this control?'}},hold_action:{action:'more-info'}};if(dom==='binary_sensor')return{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true,show_last_changed:false};return null};
+HD2.controlConfig=(e,s,d,h)=>{const id=e.entity_id,dom=HD2.domain(id);if(dom==='binary_sensor'&&s?.attributes?.device_class==='garage_door'){const b=HD2.garageControl(e,d,h);return b?{type:'custom:component-garage-door-controller-v1',title:HD2.stateName(h,e,s).replace(/ Garage Door Status$/i,''),entity:id,control_entity:b}:{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true}}if(['light','fan','number'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'slider',entity:id,show_state:true,tap_action:{action:'more-info'}};if(['switch','input_boolean'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'switch',entity:id,show_state:true,button_action:{tap_action:{action:'toggle'}},tap_action:{action:'more-info'}};if(dom==='media_player')return HD2.appleTvBundle(e,s,d,h)||{type:'custom:bubble-card',card_type:'media-player',entity:id,show_state:true,tap_action:{action:'more-info'}};if(dom==='climate')return HD2.nativeClimateControlConfig(e,s,d,h);if(dom==='cover')return{type:'custom:bubble-card',card_type:'cover',entity:id,show_state:true};if(dom==='lock')return{type:'custom:mushroom-lock-card',entity:id};if(dom==='vacuum')return{type:'custom:mushroom-vacuum-card',entity:id};if(dom==='select')return{type:'custom:mushroom-select-card',entity:id};if(dom==='button')return{type:'custom:mushroom-entity-card',entity:id,tap_action:{action:'perform-action',perform_action:'button.press',target:{entity_id:id},confirmation:{text:'Run this control?'}},hold_action:{action:'more-info'}};if(dom==='binary_sensor')return{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true,show_last_changed:false};return null};
 
 HD2.controlResolvers ??= [];
 HD2.registerControlResolver ??= (resolver) => {
@@ -5505,231 +5535,71 @@ registerCard({ type: "component-text-effect-v1", element: ComponentTextEffectV1,
 
 // Module: src/components/split-system-controller.js
 {
-/** Thin climate wrapper that delegates state and control to Home Assistant. */
-const { registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
-
-const splitNativeTileConfig = (config, state) => {
-  const attributes = state?.attributes || {};
-  const features = [];
-  if (Number.isFinite(Number(attributes.temperature))) {
-    features.push({ type: "target-temperature" });
-  }
-  if (Array.isArray(attributes.hvac_modes) && attributes.hvac_modes.length) {
-    features.push({ type: "climate-hvac-modes" });
-  }
-  if (Array.isArray(attributes.fan_modes) && attributes.fan_modes.length) {
-    features.push({ type: "climate-fan-modes" });
-  }
-  if (Array.isArray(attributes.swing_modes) && attributes.swing_modes.length) {
-    features.push({ type: "climate-swing-modes" });
-  }
-  if (
-    Array.isArray(attributes.swing_horizontal_modes) &&
-    attributes.swing_horizontal_modes.length
-  ) {
-    features.push({ type: "climate-swing-horizontal-modes" });
-  }
-  if (Array.isArray(attributes.preset_modes) && attributes.preset_modes.length) {
-    features.push({ type: "climate-preset-modes" });
-  }
-  return {
-    type: "tile",
-    entity: config.entity,
-    ...(config.title ? { name: config.title } : {}),
-    features_position: "bottom",
-    features,
-  };
-};
-
-const splitSelectTileConfig = (entity, name) => ({
-  type: "tile",
-  entity,
-  ...(name ? { name } : {}),
-  features_position: "bottom",
-  features: [{ type: "select-options" }],
-});
-
-const splitEntityTileConfig = (entity) => ({ type: "tile", entity });
-
-const splitProfileCardConfig = (entry) => {
-  const descriptor =
-    typeof entry === "string" ? { entity: entry } : entry && typeof entry === "object" ? entry : null;
-  if (!descriptor?.entity) return null;
-  const domain = descriptor.entity.split(".")[0];
-  const service =
-    domain === "script"
-      ? "script.turn_on"
-      : domain === "scene"
-        ? "scene.turn_on"
-        : null;
-  if (!service) return splitEntityTileConfig(descriptor.entity);
-  return {
-    type: "button",
-    entity: descriptor.entity,
-    ...(descriptor.name ? { name: descriptor.name } : {}),
-    tap_action: {
-      action: "perform-action",
-      perform_action: service,
-      target: { entity_id: descriptor.entity },
-    },
-    hold_action: { action: "more-info" },
-  };
-};
+/** Native Home Assistant Split System controller with the established card presentation. */
+const { interaction, registerCard } = globalThis.__HA_COMPONENT_LIBRARY_SHARED__;
+const unavailable = (state) => !state || ["unknown", "unavailable"].includes(state.state);
+const label = (value) => String(value || "").replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+const degrees = (value) => Number.isFinite(Number(value)) ? Number(value).toFixed(Number(value) % 1 ? 1 : 0) + "°" : "—";
 
 class ComponentSplitControllerV4 extends HTMLElement {
-  static getGridOptions() {
-    return { columns: 12, rows: "auto" };
-  }
+  static getGridOptions() { return { columns: 12, rows: "auto" }; }
 
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
     this._hass = null;
-    this._cards = [];
-    this._buildToken = 0;
-    this._capabilitySignature = "";
-    this.shadowRoot.innerHTML = `
-      <style>
-        :host{display:block;min-width:0}.stack{display:grid;gap:8px}.extras{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.extras:empty{display:none}
-      </style>
-      <div class="stack">
-        <div class="climate"></div>
-        <div class="extras"></div>
-      </div>
-    `;
-    this.$ = {
-      climate: this.shadowRoot.querySelector(".climate"),
-      extras: this.shadowRoot.querySelector(".extras"),
-    };
+    this._config = null;
+    this._panel = null;
+    this.shadowRoot.innerHTML = '<style>\n        :host{display:block;min-width:0}*{box-sizing:border-box}[hidden]{display:none!important}button,input{font:inherit;color:inherit}button{appearance:none;border:0;background:transparent;cursor:pointer}ha-card{container-type:inline-size;overflow:hidden;border:var(--dashboard-card-border,1px solid var(--divider-color));border-radius:var(--dashboard-radius-card,var(--ha-card-border-radius,6px));background:var(--dashboard-card-surface,var(--ha-card-background,var(--card-background-color)));box-shadow:none;color:var(--primary-text-color)}.w{padding:12px 14px}.hd{display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;gap:12px}.hd.settings{grid-template-columns:minmax(0,1fr) 44px 44px;gap:8px}.idn{min-width:0;min-height:44px;padding:0;display:grid;grid-template-columns:40px minmax(0,1fr);align-items:center;gap:12px;text-align:left;border-radius:var(--dashboard-radius-control,8px)}.iw{width:40px;height:40px;border-radius:var(--dashboard-radius-icon,6px);display:grid;place-items:center;background:transparent;color:var(--primary-color)}ha-icon{--mdc-icon-size:20px}.cp{min-width:0}.nm,.st{display:block}.nm{font-size:13px;line-height:1.25;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.st{margin-top:3px;font-size:13px;line-height:1.25;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pw{width:44px;height:44px;padding:0;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;color:var(--secondary-text-color);display:grid;place-items:center}.pw.on{color:var(--primary-color)}button[disabled],button[aria-disabled=true]{opacity:.45;cursor:default}.ct{margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color)}.cr{display:grid;grid-template-columns:minmax(120px,1fr) auto;align-items:center;gap:16px}.cr.to{grid-template-columns:auto;justify-content:end}.rv{font-size:27px;line-height:1;font-weight:650;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.ml{display:block;margin-top:6px;color:var(--secondary-text-color);font-size:13px;line-height:1.2}.tc{min-height:48px;display:grid;grid-template-columns:44px minmax(82px,auto) 44px;align-items:center;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;overflow:hidden}.tb{width:44px;height:48px;padding:0;display:grid;place-items:center}.tp{min-width:0;padding:0 8px;text-align:center}.tv{font-size:18px;line-height:1.1;font-weight:650;font-variant-numeric:tabular-nums}.ts{margin-top:3px;color:var(--secondary-text-color);font-size:13px;line-height:1.1;white-space:nowrap}.os,.uv{font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.as{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.a{min-width:0;min-height:44px;flex:1 1 118px;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:flex;align-items:center;justify-content:center;gap:7px;color:var(--secondary-text-color)}.a ha-icon{--mdc-icon-size:18px}.al{min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.a.av,.a[aria-expanded=true]{color:var(--primary-color);background:var(--dashboard-active-surface,var(--card-background-color))}.pn{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;overscroll-behavior:contain;padding:16px;background:var(--dashboard-modal-scrim,var(--ha-dialog-scrim-color,color-mix(in srgb,var(--primary-text-color) 32%,transparent)))}.pd{width:min(380px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;padding:12px 14px 14px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-dialog,8px);background:var(--card-background-color);color:var(--primary-text-color);box-shadow:var(--dashboard-dialog-shadow,0 16px 48px rgba(0,0,0,.22))}.ph{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px}.pt{margin:0;font-size:18px;line-height:1.2;font-weight:650}.x{width:44px;height:44px;border-radius:var(--dashboard-radius-control,8px);display:grid;place-items:center}.og+.og{margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color)}.gt{margin:0 4px 8px;font-size:13px;font-weight:650;color:var(--secondary-text-color)}.qs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.o{min-height:50px;width:100%;padding:0 10px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);display:grid;grid-template-columns:20px minmax(0,1fr) 20px;align-items:center;gap:8px;text-align:left;background:transparent;font-size:13px;font-weight:600}.oi{color:var(--secondary-text-color)}.o[aria-selected=true]{color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}.o[aria-selected=true] .oi{color:var(--primary-color)}.tpr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.tpr button,.tcu button,.tac button{min-height:44px;border:1px solid var(--dashboard-card-border-color,var(--divider-color));border-radius:var(--dashboard-radius-control,5px);background:transparent;font-size:13px;font-weight:650}.tpr button{display:flex;align-items:center;justify-content:center;gap:6px}.tcu{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px;margin-top:12px}.tcu label{font-size:13px;color:var(--secondary-text-color)}.tcu input{display:block;width:100%;height:44px;margin-top:6px;padding:0 11px;border:1px solid var(--divider-color);border-radius:var(--dashboard-radius-control,5px);background:transparent}.tcu button{padding:0 14px;color:var(--primary-color)}.tac{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.tac button:first-child{color:var(--primary-color)}.tac button:last-child{color:var(--error-color)}.fb{font-size:13px;line-height:1.35;color:var(--secondary-text-color)}.fb:not(:empty){margin-top:10px}.fb.er{color:var(--error-color)}:is(button,input):focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}@container (max-width:400px){.w{padding:12px}.as .a{flex-basis:calc(50% - 4px)}}@container (max-width:340px){.cr{grid-template-columns:1fr;justify-content:stretch}.tc{width:100%}}\n      </style><ha-card><div class="w"><div class="hd"><button class="idn" type="button"><span class="iw"><ha-icon class="mi"></ha-icon></span><span class="cp"><span class="nm"></span><span class="st" role="status"></span></span></button><button class="pw sg" type="button" aria-label="Advanced settings"><ha-icon icon="mdi:cog-outline"></ha-icon></button><button class="pw" type="button" aria-label="Toggle split system power"><ha-icon icon="mdi:power"></ha-icon></button></div><div class="ct"><div class="cr"><div class="rm"><span class="rv"></span><span class="ml">Room temperature</span></div><div class="tc"><button class="tb decrease" type="button" aria-label="Decrease target temperature"><ha-icon icon="mdi:minus"></ha-icon></button><div class="tp"><div class="tv"></div><div class="ts"></div></div><button class="tb increase" type="button" aria-label="Increase target temperature"><ha-icon icon="mdi:plus"></ha-icon></button></div></div><div class="os"></div><div class="uv"></div><div class="as"><button class="a ma" type="button" data-panel="mode" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:thermostat"></ha-icon><span class="al"></span></button><button class="a fa" type="button" data-panel="fan" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:fan"></ha-icon><span class="al"></span></button><button class="a va" type="button" data-panel="vanes" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:swap-vertical"></ha-icon><span class="al"></span></button><button class="a ta" type="button" data-panel="timer" aria-controls="split-secondary" aria-expanded="false"><ha-icon icon="mdi:timer-outline"></ha-icon><span class="al"></span></button></div></div><div class="fb" role="status" aria-live="polite"></div></div></ha-card><section class="pn" id="split-secondary" role="dialog" aria-modal="true" aria-labelledby="split-pt" hidden><div class="pd"><div class="ph"><h3 class="pt" id="split-pt"></h3><button class="x" type="button" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button></div><div class="pb"></div></div></section>';
+    this.$ = Object.fromEntries([...this.shadowRoot.querySelectorAll("[class]")].flatMap((node) => [...node.classList].map((name) => [name, node])));
+    Object.assign(this.$, { identity: this.$.idn, name: this.$.nm, state: this.$.st, power: this.$.pw, settings: this.$.sg, room: this.$.rv, target: this.$.tv, minus: this.$.decrease, plus: this.$.increase, mode: this.$.ma, fan: this.$.fa, vanes: this.$.va, timer: this.$.ta, overlay: this.$.pn, close: this.$.x, panel: this.$.pb });
+    const bind = (element, action) => interaction(element, { primary: action, feedback: true });
+    this._handles = [bind(this.$.power, () => this._power()), bind(this.$.minus, () => this._temperature(-1)), bind(this.$.plus, () => this._temperature(1)), bind(this.$.mode, () => this._open("mode")), bind(this.$.fan, () => this._open("fan")), bind(this.$.vanes, () => this._open("vanes")), bind(this.$.timer, () => this._open("timer")), bind(this.$.settings, () => this._open("settings"))];
+    this.$.close.addEventListener("click", () => this._close());
+    this.$.overlay.addEventListener("click", (event) => { if (event.target === this.$.overlay) this._close(); });
   }
 
   setConfig(config) {
-    if (!config?.entity) {
-      throw new Error("A climate entity is required");
-    }
-    this.config = {
-      entity: config.entity,
-      title: config.title || null,
-      vertical_vane_entity:
-        config.vertical_vane_entity || config.vertical_vane || null,
-      horizontal_vane_entity:
-        config.horizontal_vane_entity || config.horizontal_vane || null,
-      timer_entity: config.timer_entity || null,
-      profile_entities: Array.isArray(config.profile_entities)
-        ? config.profile_entities.filter(Boolean)
-        : [],
-    };
-    this._capabilitySignature = "";
-    this._resetCards();
-    void this._buildCards();
+    if (!config?.entity) throw new Error("A climate entity is required");
+    this._config = { entity: config.entity, title: config.title, vertical_vane_entity: config.vertical_vane_entity || config.vertical_vane, horizontal_vane_entity: config.horizontal_vane_entity || config.horizontal_vane, timer_entity: config.timer_entity, settings_entities: config.settings_entities || [], profile_entities: config.profile_entities || [] };
+    this.config = this._config;
+    this._refresh();
   }
+  set hass(hass) { this._hass = hass; this._refresh(); }
+  _state(entity = this._config?.entity) { return this._hass?.states?.[entity]; }
+  _call(domain, service, data) { return this._hass?.callService?.(domain, service, data); }
+  _power() { const state = this._state(); return this._call("climate", state?.state === "off" ? "turn_on" : "turn_off", { entity_id: this._config.entity }); }
+  _temperature(direction) { const attributes = this._state()?.attributes || {}, value = Number(attributes.temperature), step = Number(attributes.target_temp_step) || 0.5; if (Number.isFinite(value)) return this._call("climate", "set_temperature", { entity_id: this._config.entity, temperature: value + direction * step }); }
+  _vanes() { return [["Vertical", this._config?.vertical_vane_entity], ["Horizontal", this._config?.horizontal_vane_entity]].flatMap(([axis, entity]) => { const state = this._state(entity); return entity && state && !unavailable(state) ? [{ axis, entity, state }] : []; }); }
 
-  set hass(hass) {
-    this._hass = hass;
-    for (const card of this._cards) card.hass = hass;
-    const signature = this._featureSignature();
-    if (signature !== this._capabilitySignature) {
-      this._resetCards();
-      void this._buildCards();
-    }
+  _refresh() {
+    if (!this._config) return;
+    const state = this._state(), attributes = state?.attributes || {}, on = state && !unavailable(state) && state.state !== "off", timer = this._state(this._config.timer_entity);
+    this.$.name.textContent = this._config.title || attributes.friendly_name || "Split system";
+    this.$.state.textContent = unavailable(state) ? "Unavailable" : on ? label(state.state) : "Off";
+    this.$.room.textContent = degrees(attributes.current_temperature); this.$.target.textContent = degrees(attributes.temperature);
+    this.$.power.classList.toggle("on", on); this.$.power.disabled = unavailable(state); this.$.minus.disabled = !on; this.$.plus.disabled = !on;
+    this.$.mode.querySelector("span").textContent = "Mode · " + label(state?.state); this.$.fan.querySelector("span").textContent = "Fan · " + label(attributes.fan_mode);
+    const vaneSummary = this._vanes().map((vane) => vane.axis.slice(0, 1) + " " + label(vane.state.state)).join(" · ");
+    this.$.vanes.hidden = !vaneSummary; this.$.vanes.querySelector("span").textContent = "Vanes · " + vaneSummary;
+    this.$.timer.hidden = !this._config.timer_entity; this.$.timer.classList.toggle("active", timer?.state === "active"); this.$.timer.querySelector("span").textContent = timer?.state === "active" ? "Timer · Active" : "Timer";
+    this.$.settings.hidden = false;
   }
-
-  connectedCallback() {
-    void this._buildCards();
+  _close() { this.$.overlay.hidden = true; }
+  _open(kind) {
+    this.$.overlay.hidden = false; this.$.panel.replaceChildren(); this.$.overlay.querySelector("h3").textContent = { mode: "Mode", fan: "Fan", vanes: "Vanes", timer: "Off timer", settings: "Settings" }[kind];
+    if (kind === "mode") return this._choices(this._state()?.attributes?.hvac_modes || [], this._state()?.state, (value) => this._call("climate", "set_hvac_mode", { entity_id: this._config.entity, hvac_mode: value }));
+    if (kind === "fan") return this._choices(this._state()?.attributes?.fan_modes || [], this._state()?.attributes?.fan_mode, (value) => this._call("climate", "set_fan_mode", { entity_id: this._config.entity, fan_mode: value }));
+    if (kind === "vanes") return this._vanePanel();
+    if (kind === "timer") return this._timerPanel();
+    this._settingsPanel();
   }
-
-  disconnectedCallback() {
-    this._buildToken += 1;
-  }
-
-  getCardSize() {
-    return Math.max(2, 2 + this._extraConfigs().length);
-  }
-
-  _featureSignature() {
-    const attributes = this._hass?.states?.[this.config?.entity]?.attributes || {};
-    return JSON.stringify([
-      Boolean(Number.isFinite(Number(attributes.temperature))),
-      attributes.hvac_modes || [],
-      attributes.fan_modes || [],
-      attributes.swing_modes || [],
-      attributes.swing_horizontal_modes || [],
-      attributes.preset_modes || [],
-    ]);
-  }
-
-  _resetCards() {
-    this._buildToken += 1;
-    this._cards = [];
-    this.$.climate.replaceChildren();
-    this.$.extras.replaceChildren();
-  }
-
-  _extraConfigs() {
-    if (!this.config) return [];
-    const configs = [];
-    if (this.config.vertical_vane_entity) {
-      configs.push(
-        splitSelectTileConfig(
-          this.config.vertical_vane_entity,
-          this.config.vertical_vane_name || "Vertical vane",
-        ),
-      );
-    }
-    if (this.config.horizontal_vane_entity) {
-      configs.push(
-        splitSelectTileConfig(
-          this.config.horizontal_vane_entity,
-          this.config.horizontal_vane_name || "Horizontal vane",
-        ),
-      );
-    }
-    if (this.config.timer_entity) {
-      configs.push(splitEntityTileConfig(this.config.timer_entity));
-    }
-    for (const profile of this.config.profile_entities) {
-      const profileConfig = splitProfileCardConfig(profile);
-      if (profileConfig) configs.push(profileConfig);
-    }
-    return configs;
-  }
-
-  async _buildCards() {
-    if (!this.config || this._cards.length || !this.isConnected) return;
-    const loadCardHelpers = globalThis.loadCardHelpers;
-    if (typeof loadCardHelpers !== "function") return;
-    const token = ++this._buildToken;
-    const capabilitySignature = this._featureSignature();
-    try {
-      const helpers = await loadCardHelpers();
-      if (token !== this._buildToken || !this.isConnected) return;
-      const climateState = this._hass?.states?.[this.config.entity];
-      const climateCard = helpers.createCardElement(
-        splitNativeTileConfig(this.config, climateState),
-      );
-      climateCard.hass = this._hass;
-      const extraCards = this._extraConfigs().map((configuration) => {
-        const card = helpers.createCardElement(configuration);
-        card.hass = this._hass;
-        return card;
-      });
-      this._cards = [climateCard, ...extraCards];
-      this._capabilitySignature = capabilitySignature;
-      this.$.climate.replaceChildren(climateCard);
-      this.$.extras.replaceChildren(...extraCards);
-    } catch (error) {
-      console.error("Could not create native Split System controls", error);
-    }
-  }
+  _choices(values, selected, choose, parent = this.$.panel) { const grid = document.createElement("div"); grid.className = "qs choices"; values.forEach((value) => { const button = document.createElement("button"); button.className = "o choice"; button.type = "button"; button.textContent = label(value); button.setAttribute("aria-selected", String(value === selected)); button.addEventListener("click", () => { choose(value); this._close(); }); grid.append(button); }); parent.append(grid); }
+  _vanePanel() { this._vanes().forEach((vane) => { const group = document.createElement("section"), heading = document.createElement("p"); group.className = "group"; heading.className = "group-title"; heading.textContent = vane.axis + " vane"; group.append(heading); this._choices(vane.state.attributes.options || [], vane.state.state, (option) => this._call("select", "select_option", { entity_id: vane.entity, option }), group); this.$.panel.append(group); }); }
+  _timerPanel() { const row = document.createElement("div"); row.className = "tpr timers"; [["30 min", "00:30:00"], ["1 hour", "01:00:00"], ["2 hours", "02:00:00"]].forEach(([name, duration]) => { const button = document.createElement("button"); button.type = "button"; button.textContent = name; button.addEventListener("click", () => this._call("timer", "start", { entity_id: this._config.timer_entity, duration })); row.append(button); }); const actions = document.createElement("div"); actions.className = "tac"; const cancel = document.createElement("button"); cancel.type = "button"; cancel.textContent = "Cancel timer"; cancel.addEventListener("click", () => this._call("timer", "cancel", { entity_id: this._config.timer_entity })); actions.append(cancel); this.$.panel.append(row, actions); }
+  _settingsPanel() { const attributes = this._state()?.attributes || {}; const summary = document.createElement("p"); summary.className = "fb"; const minimum = Number(attributes.min_temp), maximum = Number(attributes.max_temp), step = Number(attributes.target_temp_step) || 0.5; summary.textContent = `Native Home Assistant controls · ${degrees(minimum)}–${degrees(maximum)} · ${degrees(step)} steps`; this.$.panel.append(summary); const shortcuts = document.createElement("div"); shortcuts.className = "qs"; if (this._vanes().length) { const vanes = document.createElement("button"); vanes.className = "o"; vanes.type = "button"; vanes.textContent = "Vane settings"; vanes.addEventListener("click", () => this._open("vanes")); shortcuts.append(vanes); } if (this._config.timer_entity) { const timer = document.createElement("button"); timer.className = "o"; timer.type = "button"; timer.textContent = "Off timer"; timer.addEventListener("click", () => this._open("timer")); shortcuts.append(timer); } this.$.panel.append(shortcuts); [...this._config.settings_entities, ...this._config.profile_entities].forEach((entry) => { const entity = typeof entry === "string" ? entry : entry?.entity; if (!entity) return; const button = document.createElement("button"); button.className = "o setting"; button.type = "button"; button.textContent = typeof entry === "object" && entry.name ? entry.name : this._state(entity)?.attributes?.friendly_name || entity; button.addEventListener("click", () => { const [domain] = entity.split("."); this._call(domain, "turn_on", { entity_id: entity }); }); this.$.panel.append(button); }); }
 }
-
-registerCard({
-  type: "component-split-controller-v4",
-  element: ComponentSplitControllerV4,
-  name: "Split-System Controller",
-  description:
-    "Native Home Assistant climate controls with optional explicit vane, timer and profile entities.",
-});
+registerCard({ type: "component-split-controller-v4", element: ComponentSplitControllerV4, name: "Split-System Controller", description: "Direct Home Assistant climate controls with the established Split System presentation." });
 }
 
 // Module: src/components/favourites.js
@@ -9710,7 +9580,13 @@ registerCard({
         .filter((entry) => HD2.domain(entry.entity_id) === "binary_sensor" && this.h.states[entry.entity_id]?.attributes?.device_class === "garage_door")
         .map((entry) => entry.device_id)
         .filter(Boolean));
-      return candidates.filter((entry) => !this.isGarageTrigger(entry, garageDevices));
+      const splitOwned = new Set();
+      for (const climate of candidates.filter((entry) => HD2.domain(entry.entity_id) === "climate")) {
+        const config = HD2.nativeClimateControlConfig?.(climate, this.h.states[climate.entity_id], this.d, this.h);
+        for (const entityId of [config?.vertical_vane_entity, config?.horizontal_vane_entity, config?.timer_entity].filter(Boolean)) splitOwned.add(entityId);
+        for (const profile of config?.profile_entities || []) if (profile?.entity) splitOwned.add(profile.entity);
+      }
+      return candidates.filter((entry) => !this.isGarageTrigger(entry, garageDevices) && !splitOwned.has(entry.entity_id));
     }
 
     shown(entries) {
@@ -11254,4 +11130,4 @@ class ComponentEnergyDashboardV1 extends HTMLElement {
 registerCard({ type: "component-energy-dashboard-v1", element: ComponentEnergyDashboardV1, name: "Energy Dashboard V1", description: "Single-card Energy composition using shared day state and one backend data contract." });
 }
 
-globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "10.0.4", components: 45 });
+globalThis.__HA_COMPONENT_LIBRARY__ = Object.freeze({ version: "10.0.5", components: 45 });

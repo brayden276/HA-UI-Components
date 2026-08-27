@@ -165,7 +165,13 @@
         .filter((entry) => HD2.domain(entry.entity_id) === "binary_sensor" && this.h.states[entry.entity_id]?.attributes?.device_class === "garage_door")
         .map((entry) => entry.device_id)
         .filter(Boolean));
-      return candidates.filter((entry) => !this.isGarageTrigger(entry, garageDevices));
+      const splitOwned = new Set();
+      for (const climate of candidates.filter((entry) => HD2.domain(entry.entity_id) === "climate")) {
+        const config = HD2.nativeClimateControlConfig?.(climate, this.h.states[climate.entity_id], this.d, this.h);
+        for (const entityId of [config?.vertical_vane_entity, config?.horizontal_vane_entity, config?.timer_entity].filter(Boolean)) splitOwned.add(entityId);
+        for (const profile of config?.profile_entities || []) if (profile?.entity) splitOwned.add(profile.entity);
+      }
+      return candidates.filter((entry) => !this.isGarageTrigger(entry, garageDevices) && !splitOwned.has(entry.entity_id));
     }
 
     shown(entries) {

@@ -89,4 +89,35 @@ assert.equal(
   "ambiguous garage operators must fail closed",
 );
 
-console.log("Dashboard discovery check passed: extensible WLED routing and fail-closed garage operator selection");
+const climate = { entity_id: "climate.living_room_split_climate", device_id: "split-device", name: "Living room split" };
+const splitEntries = [
+  climate,
+  { entity_id: "select.living_room_split_vertical_vane", device_id: "split-device", name: "Vertical vane" },
+  { entity_id: "select.living_room_split_horizontal_vane", device_id: "split-device", name: "Horizontal vane" },
+  { entity_id: "timer.living_room_split", area_id: "living_room", name: "Living room split timer" },
+  { entity_id: "script.living_room_split_profile", area_id: "living_room", name: "Living room split profile" },
+  { entity_id: "scene.living_room_evening", area_id: "living_room", name: "Living room evening" },
+];
+const splitRegistry = {
+  entities: splitEntries,
+  byDevice: new Map([["split-device", splitEntries.slice(0, 3)]]),
+  deviceArea: new Map([["split-device", "living_room"]]),
+};
+const splitHass = {
+  states: Object.fromEntries(splitEntries.map((entry) => [entry.entity_id, { state: "idle", attributes: { friendly_name: entry.name } }])),
+};
+assert.deepEqual(
+  JSON.parse(JSON.stringify(dashboard.nativeClimateControlConfig(climate, splitHass.states[climate.entity_id], splitRegistry, splitHass))),
+  {
+    type: "custom:component-split-controller-v4",
+    entity: "climate.living_room_split_climate",
+    title: "Living room split",
+    vertical_vane_entity: "select.living_room_split_vertical_vane",
+    horizontal_vane_entity: "select.living_room_split_horizontal_vane",
+    timer_entity: "timer.living_room_split",
+    profile_entities: [{ entity: "script.living_room_split_profile", name: "Living room split profile" }],
+  },
+  "native climate discovery must compose one Split card from its HA vane, timer and profile entities",
+);
+
+console.log("Dashboard discovery check passed: WLED, garage and native Split composition");

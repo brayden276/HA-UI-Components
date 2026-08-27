@@ -109,11 +109,41 @@ HD2.garageControl = (entry, registry, hass) => {
   return explicit.length === 1 ? explicit[0].entity_id : null;
 };
 
-// Apple TV and climate controls intentionally do not discover sibling entities.
-// Their public wrappers accept explicit capability entities and otherwise delegate
-// to the primary Home Assistant entity only.
+const splitIdentity = (entry, hass) => `${entry?.entity_id || ""} ${entry?.name || ""} ${entry?.original_name || ""} ${hass?.states?.[entry?.entity_id]?.attributes?.friendly_name || ""}`.toLowerCase();
+HD2.nativeClimateControlConfig = (entry, state, registry, hass) => {
+  if (HD2.domain(entry?.entity_id) !== "climate") return null;
+  const areaId = HD2.areaOf(entry, registry);
+  const sameDevice = entry.device_id ? registry?.byDevice?.get(entry.device_id) || [] : [];
+  const sameArea = areaId ? (registry?.entities || []).filter((candidate) => HD2.areaOf(candidate, registry) === areaId) : [];
+  const helpers = (registry?.entities || []).filter((candidate) => ["timer", "script", "scene"].includes(HD2.domain(candidate?.entity_id)));
+  const candidates = [...new Map([...sameDevice, ...sameArea, ...helpers].map((candidate) => [candidate.entity_id, candidate])).values()]
+    .filter((candidate) => hass?.states?.[candidate.entity_id]);
+  const climateName = splitIdentity(entry, hass).replace(/climate\.|split|system|climate|air conditioner|aircon|hvac/g, " ").trim().split(/\s+/).filter((part) => part.length > 2);
+  const related = (candidate) => {
+    const identity = splitIdentity(candidate, hass);
+    return Boolean(entry.device_id && candidate.device_id === entry.device_id) || climateName.some((part) => identity.includes(part));
+  };
+  const select = (axis) => {
+    const matches = candidates.filter((candidate) => HD2.domain(candidate.entity_id) === "select" && splitIdentity(candidate, hass).includes(axis) && /(vane|swing)/.test(splitIdentity(candidate, hass)) && related(candidate));
+    return matches.length === 1 ? matches[0].entity_id : null;
+  };
+  const timer = candidates.find((candidate) => HD2.domain(candidate.entity_id) === "timer" && related(candidate) && /(split|climate|air.?con|hvac|timer)/.test(splitIdentity(candidate, hass)))?.entity_id || null;
+  const profiles = candidates.filter((candidate) => ["script", "scene"].includes(HD2.domain(candidate.entity_id)) && related(candidate) && /(split|climate|air.?con|hvac)/.test(splitIdentity(candidate, hass))).map((candidate) => ({ entity: candidate.entity_id, name: HD2.stateName(hass, candidate, hass.states[candidate.entity_id]) }));
+  return {
+    type: "custom:component-split-controller-v4",
+    entity: entry.entity_id,
+    title: HD2.stateName(hass, entry, state),
+    vertical_vane_entity: select("vertical"),
+    horizontal_vane_entity: select("horizontal"),
+    timer_entity: timer,
+    profile_entities: profiles,
+  };
+};
+
+// Apple TV controls intentionally do not discover sibling entities. The Split
+// wrapper resolves only native HA entities that belong to the same device/area.
 HD2.appleTvBundle=(e,s,_d,h)=>HD2.domain(e?.entity_id)==='media_player'&&e?.platform==='apple_tv'?{type:'custom:component-apple-tv-controller-v1',entity:e.entity_id,title:HD2.stateName(h,e,s),icon:'mdi:apple'}:null;
-HD2.controlConfig=(e,s,d,h)=>{const id=e.entity_id,dom=HD2.domain(id);if(dom==='binary_sensor'&&s?.attributes?.device_class==='garage_door'){const b=HD2.garageControl(e,d,h);return b?{type:'custom:component-garage-door-controller-v1',title:HD2.stateName(h,e,s).replace(/ Garage Door Status$/i,''),entity:id,control_entity:b}:{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true}}if(['light','fan','number'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'slider',entity:id,show_state:true,tap_action:{action:'more-info'}};if(['switch','input_boolean'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'switch',entity:id,show_state:true,button_action:{tap_action:{action:'toggle'}},tap_action:{action:'more-info'}};if(dom==='media_player')return HD2.appleTvBundle(e,s,d,h)||{type:'custom:bubble-card',card_type:'media-player',entity:id,show_state:true,tap_action:{action:'more-info'}};if(dom==='climate')return{type:'custom:component-split-controller-v4',entity:id,title:HD2.stateName(h,e,s)};if(dom==='cover')return{type:'custom:bubble-card',card_type:'cover',entity:id,show_state:true};if(dom==='lock')return{type:'custom:mushroom-lock-card',entity:id};if(dom==='vacuum')return{type:'custom:mushroom-vacuum-card',entity:id};if(dom==='select')return{type:'custom:mushroom-select-card',entity:id};if(dom==='button')return{type:'custom:mushroom-entity-card',entity:id,tap_action:{action:'perform-action',perform_action:'button.press',target:{entity_id:id},confirmation:{text:'Run this control?'}},hold_action:{action:'more-info'}};if(dom==='binary_sensor')return{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true,show_last_changed:false};return null};
+HD2.controlConfig=(e,s,d,h)=>{const id=e.entity_id,dom=HD2.domain(id);if(dom==='binary_sensor'&&s?.attributes?.device_class==='garage_door'){const b=HD2.garageControl(e,d,h);return b?{type:'custom:component-garage-door-controller-v1',title:HD2.stateName(h,e,s).replace(/ Garage Door Status$/i,''),entity:id,control_entity:b}:{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true}}if(['light','fan','number'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'slider',entity:id,show_state:true,tap_action:{action:'more-info'}};if(['switch','input_boolean'].includes(dom))return{type:'custom:bubble-card',card_type:'button',button_type:'switch',entity:id,show_state:true,button_action:{tap_action:{action:'toggle'}},tap_action:{action:'more-info'}};if(dom==='media_player')return HD2.appleTvBundle(e,s,d,h)||{type:'custom:bubble-card',card_type:'media-player',entity:id,show_state:true,tap_action:{action:'more-info'}};if(dom==='climate')return HD2.nativeClimateControlConfig(e,s,d,h);if(dom==='cover')return{type:'custom:bubble-card',card_type:'cover',entity:id,show_state:true};if(dom==='lock')return{type:'custom:mushroom-lock-card',entity:id};if(dom==='vacuum')return{type:'custom:mushroom-vacuum-card',entity:id};if(dom==='select')return{type:'custom:mushroom-select-card',entity:id};if(dom==='button')return{type:'custom:mushroom-entity-card',entity:id,tap_action:{action:'perform-action',perform_action:'button.press',target:{entity_id:id},confirmation:{text:'Run this control?'}},hold_action:{action:'more-info'}};if(dom==='binary_sensor')return{type:'custom:bubble-card',card_type:'button',button_type:'state',entity:id,show_state:true,show_last_changed:false};return null};
 
 HD2.controlResolvers ??= [];
 HD2.registerControlResolver ??= (resolver) => {
