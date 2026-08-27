@@ -72,12 +72,12 @@ if (!appleTvController.includes("remote_entity") || !appleTvController.includes(
 }
 
 const splitController = await readFile(resolve(componentDirectory, "split-system-controller.js"), "utf8");
-for (const nativeFeature of ["target-temperature", "climate-hvac-modes", "climate-fan-modes", "select-options"]) {
+for (const nativeFeature of ["set_temperature", "set_hvac_mode", "set_fan_mode", "select_option"]) {
   if (!splitController.includes(nativeFeature)) {
-    throw new Error(`Split controller must delegate ${nativeFeature} to native Home Assistant cards`);
+    throw new Error(`Split controller must delegate ${nativeFeature} to native Home Assistant services`);
   }
 }
-for (const retiredSplitRuntime of ["ha_component_backend", "minimum_target", "maximum_target", "fan_ceiling", "set_temperature", "set_timer"]) {
+for (const retiredSplitRuntime of ["ha_component_backend", "minimum_target", "maximum_target", "fan_ceiling", "set_timer"]) {
   if (splitController.includes(retiredSplitRuntime)) {
     throw new Error(`Split controller must not reintroduce ${retiredSplitRuntime}`);
   }
